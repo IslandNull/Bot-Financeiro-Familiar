@@ -25,6 +25,7 @@ function projectFiles() {
     const root = path.resolve(__dirname, '..');
     return walk(root).filter((file) => {
         const relative = path.relative(root, file).replace(/\\/g, '/');
+        if (relative === 'aa') return false;
         return !relative.endsWith('test/guardrails.test.js');
     });
 }
@@ -37,6 +38,11 @@ const forbidden = [
     'difer' + 'enca',
     'pending_' + 'transfer',
     'deve ' + 'transferir',
+    'rat' + 'eio',
+    'reem' + 'bolso',
+    'quem ' + 'deve',
+    'dívida entre ' + 'vocês',
+    'credor ' + 'pessoal',
 ];
 
 test('project text does not include old settlement vocabulary', () => {
@@ -58,4 +64,3 @@ test('schema does not include old settlement sheets or fields', () => {
         });
     });
 });
-

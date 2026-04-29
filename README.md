@@ -11,18 +11,22 @@ VERIFIED in this repo:
 - Product and domain specs.
 - Clean V55 sheet schema.
 - Local Node.js contracts for parsed events, invoice cycles, idempotency, reporting, privacy filtering, and guardrails.
-- Local tests that do not call Google Sheets, Telegram, OpenAI, clasp, or network services.
+- Local decision-capacity hardening for launch status, recurring income schema, cash snapshots, obligation-first destination, and fail-fast event mapping.
+- Local Telegram handler skeleton with injected fake parser and writer dependencies.
+- Local Telegram send boundary with injected fake sender and redacted fake send logs.
+- Local Telegram webhook gate with secret validation before parser/writer.
+- Real V55 spreadsheet schema verified by redacted sheet/header evidence.
+- Local tests that do not call Google Sheets, Telegram, OpenAI, or network services.
 
 UNVERIFIED:
 
-- Real Google Sheets setup.
 - Real Telegram webhook.
 - Real OpenAI parsing.
 - Apps Script deployment.
 
 ## Execution Plan
 
-Read `EXECUTION_PLAN.md` before choosing the next task. Its current next safe step is Phase 2A: canonical seed and parser-context contracts.
+Read `EXECUTION_PLAN.md` before choosing the next task. Its current next safe step is Phase 7: controlled Telegram pilot, starting with negative webhook-secret and unauthorized-chat checks.
 
 ## Commands
 

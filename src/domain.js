@@ -7,25 +7,56 @@ function roundMoney(value) {
     return Math.round((Number(value) || 0) * 100) / 100;
 }
 
+const CASH_EVENT_TYPES = {
+    despesa: 'out',
+    receita: 'in',
+    compra_cartao: 'none',
+    pagamento_fatura: 'out',
+    transferencia_interna: 'directional',
+    aporte: 'out',
+    divida_pagamento: 'out',
+    ajuste: 'none',
+};
+
+const DRE_EVENT_TYPES = {
+    despesa: 'out',
+    receita: 'in',
+    compra_cartao: 'out',
+    pagamento_fatura: 'none',
+    transferencia_interna: 'none',
+    aporte: 'none',
+    divida_pagamento: 'none',
+    ajuste: 'none',
+};
+
+function requireMappedEventType(event, mapping, mappingName) {
+    const type = event && event.tipo_evento;
+    if (!Object.prototype.hasOwnProperty.call(mapping, type)) {
+        throw new Error(`Unmapped event type for ${mappingName}: ${type || ''}`);
+    }
+    return type;
+}
+
 function eventCashDelta(event) {
+    const type = requireMappedEventType(event, CASH_EVENT_TYPES, 'cash');
     if (!event.afeta_caixa_familiar) return 0;
 
-    if (event.tipo_evento === 'receita') return roundMoney(event.valor);
-    if (event.tipo_evento === 'transferencia_interna') {
+    if (CASH_EVENT_TYPES[type] === 'in') return roundMoney(event.valor);
+    if (CASH_EVENT_TYPES[type] === 'directional') {
         if (event.direcao_caixa_familiar === 'entrada') return roundMoney(event.valor);
         if (event.direcao_caixa_familiar === 'saida') return roundMoney(-event.valor);
-        return 0;
+        if (event.direcao_caixa_familiar === 'neutra') return 0;
+        throw new Error(`Unmapped family cash direction: ${event.direcao_caixa_familiar || ''}`);
     }
-    if (['despesa', 'pagamento_fatura', 'aporte', 'divida_pagamento'].includes(event.tipo_evento)) {
-        return roundMoney(-event.valor);
-    }
+    if (CASH_EVENT_TYPES[type] === 'out') return roundMoney(-event.valor);
     return 0;
 }
 
 function eventDreDelta(event) {
+    const type = requireMappedEventType(event, DRE_EVENT_TYPES, 'DRE');
     if (!event.afeta_dre) return 0;
-    if (event.tipo_evento === 'receita') return roundMoney(event.valor);
-    if (['despesa', 'compra_cartao'].includes(event.tipo_evento)) return roundMoney(-event.valor);
+    if (DRE_EVENT_TYPES[type] === 'in') return roundMoney(event.valor);
+    if (DRE_EVENT_TYPES[type] === 'out') return roundMoney(-event.valor);
     return 0;
 }
 
@@ -103,10 +134,46 @@ function computeNetWorth(assets, debts) {
 
 function suggestDestination({ sobra_caixa, reserva_total, faturas_60d, obrigacoes_60d }, options) {
     const reserveTarget = Number((options && options.reserveTarget) || 15000);
+    const immediateObligations = Number(faturas_60d || 0) + Number(obrigacoes_60d || 0);
     if (sobra_caixa <= 0) return 'sem_sobra';
+    if (sobra_caixa < immediateObligations) return 'manter_caixa';
     if (reserva_total < reserveTarget) return 'reforcar_reserva';
-    if (sobra_caixa < faturas_60d + obrigacoes_60d) return 'manter_caixa';
     return 'investir_ou_amortizar_revisar';
+}
+
+function computeDecisionCapacity(input) {
+    const sobraCaixa = Number(input.sobra_caixa || 0);
+    const faturas60d = Number(input.faturas_60d || 0);
+    const obrigacoes60d = Number(input.obrigacoes_60d || 0);
+    const reservaTotal = Number(input.reserva_total || 0);
+    const reserveTarget = Number((input.options && input.options.reserveTarget) || 15000);
+    const debtDataComplete = (input.debts || [])
+        .filter((debt) => debt.status === 'ativa')
+        .every((debt) => Number(debt.saldo_devedor || 0) > 0 && Number(debt.valor_parcela || 0) > 0 && debt.taxa_juros && debt.sistema_amortizacao);
+
+    const immediateObligations = roundMoney(faturas60d + obrigacoes60d);
+    const margemPosObrigacoes = roundMoney(sobraCaixa - immediateObligations);
+    const reservaGap = roundMoney(Math.max(0, reserveTarget - reservaTotal));
+    const capacidadeAporteSegura = roundMoney(Math.max(0, margemPosObrigacoes - reservaGap));
+    const parcelaMaximaSegura = roundMoney(Math.max(0, margemPosObrigacoes * 0.25));
+    const podeAvaliarAmortizacao = reservaGap === 0 && debtDataComplete;
+    const motivoBloqueioAmortizacao = podeAvaliarAmortizacao
+        ? ''
+        : reservaGap > 0
+            ? 'reserva_abaixo_da_meta'
+            : 'dados_da_divida_incompletos';
+
+    return {
+        margem_pos_obrigacoes: margemPosObrigacoes,
+        capacidade_aporte_segura: capacidadeAporteSegura,
+        parcela_maxima_segura: parcelaMaximaSegura,
+        pode_avaliar_amortizacao: podeAvaliarAmortizacao,
+        motivo_bloqueio_amortizacao: motivoBloqueioAmortizacao,
+        destino_reserva: roundMoney(Math.min(Math.max(0, margemPosObrigacoes), reservaGap)),
+        destino_obrigacoes: roundMoney(Math.min(Math.max(0, sobraCaixa), immediateObligations)),
+        destino_investimentos: capacidadeAporteSegura,
+        destino_amortizacao: podeAvaliarAmortizacao ? capacidadeAporteSegura : 0,
+    };
 }
 
 function computeFamilyClosing(input) {
@@ -134,6 +201,11 @@ function computeFamilyClosing(input) {
         patrimonio_liquido: netWorth.patrimonio_liquido,
     };
 
+    Object.assign(closing, computeDecisionCapacity({
+        ...closing,
+        debts,
+        options: input && input.options,
+    }));
     closing.destino_sugerido = suggestDestination(closing, input && input.options);
     return closing;
 }
@@ -202,6 +274,7 @@ function planCardPurchase(event, card) {
 module.exports = {
     applyDebtPayment,
     computeFamilyClosing,
+    computeDecisionCapacity,
     computeNetWorth,
     eventCashDelta,
     eventDreDelta,

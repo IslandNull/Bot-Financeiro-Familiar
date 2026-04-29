@@ -21,6 +21,7 @@ const ALLOWED_FIELDS = [
     'afeta_patrimonio',
     'afeta_caixa_familiar',
     'direcao_caixa_familiar',
+    'status',
     'parcelamento',
 ];
 
@@ -123,6 +124,7 @@ function validateParsedEvent(entry) {
         'id_divida',
         'id_ativo',
         'direcao_caixa_familiar',
+        'status',
     ].forEach((field) => {
         if (entry[field] !== undefined && entry[field] !== null && entry[field] !== '') {
             if (typeof entry[field] !== 'string') {
@@ -138,6 +140,11 @@ function validateParsedEvent(entry) {
         !ENUMS.direcao_caixa_familiar.includes(normalized.direcao_caixa_familiar)
     ) {
         errors.push(error('INVALID_ENUM', 'direcao_caixa_familiar', 'direction is not supported'));
+    }
+
+    if (!normalized.status) normalized.status = 'efetivado';
+    if (!ENUMS.lancamento_status.includes(normalized.status)) {
+        errors.push(error('INVALID_ENUM', 'status', 'launch status is not supported'));
     }
 
     validateTypeRules(normalized, errors);
@@ -179,4 +186,3 @@ module.exports = {
     parseMoney,
     validateParsedEvent,
 };
-

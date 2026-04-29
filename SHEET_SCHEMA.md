@@ -1,6 +1,6 @@
 # SHEET_SCHEMA.md
 
-This is the V55 sheet schema authority for the clean base. Real spreadsheet presence is UNVERIFIED until a separate reviewed setup task creates a new spreadsheet and records a snapshot.
+This is the V55 sheet schema authority for the clean base. Real spreadsheet presence is VERIFIED for the Phase 6 target by the redacted evidence in `EXECUTION_PLAN.md`.
 
 ## Sheets
 
@@ -22,11 +22,19 @@ This is the V55 sheet schema authority for the clean base. Real spreadsheet pres
 
 ### Lancamentos
 
-`id_lancamento | data | competencia | tipo_evento | id_categoria | valor | id_fonte | pessoa | escopo | id_cartao | id_fatura | id_divida | id_ativo | afeta_dre | afeta_patrimonio | afeta_caixa_familiar | visibilidade | descricao | created_at`
+`id_lancamento | data | competencia | tipo_evento | id_categoria | valor | id_fonte | pessoa | escopo | id_cartao | id_fatura | id_divida | id_ativo | afeta_dre | afeta_patrimonio | afeta_caixa_familiar | visibilidade | status | descricao | created_at`
 
 ### Transferencias_Internas
 
 `id_transferencia | data | competencia | valor | fonte_origem | fonte_destino | pessoa_origem | pessoa_destino | escopo | direcao_caixa_familiar | descricao | created_at`
+
+### Rendas_Recorrentes
+
+`id_renda | pessoa | descricao | valor_planejado | tipo_renda | beneficio_restrito | ativo | observacao`
+
+### Saldos_Fontes
+
+`id_snapshot | competencia | data_referencia | id_fonte | saldo_inicial | saldo_final | saldo_disponivel | observacao | created_at`
 
 ### Patrimonio_Ativos
 
@@ -38,7 +46,7 @@ This is the V55 sheet schema authority for the clean base. Real spreadsheet pres
 
 ### Fechamento_Familiar
 
-`competencia | status | receitas_dre | despesas_dre | resultado_dre | caixa_entradas | caixa_saidas | sobra_caixa | faturas_60d | obrigacoes_60d | reserva_total | patrimonio_liquido | destino_sugerido | observacao | created_at | closed_at`
+`competencia | status | receitas_dre | despesas_dre | resultado_dre | caixa_entradas | caixa_saidas | sobra_caixa | faturas_60d | obrigacoes_60d | reserva_total | patrimonio_liquido | margem_pos_obrigacoes | capacidade_aporte_segura | parcela_maxima_segura | pode_avaliar_amortizacao | motivo_bloqueio_amortizacao | destino_reserva | destino_obrigacoes | destino_investimentos | destino_amortizacao | destino_sugerido | observacao | created_at | closed_at`
 
 ### Idempotency_Log
 
@@ -51,4 +59,3 @@ This is the V55 sheet schema authority for the clean base. Real spreadsheet pres
 ## Formula Standard
 
 When formula injection exists later, use Apps Script `range.setFormula()`, English function names, and semicolon separators.
-

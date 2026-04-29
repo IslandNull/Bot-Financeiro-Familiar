@@ -21,6 +21,8 @@ test('schema contains the clean V55 sheets', () => {
         'Faturas',
         'Lancamentos',
         'Transferencias_Internas',
+        'Rendas_Recorrentes',
+        'Saldos_Fontes',
         'Patrimonio_Ativos',
         'Dividas',
         'Fechamento_Familiar',
@@ -31,6 +33,30 @@ test('schema contains the clean V55 sheets', () => {
 
 test('lancamentos uses family cash flag', () => {
     assert.ok(HEADERS[SHEETS.LANCAMENTOS].includes('afeta_caixa_familiar'));
-    assert.ok(!HEADERS[SHEETS.LANCAMENTOS].includes('afeta_rateio'));
+    assert.ok(HEADERS[SHEETS.LANCAMENTOS].includes('status'));
+    assert.ok(!HEADERS[SHEETS.LANCAMENTOS].includes('afeta_' + 'rat' + 'eio'));
 });
 
+test('decision-capacity sheets exist before Telegram phase', () => {
+    assert.deepStrictEqual(HEADERS[SHEETS.RENDAS_RECORRENTES], [
+        'id_renda',
+        'pessoa',
+        'descricao',
+        'valor_planejado',
+        'tipo_renda',
+        'beneficio_restrito',
+        'ativo',
+        'observacao',
+    ]);
+    assert.deepStrictEqual(HEADERS[SHEETS.SALDOS_FONTES], [
+        'id_snapshot',
+        'competencia',
+        'data_referencia',
+        'id_fonte',
+        'saldo_inicial',
+        'saldo_final',
+        'saldo_disponivel',
+        'observacao',
+        'created_at',
+    ]);
+});

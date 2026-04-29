@@ -4,6 +4,8 @@ const assert = require('assert');
 const {
     applyDebtPayment,
     assignInvoiceCycle,
+    eventCashDelta,
+    eventDreDelta,
     computeFamilyClosing,
     filterSharedDetailedEvents,
     planCardPurchase,
@@ -213,6 +215,38 @@ test('family closing computes surplus and destination', () => {
     assert.strictEqual(closing.reserva_total, 1000);
     assert.strictEqual(closing.patrimonio_liquido, -9000);
     assert.strictEqual(closing.destino_sugerido, 'reforcar_reserva');
+    assert.strictEqual(closing.margem_pos_obrigacoes, 2400);
+    assert.strictEqual(closing.capacidade_aporte_segura, 0);
+    assert.strictEqual(closing.pode_avaliar_amortizacao, false);
+    assert.strictEqual(closing.motivo_bloqueio_amortizacao, 'reserva_abaixo_da_meta');
+});
+
+test('destination prioritizes immediate obligations before reserve target', () => {
+    const closing = computeFamilyClosing({
+        competencia: '2026-04',
+        events: [
+            validateParsedEvent(baseEvent({
+                tipo_evento: 'receita',
+                valor: '2000.00',
+                descricao: 'salario',
+                afeta_dre: true,
+                afeta_caixa_familiar: true,
+            })).normalized,
+        ],
+        invoices: [{ status: 'prevista', valor_previsto: 2500, valor_pago: 0 }],
+        debts: [{ status: 'ativa', saldo_devedor: 10000, valor_parcela: 800 }],
+        assets: [{ saldo_atual: 1000, conta_reserva_emergencia: true, ativo: true }],
+        options: { reserveTarget: 15000 },
+    });
+
+    assert.strictEqual(closing.destino_sugerido, 'manter_caixa');
+    assert.strictEqual(closing.margem_pos_obrigacoes, -1300);
+    assert.strictEqual(closing.capacidade_aporte_segura, 0);
+});
+
+test('financial mapping fails fast for unmapped event types', () => {
+    assert.throws(() => eventCashDelta({ tipo_evento: 'emprestimo_tomado', afeta_caixa_familiar: true, valor: 100 }), /Unmapped event type/);
+    assert.throws(() => eventDreDelta({ tipo_evento: 'rendimento_investimento', afeta_dre: true, valor: 100 }), /Unmapped event type/);
 });
 
 test('emergency reserve excludes home earmarked assets unless flagged', () => {
@@ -255,4 +289,3 @@ test('idempotency blocks duplicate completed events', () => {
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.strictEqual(result.result_ref, 'LAN_1');
 });
-

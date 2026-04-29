@@ -32,8 +32,8 @@ async function parseTextWithInjectedFetch(input) {
             prompt: prompt.prompt,
             model: (input && input.model) || 'fake-local-parser',
         });
-    } catch (err) {
-        return fail('FETCH_FAILED', 'fetchFn', err && err.message ? err.message : 'parser fetch failed');
+    } catch (_err) {
+        return fail('FETCH_FAILED', 'fetchFn', 'parser fetch failed');
     }
 
     const outputText = extractModelText(response);

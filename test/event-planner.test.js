@@ -44,7 +44,20 @@ test('family expense plans one Lancamentos row', () => {
     assert.strictEqual(result.mutationGroup.rows[0].row.tipo_evento, 'despesa');
     assert.strictEqual(result.mutationGroup.rows[0].row.afeta_dre, true);
     assert.strictEqual(result.mutationGroup.rows[0].row.afeta_caixa_familiar, true);
+    assert.strictEqual(result.mutationGroup.rows[0].row.status, 'efetivado');
     assertPlannedRowsMatchSchema(result);
+});
+
+test('same semantic event gets distinct row ids when idempotency key differs', () => {
+    const first = planParsedEvent(baseEvent(), { idempotency_key: 'telegram:100' });
+    const second = planParsedEvent(baseEvent(), { idempotency_key: 'telegram:101' });
+
+    assert.strictEqual(first.ok, true, JSON.stringify(first.errors));
+    assert.strictEqual(second.ok, true, JSON.stringify(second.errors));
+    assert.notStrictEqual(
+        first.mutationGroup.rows[0].row.id_lancamento,
+        second.mutationGroup.rows[0].row.id_lancamento
+    );
 });
 
 test('card purchase plans Lancamentos and expected Faturas rows', () => {

@@ -44,7 +44,12 @@ function recordEventV55InsideLock(input) {
         return fail('MISSING_IDEMPOTENCY_KEY', 'idempotency_key', 'idempotency_key is required');
     }
 
-    const eventPlan = planParsedEvent(parsedEvent, { created_at: createdAt });
+    const eventPlan = planParsedEvent(parsedEvent, {
+        created_at: createdAt,
+        external_message_id: request.external_message_id,
+        external_update_id: request.external_update_id,
+        idempotency_key: request.idempotency_key,
+    });
     if (!eventPlan.ok) {
         return {
             ok: false,

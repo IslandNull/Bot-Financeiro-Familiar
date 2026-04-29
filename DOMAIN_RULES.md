@@ -39,8 +39,11 @@ Every event answers:
 - Card invoice payment is not an expense.
 - Card purchase is the expense event.
 - Internal movement is not revenue, not expense, and not debt.
+- Internal movement must name explicit source and destination in the planned sheet row.
 - Private personal detail is filtered out of shared detailed reports.
+- Private personal autonomy is aggregate-only in shared decision views; detailed shared reports must not expose private line items.
 - Emergency reserve counts only assets explicitly flagged with `conta_reserva_emergencia=true`.
+- Immediate obligations have priority over reserve-building advice when cash surplus cannot cover invoices plus debt obligations.
 - Amortization advice is blocked unless debt parameters are complete enough for a reviewed rule.
+- Scheduled or pending launches must use `status`; only `efetivado` launches are treated as already applied cash movement by the current Telegram path.
 - Closed monthly records are not changed silently; use `ajuste`.
-

@@ -20,6 +20,15 @@ function stableId(prefix, value) {
     return `${prefix}_${hash}`;
 }
 
+function eventIdentity(event, options) {
+    return {
+        event,
+        external_update_id: options && options.external_update_id,
+        external_message_id: options && options.external_message_id,
+        idempotency_key: options && options.idempotency_key,
+    };
+}
+
 function fail(code, field, message, details) {
     return {
         ok: false,
@@ -54,7 +63,7 @@ function planParsedEvent(entry, options) {
 }
 
 function planLaunch(event, options) {
-    const idLancamento = stableId('LAN', event);
+    const idLancamento = stableId('LAN', eventIdentity(event, options));
     const row = rowFor(SHEETS.LANCAMENTOS, {
         id_lancamento: idLancamento,
         data: event.data,
@@ -73,6 +82,7 @@ function planLaunch(event, options) {
         afeta_patrimonio: event.afeta_patrimonio,
         afeta_caixa_familiar: event.afeta_caixa_familiar,
         visibilidade: event.visibilidade,
+        status: event.status,
         descricao: event.descricao,
         created_at: (options && options.created_at) || '',
     });
@@ -94,7 +104,7 @@ function planCardPurchaseRows(event, options) {
         };
     }
 
-    const idLancamento = stableId('LAN', planned.event);
+    const idLancamento = stableId('LAN', eventIdentity(planned.event, options));
     const launchRow = rowFor(SHEETS.LANCAMENTOS, {
         id_lancamento: idLancamento,
         data: planned.event.data,
@@ -111,6 +121,7 @@ function planCardPurchaseRows(event, options) {
         afeta_patrimonio: planned.event.afeta_patrimonio,
         afeta_caixa_familiar: planned.event.afeta_caixa_familiar,
         visibilidade: planned.event.visibilidade,
+        status: planned.event.status,
         descricao: planned.event.descricao,
         created_at: (options && options.created_at) || '',
     });
@@ -123,7 +134,7 @@ function planCardPurchaseRows(event, options) {
 }
 
 function planInternalTransfer(event, options) {
-    const idTransferencia = stableId('TRF', event);
+    const idTransferencia = stableId('TRF', eventIdentity(event, options));
     const familyCashSourceId = (options && options.familyCashSourceId) || 'FONTE_CONTA_FAMILIA';
     const isFamilyCashEntry = event.direcao_caixa_familiar === 'entrada';
     const isFamilyCashExit = event.direcao_caixa_familiar === 'saida';

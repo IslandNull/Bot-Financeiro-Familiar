@@ -9,23 +9,30 @@ VERIFIED as of 2026-04-29:
 - The project is a clean V55 repository, separate from the V54 repository.
 - The product model is Caixa Familiar Integrado.
 - The repo has product, domain, schema, examples, and decision docs.
-- Local Node.js contracts exist for schema validation, parsed event validation, invoice cycle assignment, family closing calculations, private-detail filtering, debt-payment cash handling, and idempotency planning.
+- Local Node.js contracts exist for schema validation, parsed event validation, invoice cycle assignment, family closing calculations, private-detail filtering, debt-payment cash handling, decision-capacity hardening, and idempotency planning.
 - Canonical local seed data and parser-context contracts exist for active categories, sources, and cards.
 - A local parser contract exists for prompt building, single-object JSON extraction, strict validation, and deterministic closed failures.
 - A local event planner exists for V55 sheet row plans, including card purchases, invoice payments, internal transfers, asset contributions, debt payments, and adjustments.
 - The idempotency contract derives deterministic result references from planned mutation groups and preserves duplicate handling without duplicate financial mutation.
 - Reporting contracts cover family closing, private-detail filtering, invoice-payment DRE safety, internal movement safety, and closed-period adjustment policy.
-- A local spreadsheet setup dry-run planner exists for V55 headers and fake sheet states, including blocked incompatible states.
-- A local fake-sheet setup apply function exists for safe create-sheet and set-header actions only.
+- Phase 3 spreadsheet setup was completed and then retired from active source after Phase 6 verification.
 - A local write adapter exists for fake-sheet event recording with idempotency, planned mutation groups, duplicate suppression, and no real service calls.
 - The local write adapter supports an injected fake lock boundary, retry after failed idempotency, processing duplicate blocking, and atomic failure behavior in fake state.
 - A local parser runtime boundary exists using injected fake fetch only, local parser context, strict parser validation, and closed failures.
+- Domain hardening before Telegram exists for dynamic parser enums, fail-fast financial mapping, launch status, idempotency-aware row IDs, recurring income schema, cash snapshot schema, obligation-first destination, decision-capacity fields, and redacted parser runtime failures.
+- A local Telegram handler skeleton exists with injected fake parser and writer dependencies, authorization checks, idempotency request derivation, and generic user-facing failures.
+- A local Telegram send boundary exists with injected fake sender, fake `Telegram_Send_Log` observability, redacted diagnostics, and no financial sheet mutation.
+- A local Telegram webhook gate exists with webhook-secret verification before parser/writer, smoke commands without financial mutation, and unauthorized smoke rejection.
+- A local pilot evidence contract exists for redacted scenario summaries, touched sheets, row deltas, idempotency statuses, result references, and error codes.
+- A minimal Apps Script Phase 7 runtime exists under `apps-script/` and was pushed to the configured Apps Script project on 2026-04-29. It exposes `doPost`, `doGet`, and self-test functions for webhook-secret and `/help` smoke gates, but financial mutation remains blocked.
+- A Val Town Telegram proxy exists under `val-town/` to acknowledge Telegram with HTTP 200 immediately and forward updates to Apps Script with the webhook secret in a header.
+- The Apps Script runtime includes `runTelegramWebhookSetupDryRun` and `runTelegramWebhookSetupApply` to configure Telegram's webhook from Script Properties without committing the bot token, webhook secret, Val Town URL, or Apps Script URL. This code was pushed and the existing Web App deployment was redeployed on 2026-04-29.
+- The real Apps Script Web App URL responds to `GET` with the V55 pilot identity and rejects an invalid-secret `POST` with `INVALID_WEBHOOK_SECRET` before domain mutation.
+- Real V55 spreadsheet setup is verified by a redacted read-only spreadsheet metadata and header snapshot.
 - `npm test` passes using only Node built-ins.
 
 UNVERIFIED:
 
-- Real Google Sheets setup.
-- Real Apps Script runtime.
 - Telegram webhook.
 - OpenAI parser calls.
 - Real spreadsheet writes or snapshots.
@@ -42,29 +49,34 @@ UNVERIFIED:
 
 ## Next Safe Step
 
-Implement Phase 5B: Telegram handler skeleton with fake dependencies only.
+Prepare Phase 7: Controlled Telegram Pilot.
 
 Required outcome:
 
-- Add a Telegram update handler that validates authorized users through injected config.
-- Use injected parser and write path dependencies only.
-- Return safe user-facing response text for success and generic failures.
-- Fail closed when dependencies, authorization, text, parser, or writer are invalid.
-- Keep everything local. No Apps Script, no OpenAI, no Telegram, no spreadsheet mutation.
+- Follow the Phase 7 pilot order documented below in this file.
+- Configure webhook secret, authorized Telegram IDs, Telegram token, OpenAI API key, and spreadsheet targeting outside this repo.
+- Deploy the pushed Apps Script code as a Web App from the Apps Script UI if no valid Web App URL exists.
+- Put the Val Town proxy in front of the Apps Script Web App before setting Telegram's webhook, so Telegram receives a fast HTTP 200 acknowledgement.
+- Use the Apps Script webhook setup dry-run before apply; the target must be the Val Town proxy URL and direct Apps Script webhook targets are blocked.
+- If `clasp run` is unavailable because the Apps Script project is not deployed as an API executable, run `runTelegramWebhookSetupDryRun` and then `runTelegramWebhookSetupApply` manually from the Apps Script UI.
+- Start with negative webhook-secret and unauthorized-chat tests before any parser or writer path.
+- Record only evidence produced by the local redacted pilot evidence contract: scenario names, touched sheets, row count deltas, idempotency statuses, redacted result references, and error codes.
+- Do not commit spreadsheet IDs, tokens, API keys, webhook URLs, raw chat/user IDs, `.env`, or financial dumps.
 
 Suggested files:
 
-- `src/telegram-handler.js`
-- `test/telegram-handler.test.js`
+- Runtime adapter docs or code only after the pilot gate is explicit and test-covered.
 
-Acceptance for Phase 5B:
+Acceptance for Phase 7:
 
-- `npm test` passes.
-- Handler tests use fake users, fake parser, fake write path, and fake sheet state.
-- Unauthorized users fail closed before parser/write path.
-- Parser and writer failures return generic text without secrets or stack traces.
-- No Telegram service is called in tests.
-- Guardrail tests still pass.
+- Negative webhook-secret test rejects before parser/writer.
+- Unauthorized chat test rejects before parser/writer.
+- `/start` or `/help` smoke test does not mutate financial sheets.
+- Pilot evidence summaries do not expose raw chat/user IDs, message text, financial row details, tokens, URLs, or full result references.
+- One low-value family expense, one card purchase, one invoice payment fixture, and one internal transfer have expected row evidence.
+- Duplicate delivery does not duplicate financial rows.
+- Telegram send attempts are logged without changing financial semantics.
+- Secrets, private IDs, webhook URLs, and financial dumps remain outside the repo.
 
 ## Phase Plan
 
@@ -105,22 +117,20 @@ Acceptance:
 
 ### Phase 3 - Spreadsheet Setup Planner
 
-Status: VERIFIED locally on 2026-04-29 with `npm test`.
+Status: RETIRED after Phase 6 verification.
 
 Goal: create a dry-run-first setup path for a new V55 spreadsheet.
 
-Implement:
+Historical outcome:
 
-- Apps Script schema mirror for V55 headers. Status: VERIFIED locally on 2026-04-29 with `npm test`.
-- Setup planner that inspects fake sheet state and returns explicit actions only. Status: VERIFIED locally on 2026-04-29 with `npm test`.
-- Blocked states for header mismatch, extra columns, and existing data under incompatible headers. Status: VERIFIED locally on 2026-04-29 with `npm test`.
-- Additive apply function only after dry-run planner tests pass. Status: VERIFIED locally on 2026-04-29 with `npm test`.
+- Setup planning, additive apply, and real spreadsheet header verification were used to complete Phase 6.
+- The temporary local setup planner, Apps Script setup scaffold, generated bundle, clasp metadata, and setup-only tests were removed after the real spreadsheet was verified.
 
-Acceptance:
+Retirement rationale:
 
-- Local fake-sheet tests cover blank spreadsheet, missing sheets, blank existing sheets, matching sheets, header drift, extra columns, and existing data.
-- Apply function is not exposed through GET or Telegram routes.
-- No real spreadsheet is mutated in automated tests.
+- The next active work is Telegram pilot and runtime integration, not spreadsheet creation.
+- The schema authority remains in `SHEET_SCHEMA.md` and `src/schema.js`.
+- Phase 6 evidence remains summarized in this execution plan without private IDs.
 
 ### Phase 4 - Local Write Path Adapter
 
@@ -142,9 +152,35 @@ Acceptance:
 - Invoice payment never creates new DRE expense.
 - Internal movement never becomes revenue, expense, or debt.
 
-### Phase 5 - Parser And Telegram Runtime
+### Phase 5A.5 - Domain Hardening Before Telegram
 
-Status: IN PROGRESS locally.
+Status: VERIFIED locally on 2026-04-29 with `npm test`.
+
+Goal: make the V55 domain decision-ready before introducing Telegram handler logic.
+
+Implement:
+
+- README next-step correction. Status: VERIFIED locally on 2026-04-29 with `npm test`.
+- Dynamic parser prompt from schema enums and parser context. Status: VERIFIED locally on 2026-04-29 with `npm test`.
+- Fail-fast DRE and cash event mapping. Status: VERIFIED locally on 2026-04-29 with `npm test`.
+- Idempotency-aware generated row IDs. Status: VERIFIED locally on 2026-04-29 with `npm test`.
+- `Lancamentos.status` with default `efetivado`. Status: VERIFIED locally on 2026-04-29 with `npm test`.
+- `Rendas_Recorrentes` and `Saldos_Fontes` schema authority. Status: VERIFIED locally on 2026-04-29 with `npm test`.
+- Obligation-first destination rule. Status: VERIFIED locally on 2026-04-29 with `npm test`.
+- Local decision-capacity fields in `Fechamento_Familiar`. Status: VERIFIED locally on 2026-04-29 with `npm test`.
+- Redacted parser runtime failures. Status: VERIFIED locally on 2026-04-29 with `npm test`.
+- Expanded guardrails against old personal settlement vocabulary. Status: VERIFIED locally on 2026-04-29 with `npm test`.
+
+Acceptance:
+
+- All changes are local Node.js contracts, docs, and tests only.
+- No Apps Script, Telegram, OpenAI, clasp, or spreadsheet service is called.
+- `npm test` passes.
+- Phase 5B remains blocked until this phase is VERIFIED.
+
+### Phase 5B - Telegram Handler Skeleton
+
+Status: VERIFIED locally on 2026-04-29 with `npm test`.
 
 Goal: connect local contracts to a safe runtime skeleton without real production activation.
 
@@ -152,8 +188,8 @@ Implement:
 
 - Parser context provider for Apps Script through dependency injection. Status: VERIFIED locally on 2026-04-29 with `npm test`.
 - OpenAI adapter with fake fetch tests first. Status: VERIFIED locally on 2026-04-29 with `npm test`.
-- Telegram update handler that validates authorized users, parses text, applies safety review, calls the write path, and returns response text. Status: NEXT.
-- Redacted Telegram send boundary and send-attempt observability.
+- Telegram update handler that validates authorized users, parses text, calls the write path, and returns response text. Status: VERIFIED locally on 2026-04-29 with `npm test`.
+- Redacted Telegram send boundary and send-attempt observability. Status: VERIFIED locally on 2026-04-29 with `npm test`.
 
 Acceptance:
 
@@ -163,6 +199,8 @@ Acceptance:
 - Runtime fails closed when dependencies are missing.
 
 ### Phase 6 - New Spreadsheet Setup
+
+Status: VERIFIED on 2026-04-29 by redacted read-only spreadsheet metadata and header snapshot.
 
 Goal: create and verify the real V55 spreadsheet in a controlled manual operation.
 
@@ -175,19 +213,23 @@ Preconditions:
 
 Manual operation:
 
-1. Run setup dry-run against the new spreadsheet.
-2. Review planned actions.
-3. Run additive setup apply only if the dry-run is safe.
-4. Export or record a snapshot proving sheets and headers exist.
-5. Update docs with exact verification evidence.
+VERIFIED evidence retained in this plan:
+
+- Target spreadsheet metadata was read through the Google Drive connector on 2026-04-29.
+- Target spreadsheet title was V55-specific, locale was `pt_BR`, and timezone was `America/Sao_Paulo`.
+- The real spreadsheet contained the 13 expected V55 sheets.
+- The real spreadsheet header snapshot matched `SHEET_SCHEMA.md`.
+- Spreadsheet ID, Apps Script properties, tokens, webhook URLs, API keys, `.env` files, and financial dumps were not committed.
 
 Acceptance:
 
-- Snapshot proves all V55 sheets and headers exist.
-- No V54 spreadsheet was touched.
-- Real setup evidence is recorded before any Telegram traffic.
+- Snapshot proves all V55 sheets and headers exist. Status: VERIFIED on 2026-04-29.
+- No V54 spreadsheet was touched. Status: VERIFIED by target spreadsheet review and redacted metadata.
+- Real setup evidence is recorded before any Telegram traffic. Status: VERIFIED in this plan.
 
 ### Phase 7 - Controlled Telegram Pilot
+
+Status: TODO.
 
 Goal: test real intake with minimal blast radius.
 
@@ -196,22 +238,27 @@ Preconditions:
 - New spreadsheet setup is VERIFIED.
 - Webhook secret and authorized-user checks are configured.
 - Negative auth tests are planned before normal messages.
+- No token, API key, webhook URL, chat/user ID list, spreadsheet ID, `.env`, or full financial dump is committed.
 
 Pilot order:
 
-1. Negative webhook-secret test.
-2. Unauthorized chat test.
-3. `/start` or `/help` smoke test.
-4. One low-value family expense.
-5. One card purchase.
-6. One invoice payment fixture only if an invoice exists in the reviewed state.
-7. One internal transfer into family cash.
+1. Negative webhook-secret test. Local gate status: VERIFIED locally on 2026-04-29 with `npm test`; Apps Script code push status: VERIFIED on 2026-04-29; Web App invalid-secret HTTP status: VERIFIED on 2026-04-29.
+2. Unauthorized chat test. Local handler/gate status: VERIFIED locally on 2026-04-29 with `npm test`; Web App URL test status: TODO.
+3. `/start` or `/help` smoke test. Local no-mutation behavior status: VERIFIED locally on 2026-04-29 with `npm test`; Apps Script runtime function exists; Web App authorized-secret test status: TODO.
+4. Configure Telegram webhook to the Val Town proxy URL, not directly to Apps Script. Local setup helper status: VERIFIED locally on 2026-04-29 with `npm test`; real Telegram setWebhook status: TODO.
+5. One low-value family expense.
+6. One card purchase.
+7. One invoice payment fixture only if an invoice exists in the reviewed state.
+8. One internal transfer into family cash.
+9. Produce redacted pilot evidence from the reviewed state. Local evidence contract status: VERIFIED locally on 2026-04-29 with `npm test`; real pilot evidence status: TODO.
 
 Acceptance:
 
 - Each message has expected row evidence.
 - Telegram send attempts are logged without changing financial semantics.
 - Failures are recorded with redacted diagnostics.
+- Evidence records scenario names, touched sheets, row count deltas, idempotency statuses, redacted result references, and error codes only.
+- Telegram's webhook target is the Val Town proxy, and the proxy forwards to Apps Script without causing Telegram retries when Apps Script is slow or returns an error.
 
 ### Phase 8 - Family Reports And Closing
 

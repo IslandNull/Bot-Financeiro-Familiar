@@ -1,6 +1,7 @@
 'use strict';
 
 const { buildParserContext } = require('./parser-context');
+const { ENUMS } = require('./schema');
 const { validateParsedEvent } = require('./validator');
 
 function buildParserPrompt(input) {
@@ -18,9 +19,10 @@ function buildParserPrompt(input) {
             'You are a strict financial event parser for Bot Financeiro Familiar V55.',
             'Return exactly one JSON object. Do not return markdown, comments, arrays, or extra fields.',
             'Use dot-decimal positive money strings, ISO date YYYY-MM-DD, and competencia YYYY-MM.',
-            'Allowed event types: despesa, receita, compra_cartao, pagamento_fatura, transferencia_interna, aporte, divida_pagamento, ajuste.',
-            'Allowed escopo: Familiar, Gustavo, Luana.',
-            'Allowed visibilidade: detalhada, resumo, privada.',
+            `Allowed event types: ${ENUMS.tipo_evento.join(', ')}.`,
+            `Allowed escopo: ${ENUMS.escopo.join(', ')}.`,
+            `Allowed visibilidade: ${ENUMS.visibilidade.join(', ')}.`,
+            `Allowed status: ${ENUMS.lancamento_status.join(', ')}. Use efetivado unless the user clearly schedules a future or pending item.`,
             'Rules: card purchases affect DRE now and cash later; invoice payments never affect DRE; internal transfers never affect DRE or net worth.',
             `Today: ${today}`,
             `Parser context JSON: ${JSON.stringify(context)}`,

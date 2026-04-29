@@ -10,7 +10,10 @@ module.exports = {
     ...require('./parser-context'),
     ...require('./parser-contract'),
     ...require('./event-planner'),
-    ...require('./setup-planner'),
     ...require('./write-adapter'),
     ...require('./parser-runtime'),
+    ...require('./telegram-handler'),
+    ...require('./telegram-send'),
+    ...require('./telegram-webhook'),
+    ...require('./pilot-evidence'),
 };

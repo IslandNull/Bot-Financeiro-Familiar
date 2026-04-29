@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert');
-const { buildParserPrompt, parseParserOutput } = require('../src');
+const { ENUMS, buildParserPrompt, parseParserOutput } = require('../src');
 
 function test(name, fn) {
     fn();
@@ -38,6 +38,8 @@ test('parser prompt includes active canonical ids and user text', () => {
     assert.ok(result.prompt.includes('FONTE_CONTA_FAMILIA'));
     assert.ok(result.prompt.includes('CARD_NUBANK_GU'));
     assert.ok(result.prompt.includes('120 mercado semana conta familia'));
+    assert.ok(result.prompt.includes(`Allowed event types: ${ENUMS.tipo_evento.join(', ')}.`));
+    assert.ok(result.prompt.includes(`Allowed status: ${ENUMS.lancamento_status.join(', ')}.`));
 });
 
 test('parser prompt excludes inactive and sensitive seed fields', () => {

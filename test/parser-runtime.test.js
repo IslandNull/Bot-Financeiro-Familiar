@@ -61,13 +61,15 @@ test('parser runtime fails closed when fetch throws', async () => {
     const result = await parseTextWithInjectedFetch({
         text: '120 mercado semana conta familia',
         fetchFn: async () => {
-            throw new Error('fake fetch offline');
+            throw new Error('fake fetch offline sk-secret-token https://example.invalid/webhook');
         },
     });
 
     assert.strictEqual(result.ok, false);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.ok(result.errors.some((error) => error.code === 'FETCH_FAILED'));
+    assert.ok(!JSON.stringify(result).includes('sk-secret-token'));
+    assert.ok(!JSON.stringify(result).includes('webhook'));
 });
 
 test('parser runtime fails closed for invalid parser output', async () => {
