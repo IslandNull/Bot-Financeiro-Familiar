@@ -6,5 +6,11 @@ module.exports = {
     ...require('./validator'),
     ...require('./domain'),
     ...require('./idempotency'),
+    ...require('./seed'),
+    ...require('./parser-context'),
+    ...require('./parser-contract'),
+    ...require('./event-planner'),
+    ...require('./setup-planner'),
+    ...require('./write-adapter'),
+    ...require('./parser-runtime'),
 };
-

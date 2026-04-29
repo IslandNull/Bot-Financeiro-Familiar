@@ -17,6 +17,7 @@ Before changing code, inspect the real repository state:
    - `PRODUCT_SPEC.md`
    - `DOMAIN_RULES.md`
    - `SHEET_SCHEMA.md`
+   - `EXECUTION_PLAN.md`
    - `docs/DECISIONS.md`
 3. For formula, spreadsheet, setup, seed, Apps Script mutation, or reporting tasks, also read:
    - `docs/FORMULA_STANDARD.md`
@@ -57,4 +58,4 @@ After code changes:
 2. Explain what was verified.
 3. Explain what remains unverified.
 4. Update `docs/DECISIONS.md` if a technical or domain decision changed.
-
+5. Update `EXECUTION_PLAN.md` if the next safe step or phase status changed.

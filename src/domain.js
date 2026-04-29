@@ -153,6 +153,26 @@ function applyDebtPayment(debt, paymentEvent) {
     };
 }
 
+function validateClosedPeriodPolicy(event, closedCompetencias) {
+    const closed = closedCompetencias || [];
+    if (!event || !event.competencia || !closed.includes(event.competencia)) {
+        return { ok: true, errors: [] };
+    }
+    if (event.tipo_evento === 'ajuste') {
+        return { ok: true, errors: [] };
+    }
+    return {
+        ok: false,
+        errors: [
+            {
+                code: 'CLOSED_PERIOD_REQUIRES_ADJUSTMENT',
+                field: 'tipo_evento',
+                message: 'closed monthly records require ajuste events',
+            },
+        ],
+    };
+}
+
 function planCardPurchase(event, card) {
     const validation = validateParsedEvent(event);
     if (!validation.ok) return validation;
@@ -193,5 +213,5 @@ module.exports = {
     summarizeCash,
     summarizeDre,
     suggestDestination,
+    validateClosedPeriodPolicy,
 };
-

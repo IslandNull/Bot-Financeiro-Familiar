@@ -38,3 +38,18 @@ Use a new spreadsheet for V55. The current V54 spreadsheet remains untouched unt
 Reason:
 This prevents old schema and data from shaping the clean V55 domain.
 
+
+## V55-D004 - Execution Plan Is Operational Authority
+
+Status: Accepted
+Date: 2026-04-29
+
+Decision:
+Use `EXECUTION_PLAN.md` as the operational authority for phase order, next safe step, acceptance criteria, and service-activation boundaries.
+
+Reason:
+Future agents need a single concise source for what to do next without reconstructing intent from chat history.
+
+Rejected:
+- Relying on conversation history as the project plan.
+- Letting agents choose Apps Script or real-service work before local contracts are stable.

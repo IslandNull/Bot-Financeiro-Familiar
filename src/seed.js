@@ -1,0 +1,183 @@
+'use strict';
+
+const { SHEETS } = require('./schema');
+
+const canonicalSeed = {
+    [SHEETS.CONFIG_CATEGORIAS]: [
+        {
+            id_categoria: 'OPEX_MERCADO_SEMANA',
+            nome: 'Mercado da semana',
+            grupo: 'Casa',
+            tipo_evento_padrao: 'despesa',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'detalhada',
+            ativo: true,
+        },
+        {
+            id_categoria: 'OPEX_FARMACIA',
+            nome: 'Farmacia',
+            grupo: 'Saude',
+            tipo_evento_padrao: 'compra_cartao',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: false,
+            visibilidade_padrao: 'detalhada',
+            ativo: true,
+        },
+        {
+            id_categoria: 'OPEX_LANCHE_TRABALHO',
+            nome: 'Lanche trabalho',
+            grupo: 'Pessoal',
+            tipo_evento_padrao: 'despesa',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Luana',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'privada',
+            ativo: true,
+        },
+        {
+            id_categoria: 'MOV_CAIXA_FAMILIAR',
+            nome: 'Movimento caixa familiar',
+            grupo: 'Caixa',
+            tipo_evento_padrao: 'transferencia_interna',
+            classe_dre: 'nao_dre',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: false,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'resumo',
+            ativo: true,
+        },
+        {
+            id_categoria: 'OPEX_INATIVA_LEGADO',
+            nome: 'Categoria inativa legado',
+            grupo: 'Inativa',
+            tipo_evento_padrao: 'despesa',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'detalhada',
+            ativo: false,
+        },
+    ],
+    [SHEETS.CONFIG_FONTES]: [
+        {
+            id_fonte: 'FONTE_CONTA_FAMILIA',
+            nome: 'Conta familia',
+            tipo: 'conta_corrente',
+            titular: 'Familiar',
+            moeda: 'BRL',
+            ativo: true,
+        },
+        {
+            id_fonte: 'FONTE_NUBANK_GU',
+            nome: 'Nubank Gustavo',
+            tipo: 'cartao_credito',
+            titular: 'Gustavo',
+            moeda: 'BRL',
+            ativo: true,
+        },
+        {
+            id_fonte: 'FONTE_INATIVA_LEGADO',
+            nome: 'Fonte inativa legado',
+            tipo: 'conta_corrente',
+            titular: 'Familiar',
+            moeda: 'BRL',
+            ativo: false,
+        },
+    ],
+    [SHEETS.CARTOES]: [
+        {
+            id_cartao: 'CARD_NUBANK_GU',
+            id_fonte: 'FONTE_NUBANK_GU',
+            nome: 'Nubank Gustavo',
+            titular: 'Gustavo',
+            fechamento_dia: 30,
+            vencimento_dia: 7,
+            limite: 5000,
+            ativo: true,
+        },
+        {
+            id_cartao: 'CARD_INATIVO_LEGADO',
+            id_fonte: 'FONTE_INATIVA_LEGADO',
+            nome: 'Cartao inativo legado',
+            titular: 'Familiar',
+            fechamento_dia: 15,
+            vencimento_dia: 22,
+            limite: 1000,
+            ativo: false,
+        },
+    ],
+    [SHEETS.PATRIMONIO_ATIVOS]: [
+        {
+            id_ativo: 'ATIVO_RESERVA_FAMILIAR',
+            nome: 'Reserva familiar',
+            tipo_ativo: 'reserva_liquidez',
+            instituicao: 'Banco',
+            saldo_atual: 0,
+            data_referencia: '2026-04-29',
+            destinacao: 'Reserva de emergencia',
+            conta_reserva_emergencia: true,
+            ativo: true,
+        },
+        {
+            id_ativo: 'ATIVO_CDB_FAMILIAR',
+            nome: 'CDB familiar',
+            tipo_ativo: 'investimento',
+            instituicao: 'Banco',
+            saldo_atual: 0,
+            data_referencia: '2026-04-29',
+            destinacao: 'Investimento familiar',
+            conta_reserva_emergencia: false,
+            ativo: true,
+        },
+    ],
+    [SHEETS.DIVIDAS]: [
+        {
+            id_divida: 'DIV_FINANCIAMENTO_FAMILIAR',
+            nome: 'Financiamento familiar',
+            credor: 'Banco',
+            tipo: 'financiamento',
+            escopo: 'Familiar',
+            saldo_devedor: 0,
+            parcela_atual: 0,
+            parcelas_total: 0,
+            valor_parcela: 0,
+            taxa_juros: '',
+            sistema_amortizacao: '',
+            data_atualizacao: '2026-04-29',
+            status: 'inativa',
+            observacao: 'Seed local sem valores reais',
+        },
+    ],
+};
+
+function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+}
+
+function getCanonicalSeed() {
+    return clone(canonicalSeed);
+}
+
+function getSeedRows(sheetName) {
+    const rows = canonicalSeed[sheetName];
+    if (!rows) return [];
+    return clone(rows);
+}
+
+module.exports = {
+    canonicalSeed,
+    getCanonicalSeed,
+    getSeedRows,
+};

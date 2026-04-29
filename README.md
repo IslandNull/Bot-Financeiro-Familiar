@@ -20,6 +20,10 @@ UNVERIFIED:
 - Real OpenAI parsing.
 - Apps Script deployment.
 
+## Execution Plan
+
+Read `EXECUTION_PLAN.md` before choosing the next task. Its current next safe step is Phase 2A: canonical seed and parser-context contracts.
+
 ## Commands
 
 ```powershell
@@ -39,4 +43,3 @@ The system does not answer who owes money to whom. It answers:
 - what is private personal spending;
 - what obligations and invoice exposure exist;
 - what surplus exists and where it should probably go next.
-
