@@ -1,7 +1,31 @@
 var V55 = (function() {
   var GENERIC_REQUEST_FAILURE = 'Nao foi possivel processar esta requisicao.';
   var GENERIC_MESSAGE_FAILURE = 'Nao foi possivel processar esta mensagem.';
+  var GENERIC_RECORD_FAILURE = 'Nao consegui registrar agora. Revise a mensagem e tente novamente.';
   var HELP_TEXT = 'Bot financeiro familiar ativo. Envie um lancamento em linguagem natural.';
+  var SUCCESS_TEXT = 'Registro recebido.';
+  var DEFAULT_OPENAI_MODEL = 'gpt-5-nano';
+  var OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
+  var SHEETS = {
+    CONFIG_CATEGORIAS: 'Config_Categorias',
+    CONFIG_FONTES: 'Config_Fontes',
+    CARTOES: 'Cartoes',
+    FATURAS: 'Faturas',
+    LANCAMENTOS: 'Lancamentos',
+    IDEMPOTENCY_LOG: 'Idempotency_Log',
+  };
+  var HEADERS = {
+    Faturas: ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'],
+    Lancamentos: ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'created_at'],
+    Idempotency_Log: ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'],
+  };
+  var PILOT_CARD = {
+    id_cartao: 'CARD_NUBANK_GU',
+    id_fonte: 'FONTE_NUBANK_GU',
+    fechamento_dia: 30,
+    vencimento_dia: 7,
+  };
+  var PILOT_INVOICE_ID = 'FAT_CARD_NUBANK_GU_2026_04';
 
   function doPost(e) {
     var config = readConfig_();
@@ -99,6 +123,10 @@ var V55 = (function() {
       webhookSecret: props.getProperty('WEBHOOK_SECRET') || '',
       authorizedUserIds: splitList_(props.getProperty('AUTHORIZED_USER_IDS')),
       authorizedChatIds: splitList_(props.getProperty('AUTHORIZED_CHAT_IDS')),
+      pilotFinancialMutationEnabled: props.getProperty('PILOT_FINANCIAL_MUTATION_ENABLED') === 'YES',
+      spreadsheetId: props.getProperty('SPREADSHEET_ID') || '',
+      openAiApiKey: props.getProperty('OPENAI_API_KEY') || '',
+      openAiModel: props.getProperty('OPENAI_MODEL') || DEFAULT_OPENAI_MODEL,
     };
   }
 
@@ -174,7 +202,714 @@ var V55 = (function() {
       };
     }
 
-    return fail_('FINANCIAL_MUTATION_NOT_ENABLED', 'phase', 'Piloto financeiro ainda nao habilitado neste runtime.');
+    if (!config.pilotFinancialMutationEnabled) {
+      return fail_('FINANCIAL_MUTATION_NOT_ENABLED', 'phase', 'Piloto financeiro ainda nao habilitado neste runtime.');
+    }
+
+    var runtimeCheck = verifyFinancialRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+
+    var parsed = parseFinancialEventWithOpenAI_(text, config);
+    if (!parsed.ok) return parsed;
+
+    if (parsed.event.tipo_evento === 'pagamento_fatura') {
+      var invoicePaymentCheck = validatePilotInvoicePaymentEvent_(parsed.event);
+      if (!invoicePaymentCheck.ok) return invoicePaymentCheck;
+      return recordPilotInvoicePayment_(update, message, parsed.event, config);
+    }
+
+    if (parsed.event.tipo_evento === 'compra_cartao') {
+      var cardCheck = validatePilotCardPurchaseEvent_(parsed.event);
+      if (!cardCheck.ok) return cardCheck;
+      return recordPilotCardPurchase_(update, message, parsed.event, config);
+    }
+
+    var pilotCheck = validatePilotExpenseEvent_(parsed.event);
+    if (!pilotCheck.ok) return pilotCheck;
+
+    return recordPilotExpense_(update, message, parsed.event, config);
+  }
+
+  function verifyFinancialRuntimeConfig_(config) {
+    if (!config.spreadsheetId) return fail_('MISSING_SPREADSHEET_ID', 'spreadsheetId', GENERIC_RECORD_FAILURE);
+    if (!config.openAiApiKey) return fail_('MISSING_OPENAI_API_KEY', 'openAiApiKey', GENERIC_RECORD_FAILURE);
+    if (!config.openAiModel) return fail_('MISSING_OPENAI_MODEL', 'openAiModel', GENERIC_RECORD_FAILURE);
+    return { ok: true };
+  }
+
+  function parseFinancialEventWithOpenAI_(text, config) {
+    var response;
+    try {
+      response = UrlFetchApp.fetch(OPENAI_RESPONSES_URL, {
+        method: 'post',
+        contentType: 'application/json',
+        headers: { Authorization: 'Bearer ' + config.openAiApiKey },
+        payload: JSON.stringify(openAiParserPayload_(text, config)),
+        muteHttpExceptions: true,
+      });
+    } catch (err) {
+      return fail_(classifyOpenAIFetchError_(err), 'openai', GENERIC_RECORD_FAILURE);
+    }
+
+    try {
+      if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+        return fail_('OPENAI_REJECTED', 'openai', GENERIC_RECORD_FAILURE);
+      }
+      var parsedResponse = parseJsonSafe_(response.getContentText());
+      var outputText = extractOpenAIOutputText_(parsedResponse);
+      var parsedEvent = parseJsonSafe_(outputText);
+      if (!parsedEvent) return fail_('OPENAI_OUTPUT_NOT_JSON', 'openai', GENERIC_RECORD_FAILURE);
+      return normalizeParsedEvent_(parsedEvent, text);
+    } catch (_err) {
+      return fail_('OPENAI_RESPONSE_PROCESSING_FAILED', 'openai', GENERIC_RECORD_FAILURE);
+    }
+  }
+
+  function classifyOpenAIFetchError_(err) {
+    var message = String(err && err.message ? err.message : err || '');
+    if (/permission|authorization|required permissions|not have permission/i.test(message)) {
+      return 'OPENAI_FETCH_AUTH_REQUIRED';
+    }
+    if (/invalid argument|bad value|headers|payload/i.test(message)) {
+      return 'OPENAI_FETCH_INVALID_REQUEST';
+    }
+    if (/address unavailable|dns|timed out|timeout|could not fetch|connection/i.test(message)) {
+      return 'OPENAI_FETCH_NETWORK_FAILED';
+    }
+    return 'OPENAI_FETCH_FAILED';
+  }
+
+  function openAiParserPayload_(text, config) {
+    return {
+      model: config.openAiModel,
+      input: buildParserPrompt_(text),
+      text: {
+        format: {
+          type: 'json_object',
+        },
+      },
+    };
+  }
+
+  function buildParserPrompt_(text) {
+    return [
+      'You are a strict financial event parser for Bot Financeiro Familiar V55.',
+      'Return exactly one JSON object. Do not return markdown, comments, arrays, or extra fields. Use empty strings for fields that do not apply.',
+      '',
+      '# HARD OUTPUT RULES',
+      '- Use dot-decimal positive money strings, for example 12.34.',
+      '- Do not use comma money strings such as "12,34".',
+      '- Use ISO date YYYY-MM-DD and competencia YYYY-MM.',
+      '- Use real JSON booleans true/false, never "true" or "false" strings.',
+      '- Use only canonical IDs listed below. Never invent ids.',
+      '',
+      '# REQUIRED SCHEMA',
+      'Required keys: tipo_evento, data, competencia, valor, descricao, id_categoria, id_fonte, pessoa, escopo, visibilidade, id_cartao, id_fatura, id_divida, id_ativo, afeta_dre, afeta_patrimonio, afeta_caixa_familiar, direcao_caixa_familiar, status.',
+      'If the user omits the date, data must default to ' + todaySaoPaulo_() + ' and competencia must default to ' + todaySaoPaulo_().slice(0, 7) + '.',
+      'If the user says today or hoje, data must be exactly ' + todaySaoPaulo_() + ' and competencia must be exactly ' + todaySaoPaulo_().slice(0, 7) + '.',
+      'This pilot currently accepts only low-value family cash market expenses, one reviewed card purchase path, and one reviewed invoice payment path after parsing; still classify the user text correctly.',
+      '',
+      '# CANONICAL DICTIONARIES',
+      'Allowed active category ids: OPEX_MERCADO_SEMANA for Mercado da semana, OPEX_FARMACIA for Farmacia, OPEX_LANCHE_TRABALHO for Lanche trabalho, MOV_CAIXA_FAMILIAR for Movimento caixa familiar.',
+      'Allowed active source ids: FONTE_CONTA_FAMILIA for Conta familia cash, FONTE_NUBANK_GU for Nubank Gustavo credit card.',
+      '',
+      '# PILOT CANONICAL EXAMPLES',
+      'Input: "mercado 10" -> valor "10", tipo_evento "despesa", id_categoria "OPEX_MERCADO_SEMANA", id_fonte "FONTE_CONTA_FAMILIA", escopo "Familiar".',
+      'Input: "mercado 10 hoje" -> same event with data ' + todaySaoPaulo_() + ' and competencia ' + todaySaoPaulo_().slice(0, 7) + '.',
+      'Input: "farmacia 10 no nubank" -> valor "10", tipo_evento "compra_cartao", id_categoria "OPEX_FARMACIA", id_cartao "CARD_NUBANK_GU", id_fonte "FONTE_NUBANK_GU", escopo "Familiar".',
+      'Input: "pagar fatura nubank 42,50" -> valor "42.50", tipo_evento "pagamento_fatura", id_fatura "' + PILOT_INVOICE_ID + '", id_fonte "FONTE_CONTA_FAMILIA", escopo "Familiar".',
+      'For a family cash expense, use tipo_evento despesa, escopo Familiar, visibilidade detalhada, afeta_dre true, afeta_patrimonio false, afeta_caixa_familiar true, id_fonte FONTE_CONTA_FAMILIA, status efetivado.',
+      'For the reviewed card purchase, use tipo_evento compra_cartao, escopo Familiar, visibilidade detalhada, afeta_dre true, afeta_patrimonio false, afeta_caixa_familiar false, id_categoria OPEX_FARMACIA, id_cartao CARD_NUBANK_GU, id_fonte FONTE_NUBANK_GU, status efetivado.',
+      'For the reviewed invoice payment, use tipo_evento pagamento_fatura, escopo Familiar, visibilidade detalhada, afeta_dre false, afeta_patrimonio false, afeta_caixa_familiar true, id_fatura ' + PILOT_INVOICE_ID + ', id_fonte FONTE_CONTA_FAMILIA, status efetivado.',
+      'Rules: card purchases affect DRE now and cash later; invoice payments never affect DRE; internal transfers never affect DRE or net worth.',
+      'Today: ' + todaySaoPaulo_(),
+      'User text: ' + JSON.stringify(text.trim()),
+    ].join('\n');
+  }
+
+  function extractOpenAIOutputText_(response) {
+    if (!response || !response.output || !response.output.length) return '';
+    for (var i = 0; i < response.output.length; i += 1) {
+      var item = response.output[i];
+      if (!item || !item.content || !item.content.length) continue;
+      for (var j = 0; j < item.content.length; j += 1) {
+        if (item.content[j] && typeof item.content[j].text === 'string') return item.content[j].text;
+      }
+    }
+    return '';
+  }
+
+  function normalizeParsedEvent_(entry, originalText) {
+    if (!entry || typeof entry !== 'object') return fail_('INVALID_PARSED_EVENT', 'event', GENERIC_RECORD_FAILURE);
+    var value = normalizeMoneyValue_(entry.valor, originalText);
+    if (!isFinite(value) || value <= 0) return fail_('INVALID_MONEY', 'valor', GENERIC_RECORD_FAILURE);
+    var normalizedDate = normalizeDateValue_(entry.data);
+    var normalized = {
+      tipo_evento: stringValue_(entry.tipo_evento),
+      data: normalizedDate,
+      competencia: normalizeCompetenciaValue_(entry.competencia, normalizedDate),
+      valor: Math.round(value * 100) / 100,
+      descricao: stringValue_(entry.descricao) || stringValue_(originalText),
+      id_categoria: stringValue_(entry.id_categoria),
+      id_fonte: stringValue_(entry.id_fonte),
+      pessoa: stringValue_(entry.pessoa),
+      escopo: stringValue_(entry.escopo),
+      visibilidade: stringValue_(entry.visibilidade),
+      id_cartao: stringValue_(entry.id_cartao),
+      id_fatura: stringValue_(entry.id_fatura),
+      id_divida: stringValue_(entry.id_divida),
+      id_ativo: stringValue_(entry.id_ativo),
+      afeta_dre: entry.afeta_dre === true,
+      afeta_patrimonio: entry.afeta_patrimonio === true,
+      afeta_caixa_familiar: entry.afeta_caixa_familiar === true,
+      direcao_caixa_familiar: stringValue_(entry.direcao_caixa_familiar),
+      status: stringValue_(entry.status) || 'efetivado',
+      raw_text: stringValue_(originalText),
+    };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized.data)) return fail_(classifyInvalidDate_(entry.data), 'data', GENERIC_RECORD_FAILURE);
+    if (!/^\d{4}-\d{2}$/.test(normalized.competencia)) return fail_('INVALID_COMPETENCIA', 'competencia', GENERIC_RECORD_FAILURE);
+    normalized = canonicalizePilotEvent_(normalized);
+    return { ok: true, shouldApplyDomainMutation: true, event: normalized };
+  }
+
+  function canonicalizePilotEvent_(event) {
+    if (event.tipo_evento === 'despesa') return canonicalizePilotExpenseEvent_(event);
+    if (event.tipo_evento === 'compra_cartao') return canonicalizePilotCardPurchaseEvent_(event);
+    if (event.tipo_evento === 'pagamento_fatura') return canonicalizePilotInvoicePaymentEvent_(event);
+    return event;
+  }
+
+  function canonicalizePilotExpenseEvent_(event) {
+    if (event.tipo_evento !== 'despesa') return event;
+    if (event.id_categoria !== 'OPEX_MERCADO_SEMANA') return event;
+    if (event.id_fonte && event.id_fonte !== 'FONTE_CONTA_FAMILIA') return event;
+    if (event.escopo && event.escopo !== 'Familiar') return event;
+    if (event.status && event.status !== 'efetivado') return event;
+    if (event.visibilidade && event.visibilidade !== 'detalhada') return event;
+    if (event.id_cartao || event.id_fatura || event.id_divida || event.id_ativo) return event;
+    event.id_fonte = 'FONTE_CONTA_FAMILIA';
+    event.escopo = 'Familiar';
+    event.visibilidade = 'detalhada';
+    event.status = 'efetivado';
+    event.afeta_dre = true;
+    event.afeta_patrimonio = false;
+    event.afeta_caixa_familiar = true;
+    return event;
+  }
+
+  function canonicalizePilotCardPurchaseEvent_(event) {
+    if (event.tipo_evento !== 'compra_cartao') return event;
+    if (event.id_categoria !== 'OPEX_FARMACIA') return event;
+    if (event.id_fonte && event.id_fonte !== PILOT_CARD.id_fonte) return event;
+    if (event.id_cartao && event.id_cartao !== PILOT_CARD.id_cartao) return event;
+    if (event.escopo && event.escopo !== 'Familiar') return event;
+    if (event.status && event.status !== 'efetivado') return event;
+    if (event.visibilidade && event.visibilidade !== 'detalhada') return event;
+    if (event.id_fatura || event.id_divida || event.id_ativo) return event;
+    event.id_fonte = PILOT_CARD.id_fonte;
+    event.id_cartao = PILOT_CARD.id_cartao;
+    event.escopo = 'Familiar';
+    event.visibilidade = 'detalhada';
+    event.status = 'efetivado';
+    event.afeta_dre = true;
+    event.afeta_patrimonio = false;
+    event.afeta_caixa_familiar = false;
+    return event;
+  }
+
+  function canonicalizePilotInvoicePaymentEvent_(event) {
+    if (event.tipo_evento !== 'pagamento_fatura') return event;
+    if (event.id_fatura && event.id_fatura !== PILOT_INVOICE_ID) return event;
+    if (event.id_fonte && event.id_fonte !== 'FONTE_CONTA_FAMILIA') return event;
+    if (event.escopo && event.escopo !== 'Familiar') return event;
+    if (event.status && event.status !== 'efetivado') return event;
+    if (event.visibilidade && event.visibilidade !== 'detalhada') return event;
+    if (event.id_cartao || event.id_divida || event.id_ativo) return event;
+    event.id_categoria = '';
+    event.id_fonte = 'FONTE_CONTA_FAMILIA';
+    event.id_fatura = PILOT_INVOICE_ID;
+    event.escopo = 'Familiar';
+    event.visibilidade = 'detalhada';
+    event.status = 'efetivado';
+    event.afeta_dre = false;
+    event.afeta_patrimonio = false;
+    event.afeta_caixa_familiar = true;
+    return event;
+  }
+
+  function normalizeDateValue_(value) {
+    var text = stringValue_(value);
+    if (!text) return todaySaoPaulo_();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+    if (/^today$/i.test(text) || /^hoje$/i.test(text)) return todaySaoPaulo_();
+    var dateTime = text.match(/^(\d{4}-\d{2}-\d{2})[T\s]/);
+    if (dateTime) return dateTime[1];
+    var slash = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (slash) return slash[3] + '-' + pad2_(slash[2]) + '-' + pad2_(slash[1]);
+    return text;
+  }
+
+  function normalizeMoneyValue_(value, originalText) {
+    var normalized = parseMoneyText_(stringValue_(value));
+    if (isFinite(normalized) && normalized > 0) return normalized;
+    return parseMoneyText_(extractFirstMoneyText_(originalText));
+  }
+
+  function parseMoneyText_(value) {
+    var text = stringValue_(value).replace(/\s+/g, '');
+    if (!text) return NaN;
+    text = text.replace(/^R\$/i, '').replace(/reais$/i, '').replace(/real$/i, '');
+    text = text.replace(/[^\d,.-]/g, '');
+    if (!text || /^[-.,]+$/.test(text)) return NaN;
+    if (text.indexOf(',') !== -1 && text.indexOf('.') !== -1) {
+      if (text.lastIndexOf(',') > text.lastIndexOf('.')) {
+        text = text.replace(/\./g, '').replace(',', '.');
+      } else {
+        text = text.replace(/,/g, '');
+      }
+    } else if (text.indexOf(',') !== -1) {
+      text = text.replace(',', '.');
+    }
+    var amount = Number(text);
+    if (!isFinite(amount) || amount <= 0) return NaN;
+    return Math.round(amount * 100) / 100;
+  }
+
+  function extractFirstMoneyText_(text) {
+    var source = stringValue_(text);
+    var match = source.match(/(?:R\$\s*)?\d+(?:[.,]\d{1,2})?/i);
+    return match ? match[0] : '';
+  }
+
+  function classifyInvalidDate_(value) {
+    var text = stringValue_(value);
+    if (!text) return 'INVALID_DATE_EMPTY';
+    if (/^\d{1,2}\/\d{1,2}\/\d{2}$/.test(text)) return 'INVALID_DATE_SHORT_YEAR';
+    if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(text)) return 'INVALID_DATE_DASH_DMY';
+    if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(text)) return 'INVALID_DATE_SLASH_YMD';
+    if (/^\d{4}-\d{1,2}-\d{1,2}/.test(text)) return 'INVALID_DATE_UNPADDED_ISO';
+    if (/[A-Za-zÀ-ÿ]/.test(text)) return 'INVALID_DATE_TEXTUAL';
+    return 'INVALID_DATE_OTHER';
+  }
+
+  function normalizeCompetenciaValue_(competencia, data) {
+    var text = stringValue_(competencia);
+    if (/^\d{4}-\d{2}$/.test(text)) return text;
+    var normalizedDate = normalizeDateValue_(data);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) return normalizedDate.slice(0, 7);
+    return text;
+  }
+
+  function pad2_(value) {
+    return ('0' + String(value)).slice(-2);
+  }
+
+  function validatePilotExpenseEvent_(event) {
+    if (event.tipo_evento !== 'despesa') return fail_('PILOT_EVENT_TYPE_BLOCKED', 'tipo_evento', 'Piloto financeiro aceita apenas despesa familiar simples nesta etapa.');
+    if (event.escopo !== 'Familiar') return fail_('PILOT_SCOPE_BLOCKED', 'escopo', GENERIC_RECORD_FAILURE);
+    if (event.status !== 'efetivado') return fail_('PILOT_STATUS_BLOCKED', 'status', GENERIC_RECORD_FAILURE);
+    if (event.id_categoria !== 'OPEX_MERCADO_SEMANA') return fail_('PILOT_CATEGORY_BLOCKED', 'id_categoria', GENERIC_RECORD_FAILURE);
+    if (!isPilotMarketText_(event.raw_text || event.descricao)) return fail_('PILOT_TEXT_CATEGORY_MISMATCH', 'text', GENERIC_RECORD_FAILURE);
+    if (event.id_fonte !== 'FONTE_CONTA_FAMILIA') return fail_('PILOT_SOURCE_BLOCKED', 'id_fonte', GENERIC_RECORD_FAILURE);
+    if (event.id_cartao || event.id_fatura || event.id_divida || event.id_ativo) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
+    if (event.afeta_dre !== true || event.afeta_patrimonio !== false || event.afeta_caixa_familiar !== true) {
+      return fail_('PILOT_FLAGS_BLOCKED', 'flags', GENERIC_RECORD_FAILURE);
+    }
+    return { ok: true };
+  }
+
+  function validatePilotCardPurchaseEvent_(event) {
+    if (event.tipo_evento !== 'compra_cartao') return fail_('PILOT_EVENT_TYPE_BLOCKED', 'tipo_evento', GENERIC_RECORD_FAILURE);
+    if (event.escopo !== 'Familiar') return fail_('PILOT_SCOPE_BLOCKED', 'escopo', GENERIC_RECORD_FAILURE);
+    if (event.status !== 'efetivado') return fail_('PILOT_STATUS_BLOCKED', 'status', GENERIC_RECORD_FAILURE);
+    if (event.id_categoria !== 'OPEX_FARMACIA') return fail_('PILOT_CARD_CATEGORY_BLOCKED', 'id_categoria', GENERIC_RECORD_FAILURE);
+    if (!isPilotPharmacyCardText_(event.raw_text || event.descricao)) return fail_('PILOT_TEXT_CATEGORY_MISMATCH', 'text', GENERIC_RECORD_FAILURE);
+    if (event.id_fonte !== PILOT_CARD.id_fonte) return fail_('PILOT_CARD_SOURCE_BLOCKED', 'id_fonte', GENERIC_RECORD_FAILURE);
+    if (event.id_cartao !== PILOT_CARD.id_cartao) return fail_('PILOT_CARD_BLOCKED', 'id_cartao', GENERIC_RECORD_FAILURE);
+    if (event.id_fatura || event.id_divida || event.id_ativo) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
+    if (event.afeta_dre !== true || event.afeta_patrimonio !== false || event.afeta_caixa_familiar !== false) {
+      return fail_('PILOT_FLAGS_BLOCKED', 'flags', GENERIC_RECORD_FAILURE);
+    }
+    return { ok: true };
+  }
+
+  function validatePilotInvoicePaymentEvent_(event) {
+    if (event.tipo_evento !== 'pagamento_fatura') return fail_('PILOT_EVENT_TYPE_BLOCKED', 'tipo_evento', GENERIC_RECORD_FAILURE);
+    if (event.escopo !== 'Familiar') return fail_('PILOT_SCOPE_BLOCKED', 'escopo', GENERIC_RECORD_FAILURE);
+    if (event.status !== 'efetivado') return fail_('PILOT_STATUS_BLOCKED', 'status', GENERIC_RECORD_FAILURE);
+    if (event.id_fatura !== PILOT_INVOICE_ID) return fail_('PILOT_INVOICE_BLOCKED', 'id_fatura', GENERIC_RECORD_FAILURE);
+    if (!isPilotInvoicePaymentText_(event.raw_text || event.descricao)) return fail_('PILOT_TEXT_CATEGORY_MISMATCH', 'text', GENERIC_RECORD_FAILURE);
+    if (event.id_fonte !== 'FONTE_CONTA_FAMILIA') return fail_('PILOT_SOURCE_BLOCKED', 'id_fonte', GENERIC_RECORD_FAILURE);
+    if (event.id_cartao || event.id_divida || event.id_ativo) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
+    if (event.afeta_dre !== false || event.afeta_patrimonio !== false || event.afeta_caixa_familiar !== true) {
+      return fail_('PILOT_FLAGS_BLOCKED', 'flags', GENERIC_RECORD_FAILURE);
+    }
+    return { ok: true };
+  }
+
+  function isPilotMarketText_(text) {
+    var normalized = normalizeAliasText_(text);
+    if (!normalized) return false;
+    return containsAliasPhrase_(normalized, 'mercado') ||
+      containsAliasPhrase_(normalized, 'supermercado') ||
+      containsAliasPhrase_(normalized, 'mercado semana') ||
+      containsAliasPhrase_(normalized, 'feira') ||
+      containsAliasPhrase_(normalized, 'hortifruti');
+  }
+
+  function isPilotPharmacyCardText_(text) {
+    var normalized = normalizeAliasText_(text);
+    if (!normalized) return false;
+    var hasPharmacy = containsAliasPhrase_(normalized, 'farmacia') ||
+      containsAliasPhrase_(normalized, 'remedio') ||
+      containsAliasPhrase_(normalized, 'medicamento');
+    var hasCard = containsAliasPhrase_(normalized, 'nubank') ||
+      containsAliasPhrase_(normalized, 'cartao') ||
+      containsAliasPhrase_(normalized, 'credito');
+    return hasPharmacy && hasCard;
+  }
+
+  function isPilotInvoicePaymentText_(text) {
+    var normalized = normalizeAliasText_(text);
+    if (!normalized) return false;
+    var hasPayment = containsAliasPhrase_(normalized, 'pagar') ||
+      containsAliasPhrase_(normalized, 'pagamento') ||
+      containsAliasPhrase_(normalized, 'paguei');
+    return hasPayment &&
+      containsAliasPhrase_(normalized, 'fatura') &&
+      containsAliasPhrase_(normalized, 'nubank');
+  }
+
+  function normalizeAliasText_(text) {
+    var lower = stringValue_(text).toLowerCase();
+    var withoutAccents = typeof lower.normalize === 'function'
+      ? lower.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      : lower
+        .replace(/[àáâãä]/g, 'a')
+        .replace(/[èéêë]/g, 'e')
+        .replace(/[ìíîï]/g, 'i')
+        .replace(/[òóôõö]/g, 'o')
+        .replace(/[ùúûü]/g, 'u')
+        .replace(/ç/g, 'c');
+    return withoutAccents.replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  function containsAliasPhrase_(normalizedText, phrase) {
+    var normalizedPhrase = normalizeAliasText_(phrase);
+    return (' ' + normalizedText + ' ').indexOf(' ' + normalizedPhrase + ' ') !== -1;
+  }
+
+  function recordPilotExpense_(update, message, event, config) {
+    var lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    var idempotencySheetForFailure = null;
+    var idempotencyRowNumberForFailure = null;
+    var resultRefForFailure = '';
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var request = telegramRequest_(update, message);
+      var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
+      var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+      idempotencySheetForFailure = idempotencySheet;
+      verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
+      verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+
+      var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
+      if (existing && existing.status === 'completed') {
+        return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
+      }
+      if (existing && existing.status === 'processing') {
+        return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
+      }
+
+      var now = isoNow_();
+      var resultRef = stableId_('LAN', request.idempotency_key + '|' + event.descricao + '|' + event.valor);
+      resultRefForFailure = resultRef;
+      if (existing && existing.rowNumber) {
+        updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
+        idempotencyRowNumberForFailure = existing.rowNumber;
+      } else {
+        appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
+          idempotency_key: request.idempotency_key,
+          source: request.source,
+          external_update_id: request.external_update_id,
+          external_message_id: request.external_message_id,
+          chat_id: request.chat_id,
+          payload_hash: request.payload_hash,
+          status: 'processing',
+          result_ref: resultRef,
+          created_at: now,
+          updated_at: now,
+          error_code: '',
+          observacao: '',
+        });
+        existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
+        idempotencyRowNumberForFailure = existing && existing.rowNumber;
+      }
+
+      appendRow_(launchSheet, SHEETS.LANCAMENTOS, {
+        id_lancamento: resultRef,
+        data: event.data,
+        competencia: event.competencia,
+        tipo_evento: event.tipo_evento,
+        id_categoria: event.id_categoria,
+        valor: event.valor,
+        id_fonte: event.id_fonte,
+        pessoa: event.pessoa,
+        escopo: event.escopo,
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        visibilidade: event.visibilidade,
+        status: event.status,
+        descricao: event.descricao,
+        created_at: now,
+      });
+      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
+      return { ok: true, responseText: SUCCESS_TEXT, shouldApplyDomainMutation: true, result_ref: resultRef };
+    } catch (_err) {
+      if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
+        updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
+      }
+      return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  function recordPilotCardPurchase_(update, message, event, config) {
+    var lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    var idempotencySheetForFailure = null;
+    var idempotencyRowNumberForFailure = null;
+    var resultRefForFailure = '';
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var request = telegramRequest_(update, message);
+      var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
+      var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+      var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
+      idempotencySheetForFailure = idempotencySheet;
+      verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
+      verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+      verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
+
+      var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
+      if (existing && existing.status === 'completed') {
+        return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
+      }
+      if (existing && existing.status === 'processing') {
+        return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
+      }
+
+      var now = isoNow_();
+      var invoice = assignPilotInvoiceCycle_(event.data);
+      event.id_fatura = invoice.id_fatura;
+      var resultRef = stableId_('LAN', request.idempotency_key + '|' + event.descricao + '|' + event.valor + '|card');
+      resultRefForFailure = resultRef;
+      if (existing && existing.rowNumber) {
+        updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
+        idempotencyRowNumberForFailure = existing.rowNumber;
+      } else {
+        appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
+          idempotency_key: request.idempotency_key,
+          source: request.source,
+          external_update_id: request.external_update_id,
+          external_message_id: request.external_message_id,
+          chat_id: request.chat_id,
+          payload_hash: request.payload_hash,
+          status: 'processing',
+          result_ref: resultRef,
+          created_at: now,
+          updated_at: now,
+          error_code: '',
+          observacao: '',
+        });
+        existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
+        idempotencyRowNumberForFailure = existing && existing.rowNumber;
+      }
+
+      appendRow_(launchSheet, SHEETS.LANCAMENTOS, {
+        id_lancamento: resultRef,
+        data: event.data,
+        competencia: event.competencia,
+        tipo_evento: event.tipo_evento,
+        id_categoria: event.id_categoria,
+        valor: event.valor,
+        id_fonte: event.id_fonte,
+        pessoa: event.pessoa,
+        escopo: event.escopo,
+        id_cartao: event.id_cartao,
+        id_fatura: event.id_fatura,
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        visibilidade: event.visibilidade,
+        status: event.status,
+        descricao: event.descricao,
+        created_at: now,
+      });
+      appendRow_(invoiceSheet, SHEETS.FATURAS, {
+        id_fatura: invoice.id_fatura,
+        id_cartao: event.id_cartao,
+        competencia: invoice.competencia,
+        data_fechamento: invoice.data_fechamento,
+        data_vencimento: invoice.data_vencimento,
+        valor_previsto: event.valor,
+        valor_fechado: '',
+        valor_pago: '',
+        status: 'prevista',
+      });
+      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
+      return { ok: true, responseText: SUCCESS_TEXT, shouldApplyDomainMutation: true, result_ref: resultRef };
+    } catch (_err) {
+      if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
+        updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
+      }
+      return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  function recordPilotInvoicePayment_(update, message, event, config) {
+    var lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    var idempotencySheetForFailure = null;
+    var idempotencyRowNumberForFailure = null;
+    var resultRefForFailure = '';
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var request = telegramRequest_(update, message);
+      var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
+      var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+      var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
+      idempotencySheetForFailure = idempotencySheet;
+      verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
+      verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+      verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
+
+      var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
+      if (existing && existing.status === 'completed') {
+        return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
+      }
+      if (existing && existing.status === 'processing') {
+        return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
+      }
+
+      var invoice = findInvoiceRow_(invoiceSheet, event.id_fatura);
+      if (!invoice) return fail_('PILOT_INVOICE_NOT_FOUND', 'id_fatura', GENERIC_RECORD_FAILURE);
+      if (invoice.status === 'paga') return fail_('PILOT_INVOICE_ALREADY_PAID', 'id_fatura', GENERIC_RECORD_FAILURE);
+      var expectedAmount = invoice.valor_fechado > 0 ? invoice.valor_fechado : invoice.valor_previsto;
+      if (Math.abs(expectedAmount - event.valor) > 0.009) {
+        return fail_('PILOT_INVOICE_AMOUNT_MISMATCH', 'valor', GENERIC_RECORD_FAILURE);
+      }
+
+      var now = isoNow_();
+      var resultRef = stableId_('LAN', request.idempotency_key + '|' + event.id_fatura + '|' + event.valor + '|invoice_payment');
+      resultRefForFailure = resultRef;
+      if (existing && existing.rowNumber) {
+        updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
+        idempotencyRowNumberForFailure = existing.rowNumber;
+      } else {
+        appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
+          idempotency_key: request.idempotency_key,
+          source: request.source,
+          external_update_id: request.external_update_id,
+          external_message_id: request.external_message_id,
+          chat_id: request.chat_id,
+          payload_hash: request.payload_hash,
+          status: 'processing',
+          result_ref: resultRef,
+          created_at: now,
+          updated_at: now,
+          error_code: '',
+          observacao: '',
+        });
+        existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
+        idempotencyRowNumberForFailure = existing && existing.rowNumber;
+      }
+
+      appendRow_(launchSheet, SHEETS.LANCAMENTOS, {
+        id_lancamento: resultRef,
+        data: event.data,
+        competencia: event.competencia,
+        tipo_evento: event.tipo_evento,
+        id_categoria: '',
+        valor: event.valor,
+        id_fonte: event.id_fonte,
+        pessoa: event.pessoa,
+        escopo: event.escopo,
+        id_cartao: '',
+        id_fatura: event.id_fatura,
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        visibilidade: event.visibilidade,
+        status: event.status,
+        descricao: event.descricao,
+        created_at: now,
+      });
+      updateInvoicePayment_(invoiceSheet, invoice.rowNumber, event.valor, 'paga');
+      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
+      return { ok: true, responseText: SUCCESS_TEXT, shouldApplyDomainMutation: true, result_ref: resultRef };
+    } catch (_err) {
+      if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
+        updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
+      }
+      return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  function assignPilotInvoiceCycle_(purchaseDateValue) {
+    var purchaseDate = parseIsoDateUtc_(purchaseDateValue);
+    var closingDate = buildClampedUtcDate_(purchaseDate.getUTCFullYear(), purchaseDate.getUTCMonth(), PILOT_CARD.fechamento_dia);
+    if (purchaseDate.getTime() > closingDate.getTime()) {
+      var nextMonth = addUtcMonths_(purchaseDate, 1);
+      closingDate = buildClampedUtcDate_(nextMonth.getUTCFullYear(), nextMonth.getUTCMonth(), PILOT_CARD.fechamento_dia);
+    }
+    var dueMonth = addUtcMonths_(closingDate, 1);
+    var dueDate = buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), PILOT_CARD.vencimento_dia);
+    var competencia = formatUtcCompetencia_(closingDate);
+    return {
+      id_fatura: 'FAT_' + PILOT_CARD.id_cartao + '_' + competencia.replace('-', '_'),
+      competencia: competencia,
+      data_fechamento: formatUtcDate_(closingDate),
+      data_vencimento: formatUtcDate_(dueDate),
+    };
+  }
+
+  function parseIsoDateUtc_(value) {
+    var match = stringValue_(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) throw new Error('Invalid ISO date');
+    return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  }
+
+  function addUtcMonths_(date, months) {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
+  }
+
+  function buildClampedUtcDate_(year, monthIndex, day) {
+    var maxDay = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(year, monthIndex, Math.min(Number(day), maxDay)));
+  }
+
+  function formatUtcDate_(date) {
+    return date.getUTCFullYear() + '-' + pad2_(date.getUTCMonth() + 1) + '-' + pad2_(date.getUTCDate());
+  }
+
+  function formatUtcCompetencia_(date) {
+    return date.getUTCFullYear() + '-' + pad2_(date.getUTCMonth() + 1);
   }
 
   function isAuthorized_(config, chatId, userId) {
@@ -187,6 +922,122 @@ var V55 = (function() {
     return items.some(function(item) {
       return item === value;
     });
+  }
+
+  function stringValue_(value) {
+    if (value === undefined || value === null) return '';
+    return String(value).trim();
+  }
+
+  function todaySaoPaulo_() {
+    return Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd');
+  }
+
+  function isoNow_() {
+    return Utilities.formatDate(new Date(), 'Etc/UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
+  }
+
+  function telegramRequest_(update, message) {
+    var updateId = update && update.update_id === undefined ? '' : String(update.update_id);
+    var messageId = message && message.message_id === undefined ? '' : String(message.message_id);
+    var chatId = message && message.chat && message.chat.id !== undefined ? String(message.chat.id) : '';
+    return {
+      idempotency_key: 'telegram:' + updateId + ':' + messageId,
+      source: 'telegram',
+      external_update_id: updateId,
+      external_message_id: messageId,
+      chat_id: chatId,
+      payload_hash: '',
+    };
+  }
+
+  function stableId_(prefix, value) {
+    var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, value, Utilities.Charset.UTF_8);
+    var hex = digest.map(function(byte) {
+      var normalized = byte < 0 ? byte + 256 : byte;
+      return ('0' + normalized.toString(16)).slice(-2);
+    }).join('').slice(0, 12).toUpperCase();
+    return prefix + '_' + hex;
+  }
+
+  function verifySheetHeaders_(sheet, sheetName) {
+    if (!sheet) throw new Error('Missing sheet: ' + sheetName);
+    var expected = HEADERS[sheetName];
+    var actual = sheet.getRange(1, 1, 1, expected.length).getValues()[0];
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      throw new Error('Header mismatch: ' + sheetName);
+    }
+  }
+
+  function appendRow_(sheet, sheetName, values) {
+    var headers = HEADERS[sheetName];
+    sheet.appendRow(headers.map(function(header) {
+      return values[header] === undefined ? '' : values[header];
+    }));
+  }
+
+  function findIdempotencyRow_(sheet, idempotencyKey) {
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return null;
+    var headers = HEADERS[SHEETS.IDEMPOTENCY_LOG];
+    var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    var keyIndex = headers.indexOf('idempotency_key');
+    var statusIndex = headers.indexOf('status');
+    var resultRefIndex = headers.indexOf('result_ref');
+    for (var i = 0; i < rows.length; i += 1) {
+      if (String(rows[i][keyIndex]) === idempotencyKey) {
+        return {
+          rowNumber: i + 2,
+          status: String(rows[i][statusIndex] || ''),
+          result_ref: String(rows[i][resultRefIndex] || ''),
+        };
+      }
+    }
+    return null;
+  }
+
+  function findInvoiceRow_(sheet, invoiceId) {
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return null;
+    var headers = HEADERS[SHEETS.FATURAS];
+    var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    var idIndex = headers.indexOf('id_fatura');
+    var previstoIndex = headers.indexOf('valor_previsto');
+    var fechadoIndex = headers.indexOf('valor_fechado');
+    var pagoIndex = headers.indexOf('valor_pago');
+    var statusIndex = headers.indexOf('status');
+    for (var i = 0; i < rows.length; i += 1) {
+      if (String(rows[i][idIndex]) === invoiceId) {
+        return {
+          rowNumber: i + 2,
+          valor_previsto: numberFromSheetValue_(rows[i][previstoIndex]),
+          valor_fechado: numberFromSheetValue_(rows[i][fechadoIndex]),
+          valor_pago: numberFromSheetValue_(rows[i][pagoIndex]),
+          status: String(rows[i][statusIndex] || ''),
+        };
+      }
+    }
+    return null;
+  }
+
+  function updateInvoicePayment_(sheet, rowNumber, amount, status) {
+    var headers = HEADERS[SHEETS.FATURAS];
+    sheet.getRange(rowNumber, headers.indexOf('valor_pago') + 1).setValue(amount);
+    sheet.getRange(rowNumber, headers.indexOf('status') + 1).setValue(status);
+  }
+
+  function numberFromSheetValue_(value) {
+    if (typeof value === 'number') return isFinite(value) ? value : 0;
+    var parsed = parseMoneyText_(String(value || ''));
+    return isFinite(parsed) ? parsed : 0;
+  }
+
+  function updateIdempotencyStatus_(sheet, rowNumber, status, resultRef, updatedAt, errorCode) {
+    var headers = HEADERS[SHEETS.IDEMPOTENCY_LOG];
+    sheet.getRange(rowNumber, headers.indexOf('status') + 1).setValue(status);
+    sheet.getRange(rowNumber, headers.indexOf('result_ref') + 1).setValue(resultRef);
+    sheet.getRange(rowNumber, headers.indexOf('updated_at') + 1).setValue(updatedAt);
+    sheet.getRange(rowNumber, headers.indexOf('error_code') + 1).setValue(errorCode || '');
   }
 
   function firstAllowed_(items) {

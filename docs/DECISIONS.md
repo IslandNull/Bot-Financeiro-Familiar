@@ -229,3 +229,163 @@ Rejected:
 - Setting Telegram's webhook from a repo script that requires local `.env` secrets.
 - Recording the Val Town URL, bot token, webhook secret, or Apps Script URL in repository files.
 - Pointing Telegram directly at Apps Script after the Val Town proxy was introduced.
+
+## V55-D016 - Val Town Delivers Apps Script Response Text
+
+Status: Accepted
+Date: 2026-04-30
+
+Decision:
+During the Phase 7 pilot, Val Town remains Telegram's webhook target, acknowledges Telegram immediately with HTTP 200, forwards the update to Apps Script, then reads the Apps Script JSON `responseText` and sends it to the original Telegram chat with `sendMessage`. The Telegram bot token must stay in Val Town environment variables and must not be committed.
+
+Reason:
+Telegram does not display the HTTP response body returned by a webhook. The previous proxy correctly acknowledged and forwarded updates, but discarded the Apps Script response, so `/help` could execute in Apps Script without producing a Telegram message.
+
+Rejected:
+- Treating Apps Script's webhook JSON response as a Telegram chat reply.
+- Hardcoding the Telegram token, webhook URLs, or chat identifiers in repository files.
+- Sending replies for failed webhook-secret or unauthorized gates.
+
+## V55-D017 - Val Town Proxy Is A Hardened Edge Boundary
+
+Status: Accepted
+Date: 2026-04-30
+
+Decision:
+Keep the Val Town proxy as a small edge boundary with explicit timeouts for Apps Script and Telegram calls, HTTPS validation for the Apps Script target, redacted operational diagnostics, Telegram message length protection, disabled web page preview, and webhook-secret forwarding through both header and `secret` query parameter when calling Apps Script.
+
+Reason:
+The real pilot proved that Apps Script Web App requests may not reliably expose custom headers to `doPost(e)`, while the query parameter path works. The proxy also needs to avoid hanging background work, leaking secrets in logs, or failing on oversized Telegram responses.
+
+Rejected:
+- Depending only on custom headers for Apps Script webhook-secret forwarding.
+- Logging raw URLs, tokens, webhook secrets, chat IDs, or user IDs from the proxy.
+- Sending arbitrarily long response text to Telegram.
+
+## V55-D018 - First Real Mutation Is A Narrow Pilot Expense
+
+Status: Accepted
+Date: 2026-04-30
+
+Decision:
+Enable the first real Apps Script financial mutation only behind Script Property `PILOT_FINANCIAL_MUTATION_ENABLED=YES`. The initial allowed mutation is limited to an effective family cash expense using the reviewed V55 category and source for family-market spending. Apps Script must parse through OpenAI Responses JSON output, default to `gpt-5-nano` unless `OPENAI_MODEL` is set, normalize the parser result into the canonical pilot row shape, validate the parsed event again, write `Idempotency_Log` before `Lancamentos`, use `LockService`, suppress completed duplicate deliveries, and mark processing rows as failed when the real write path throws.
+
+Reason:
+The `/help` pilot proved the Telegram, Val Town, and Apps Script route. The next risk is real spreadsheet mutation, so the blast radius must stay small while proving parser, idempotency, lock, and append behavior against the verified V55 spreadsheet.
+
+Rejected:
+- Enabling all event types at once.
+- Letting financial mutation run without an explicit pilot Script Property.
+- Writing a financial row before an idempotency row exists.
+
+## V55-D019 - Pilot Expense Date Defaults To Sao Paulo Today
+
+Status: Accepted
+Date: 2026-04-30
+
+Decision:
+For the narrow Telegram pilot expense path, if the OpenAI parser returns an empty date for a current natural-language launch, Apps Script normalizes the date to today's date in `America/Sao_Paulo` and derives `competencia` from that normalized date.
+
+Reason:
+The real pilot produced `INVALID_DATE_EMPTY` for a simple current expense message. In this Telegram intake path, an omitted date should mean the current local accounting date, while explicit historical or scheduled dates still have to pass strict validation.
+
+Rejected:
+- Rejecting current expense messages only because the parser omitted `data`.
+- Using UTC or server-default timezone for the accounting date.
+- Broadening the pilot mutation beyond the reviewed family cash expense.
+
+## V55-D020 - Pilot Expense Canonicalizes Parser Flags Locally
+
+Status: Accepted
+Date: 2026-04-30
+
+Decision:
+For the narrow market-expense pilot, Apps Script canonicalizes a parsed `despesa` with category `OPEX_MERCADO_SEMANA` into the reviewed family cash shape before the final gate: `id_fonte=FONTE_CONTA_FAMILIA` when omitted, `escopo=Familiar`, `visibilidade=detalhada`, `status=efetivado`, `afeta_dre=true`, `afeta_patrimonio=false`, and `afeta_caixa_familiar=true`. The canonicalizer does not override a non-family scope, non-cash source, non-effective status, non-detailed visibility, or card/invoice/debt/asset references.
+
+Reason:
+The real pilot reached `PILOT_FLAGS_BLOCKED`, proving the model can return semantically close but operationally unsafe boolean flags. The Apps Script adapter should not depend on model exactness for canonical fields that are already fixed by the pilot boundary.
+
+Rejected:
+- Trusting OpenAI boolean flags directly for the reviewed pilot row.
+- Converting card-like or linked-reference events into cash expenses.
+- Expanding the pilot to other categories or event types.
+
+## V55-D021 - V54 Parser Lessons Applied To V55 Pilot
+
+Status: Accepted
+Date: 2026-04-30
+
+Decision:
+Use only technical parser lessons from the V54 repository: quote raw user text in the prompt, keep hard output rules explicit, keep canonical dictionaries visible, add pilot examples, and normalize money locally for the narrow V55 market expense. The V55 runtime accepts safe positive money formats such as `10`, `10.00`, `10,00`, and `R$ 10`; if the parser omits `valor`, the pilot extracts the first money-like value from the original Telegram text before failing closed.
+
+Reason:
+Real pilot traffic showed inconsistent `INVALID_MONEY` for repeated `mercado 10` messages because OpenAI output varied. V54's good pattern was not trusting the model alone: prompt hardening plus local normalization/validation.
+
+Rejected:
+- Importing V54 architecture or couple-settlement domain into V55.
+- Trusting parser money formatting exactly in the Apps Script runtime.
+- Accepting zero, negative, missing, or non-money values silently.
+
+## V55-D022 - Pilot Market Expense Requires Text Alias Confirmation
+
+Status: Accepted
+Date: 2026-04-30
+
+Decision:
+While the only enabled real mutation is the market cash expense pilot, Apps Script must require the original Telegram text to contain an explicit market-like alias such as `mercado`, `supermercado`, `feira`, or `hortifruti` before accepting `OPEX_MERCADO_SEMANA`. If OpenAI classifies unrelated text into the market category, the runtime fails closed with `PILOT_TEXT_CATEGORY_MISMATCH` before idempotency or `Lancamentos` writes.
+
+Reason:
+Real pilot traffic showed `ração do draco 250` being registered because OpenAI classified it as `OPEX_MERCADO_SEMANA`. The pilot must prove one narrow mutation safely, not let the model stretch unrelated expenses into the active category.
+
+Rejected:
+- Accepting `OPEX_MERCADO_SEMANA` from OpenAI without checking the source text.
+- Expanding the pilot to pet, restaurant, pharmacy, or miscellaneous categories in this step.
+- Writing an idempotency row for text/category mismatches.
+
+## V55-D023 - Second Real Mutation Is A Narrow Card Purchase
+
+Status: Accepted
+Date: 2026-04-30
+
+Decision:
+After the low-value market cash expense pilot, the next real Apps Script mutation path is limited to one reviewed card-purchase shape: pharmacy spending on `CARD_NUBANK_GU` through `FONTE_NUBANK_GU`. The runtime canonicalizes fixed fields locally, requires both pharmacy-like and card-like source text, assigns the expected invoice cycle, writes `Idempotency_Log` before `Lancamentos` and `Faturas`, and keeps invoice payment, transfer, asset, debt, and adjustment mutations blocked.
+
+Reason:
+Phase 7 needs to prove the card semantic boundary without opening every card category or payment workflow. A card purchase must affect DRE and invoice exposure now, but not family cash until invoice payment.
+
+Rejected:
+- Enabling all card purchases or all active categories at once.
+- Treating card purchase as a family cash outflow.
+- Enabling invoice payment before the created or reviewed invoice state exists.
+
+## V55-D024 - Third Real Mutation Is A Narrow Invoice Payment Fixture
+
+Status: Accepted
+Date: 2026-04-30
+
+Decision:
+After the reviewed Nubank card-purchase pilot creates an invoice row, the next real Apps Script mutation path is limited to paying that reviewed invoice fixture. The runtime canonicalizes fixed fields locally, requires payment/fatura/Nubank source text, verifies the existing invoice and exact expected amount before writing, records a `pagamento_fatura` launch with `afeta_dre=false` and `afeta_caixa_familiar=true`, and updates the reviewed `Faturas` row to paid.
+
+Reason:
+The product rule is that card purchase is the DRE expense and invoice payment is only the later cash movement. This pilot proves that boundary against the real sheet without enabling arbitrary invoice matching or broad payment workflows.
+
+Rejected:
+- Creating a second DRE expense when paying the invoice.
+- Paying arbitrary invoice IDs before reviewed lookup rules exist.
+- Accepting amount mismatches silently.
+
+## V55-D025 - Val Town Replies Through Telegram Webhook Response
+
+Status: Accepted
+Date: 2026-04-30
+
+Decision:
+For the Phase 7 pilot, Val Town should await the Apps Script response and, when a safe `responseText` is available, return a Telegram webhook `sendMessage` method payload as the HTTP response. Failed auth gates still return plain `ok` without a chat message. This replaces relying on post-response background `sendMessage` work for normal pilot replies.
+
+Reason:
+The real invoice-payment pilot mutated the spreadsheet correctly but produced no Telegram chat response, showing that background reply delivery after Val Town returned `ok` was not reliable enough for the pilot. A synchronous webhook method response keeps the Telegram acknowledgement and chat reply in the same request.
+
+Rejected:
+- Depending on non-awaited background work for user-visible replies.
+- Requiring a Telegram bot token in Val Town only to answer normal webhook messages.
+- Sending chat replies for webhook-secret or unauthorized failures.
