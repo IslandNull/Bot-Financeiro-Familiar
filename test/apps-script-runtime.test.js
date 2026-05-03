@@ -17,6 +17,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, 'apps-script', 'apps
 
 const lancamentosHeaders = ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'created_at'];
 const faturasHeaders = ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'];
+const transferenciasHeaders = ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'];
 const idempotencyHeaders = ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'];
 
 function createFakeSheet(headers) {
@@ -51,6 +52,7 @@ function createAppsScriptHarness(openAiEvent) {
         Idempotency_Log: createFakeSheet(idempotencyHeaders),
         Lancamentos: createFakeSheet(lancamentosHeaders),
         Faturas: createFakeSheet(faturasHeaders),
+        Transferencias_Internas: createFakeSheet(transferenciasHeaders),
     };
     const properties = {
         WEBHOOK_SECRET: 'test_secret',
@@ -593,12 +595,119 @@ test('Apps Script pilot invoice payment requires reviewed invoice and amount', (
     assert.strictEqual(invoice.status, 'prevista');
 });
 
+test('Apps Script pilot internal transfer writes family cash entry only', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'transferencia_interna',
+        data: '',
+        competencia: '',
+        valor: '300',
+        descricao: '',
+        id_categoria: '',
+        id_fonte: '',
+        pessoa: '',
+        escopo: '',
+        visibilidade: '',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: true,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+
+    const result = postPilotMessage(context, 'Luana mandou 300 para caixa familiar');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Faturas.rows.length, 1);
+    assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
+    const transfer = Object.fromEntries(transferenciasHeaders.map((header, index) => [header, sheets.Transferencias_Internas.rows[1][index]]));
+    assert.ok(/^TRF_[A-F0-9]{12}$/.test(transfer.id_transferencia));
+    assert.strictEqual(transfer.data, '2026-04-30');
+    assert.strictEqual(transfer.competencia, '2026-04');
+    assert.strictEqual(transfer.valor, 300);
+    assert.strictEqual(transfer.fonte_origem, 'FONTE_EXTERNA_LUANA');
+    assert.strictEqual(transfer.fonte_destino, 'FONTE_CONTA_FAMILIA');
+    assert.strictEqual(transfer.pessoa_origem, 'Luana');
+    assert.strictEqual(transfer.pessoa_destino, 'Familiar');
+    assert.strictEqual(transfer.escopo, 'Familiar');
+    assert.strictEqual(transfer.direcao_caixa_familiar, 'entrada');
+});
+
+test('Apps Script pilot internal transfer blocks person-to-person and unrelated transfers', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'transferencia_interna',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '500',
+        descricao: 'Luana transfere para Gustavo',
+        id_categoria: 'MOV_CAIXA_FAMILIAR',
+        id_fonte: '',
+        pessoa: 'Luana',
+        escopo: '',
+        visibilidade: '',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+
+    const result = postPilotMessage(context, 'Luana transfere 500 para Gustavo');
+
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['PILOT_TEXT_CATEGORY_MISMATCH']);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Transferencias_Internas.rows.length, 1);
+});
+
+test('Apps Script pilot internal transfer requires parser person to match text', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'transferencia_interna',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '300',
+        descricao: '',
+        id_categoria: 'MOV_CAIXA_FAMILIAR',
+        id_fonte: '',
+        pessoa: 'Gustavo',
+        escopo: '',
+        visibilidade: '',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+
+    const result = postPilotMessage(context, 'Luana mandou 300 para caixa familiar');
+
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['PILOT_TRANSFER_PERSON_MISMATCH']);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+    assert.strictEqual(sheets.Transferencias_Internas.rows.length, 1);
+});
+
 test('Apps Script runtime writes pilot expense with idempotency before launch row', () => {
     assert.ok(code.includes('LockService.getScriptLock()'));
     assert.ok(code.includes('waitLock(10000)'));
     assert.ok(code.includes("appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG"));
     assert.ok(code.includes("appendRow_(launchSheet, SHEETS.LANCAMENTOS"));
     assert.ok(code.includes("appendRow_(invoiceSheet, SHEETS.FATURAS"));
+    assert.ok(code.includes("appendRow_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS"));
     assert.ok(code.includes('updateInvoicePayment_'));
     assert.ok(code.includes('duplicate_completed'));
     assert.ok(code.includes('DUPLICATE_PROCESSING'));

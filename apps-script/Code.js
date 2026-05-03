@@ -12,11 +12,13 @@ var V55 = (function() {
     CARTOES: 'Cartoes',
     FATURAS: 'Faturas',
     LANCAMENTOS: 'Lancamentos',
+    TRANSFERENCIAS_INTERNAS: 'Transferencias_Internas',
     IDEMPOTENCY_LOG: 'Idempotency_Log',
   };
   var HEADERS = {
     Faturas: ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'],
     Lancamentos: ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'created_at'],
+    Transferencias_Internas: ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'],
     Idempotency_Log: ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'],
   };
   var PILOT_CARD = {
@@ -26,6 +28,11 @@ var V55 = (function() {
     vencimento_dia: 7,
   };
   var PILOT_INVOICE_ID = 'FAT_CARD_NUBANK_GU_2026_04';
+  var PILOT_FAMILY_CASH_SOURCE_ID = 'FONTE_CONTA_FAMILIA';
+  var PILOT_EXTERNAL_SOURCE_BY_PERSON = {
+    Gustavo: 'FONTE_EXTERNA_GUSTAVO',
+    Luana: 'FONTE_EXTERNA_LUANA',
+  };
 
   function doPost(e) {
     var config = readConfig_();
@@ -224,6 +231,12 @@ var V55 = (function() {
       return recordPilotCardPurchase_(update, message, parsed.event, config);
     }
 
+    if (parsed.event.tipo_evento === 'transferencia_interna') {
+      var transferCheck = validatePilotInternalTransferEvent_(parsed.event);
+      if (!transferCheck.ok) return transferCheck;
+      return recordPilotInternalTransfer_(update, message, parsed.event, config);
+    }
+
     var pilotCheck = validatePilotExpenseEvent_(parsed.event);
     if (!pilotCheck.ok) return pilotCheck;
 
@@ -318,9 +331,11 @@ var V55 = (function() {
       'Input: "mercado 10 hoje" -> same event with data ' + todaySaoPaulo_() + ' and competencia ' + todaySaoPaulo_().slice(0, 7) + '.',
       'Input: "farmacia 10 no nubank" -> valor "10", tipo_evento "compra_cartao", id_categoria "OPEX_FARMACIA", id_cartao "CARD_NUBANK_GU", id_fonte "FONTE_NUBANK_GU", escopo "Familiar".',
       'Input: "pagar fatura nubank 42,50" -> valor "42.50", tipo_evento "pagamento_fatura", id_fatura "' + PILOT_INVOICE_ID + '", id_fonte "FONTE_CONTA_FAMILIA", escopo "Familiar".',
+      'Input: "Luana mandou 100 para caixa familiar" -> valor "100", tipo_evento "transferencia_interna", id_categoria "MOV_CAIXA_FAMILIAR", pessoa "Luana", escopo "Familiar", direcao_caixa_familiar "entrada".',
       'For a family cash expense, use tipo_evento despesa, escopo Familiar, visibilidade detalhada, afeta_dre true, afeta_patrimonio false, afeta_caixa_familiar true, id_fonte FONTE_CONTA_FAMILIA, status efetivado.',
       'For the reviewed card purchase, use tipo_evento compra_cartao, escopo Familiar, visibilidade detalhada, afeta_dre true, afeta_patrimonio false, afeta_caixa_familiar false, id_categoria OPEX_FARMACIA, id_cartao CARD_NUBANK_GU, id_fonte FONTE_NUBANK_GU, status efetivado.',
       'For the reviewed invoice payment, use tipo_evento pagamento_fatura, escopo Familiar, visibilidade detalhada, afeta_dre false, afeta_patrimonio false, afeta_caixa_familiar true, id_fatura ' + PILOT_INVOICE_ID + ', id_fonte FONTE_CONTA_FAMILIA, status efetivado.',
+      'For the reviewed internal transfer, accept only an entrada into family cash. Use id_fonte empty, id_cartao empty, id_fatura empty, id_divida empty, id_ativo empty, escopo Familiar, visibilidade resumo, afeta_dre false, afeta_patrimonio false, afeta_caixa_familiar true, status efetivado.',
       'Rules: card purchases affect DRE now and cash later; invoice payments never affect DRE; internal transfers never affect DRE or net worth.',
       'Today: ' + todaySaoPaulo_(),
       'User text: ' + JSON.stringify(text.trim()),
@@ -376,6 +391,7 @@ var V55 = (function() {
     if (event.tipo_evento === 'despesa') return canonicalizePilotExpenseEvent_(event);
     if (event.tipo_evento === 'compra_cartao') return canonicalizePilotCardPurchaseEvent_(event);
     if (event.tipo_evento === 'pagamento_fatura') return canonicalizePilotInvoicePaymentEvent_(event);
+    if (event.tipo_evento === 'transferencia_interna') return canonicalizePilotInternalTransferEvent_(event);
     return event;
   }
 
@@ -392,6 +408,27 @@ var V55 = (function() {
     event.visibilidade = 'detalhada';
     event.status = 'efetivado';
     event.afeta_dre = true;
+    event.afeta_patrimonio = false;
+    event.afeta_caixa_familiar = true;
+    return event;
+  }
+
+  function canonicalizePilotInternalTransferEvent_(event) {
+    if (event.tipo_evento !== 'transferencia_interna') return event;
+    if (event.id_categoria && event.id_categoria !== 'MOV_CAIXA_FAMILIAR') return event;
+    if (event.id_fonte) return event;
+    if (event.escopo && event.escopo !== 'Familiar') return event;
+    if (event.status && event.status !== 'efetivado') return event;
+    if (event.visibilidade && event.visibilidade !== 'resumo') return event;
+    if (event.id_cartao || event.id_fatura || event.id_divida || event.id_ativo) return event;
+    if (event.direcao_caixa_familiar && event.direcao_caixa_familiar !== 'entrada') return event;
+    event.id_categoria = 'MOV_CAIXA_FAMILIAR';
+    event.pessoa = event.pessoa || inferPilotTransferPerson_(event.raw_text || event.descricao);
+    event.escopo = 'Familiar';
+    event.visibilidade = 'resumo';
+    event.status = 'efetivado';
+    event.direcao_caixa_familiar = 'entrada';
+    event.afeta_dre = false;
     event.afeta_patrimonio = false;
     event.afeta_caixa_familiar = true;
     return event;
@@ -547,6 +584,23 @@ var V55 = (function() {
     return { ok: true };
   }
 
+  function validatePilotInternalTransferEvent_(event) {
+    if (event.tipo_evento !== 'transferencia_interna') return fail_('PILOT_EVENT_TYPE_BLOCKED', 'tipo_evento', GENERIC_RECORD_FAILURE);
+    if (event.escopo !== 'Familiar') return fail_('PILOT_SCOPE_BLOCKED', 'escopo', GENERIC_RECORD_FAILURE);
+    if (event.status !== 'efetivado') return fail_('PILOT_STATUS_BLOCKED', 'status', GENERIC_RECORD_FAILURE);
+    if (event.id_categoria !== 'MOV_CAIXA_FAMILIAR') return fail_('PILOT_TRANSFER_CATEGORY_BLOCKED', 'id_categoria', GENERIC_RECORD_FAILURE);
+    if (!isPilotInternalTransferText_(event.raw_text || event.descricao)) return fail_('PILOT_TEXT_CATEGORY_MISMATCH', 'text', GENERIC_RECORD_FAILURE);
+    if (event.id_fonte) return fail_('PILOT_SOURCE_BLOCKED', 'id_fonte', GENERIC_RECORD_FAILURE);
+    if (!PILOT_EXTERNAL_SOURCE_BY_PERSON[event.pessoa]) return fail_('PILOT_TRANSFER_PERSON_BLOCKED', 'pessoa', GENERIC_RECORD_FAILURE);
+    if (inferPilotTransferPerson_(event.raw_text || event.descricao) !== event.pessoa) return fail_('PILOT_TRANSFER_PERSON_MISMATCH', 'pessoa', GENERIC_RECORD_FAILURE);
+    if (event.direcao_caixa_familiar !== 'entrada') return fail_('PILOT_TRANSFER_DIRECTION_BLOCKED', 'direcao_caixa_familiar', GENERIC_RECORD_FAILURE);
+    if (event.id_cartao || event.id_fatura || event.id_divida || event.id_ativo) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
+    if (event.afeta_dre !== false || event.afeta_patrimonio !== false || event.afeta_caixa_familiar !== true) {
+      return fail_('PILOT_FLAGS_BLOCKED', 'flags', GENERIC_RECORD_FAILURE);
+    }
+    return { ok: true };
+  }
+
   function isPilotMarketText_(text) {
     var normalized = normalizeAliasText_(text);
     if (!normalized) return false;
@@ -578,6 +632,33 @@ var V55 = (function() {
     return hasPayment &&
       containsAliasPhrase_(normalized, 'fatura') &&
       containsAliasPhrase_(normalized, 'nubank');
+  }
+
+  function isPilotInternalTransferText_(text) {
+    var normalized = normalizeAliasText_(text);
+    if (!normalized) return false;
+    var hasPerson = containsAliasPhrase_(normalized, 'luana') ||
+      containsAliasPhrase_(normalized, 'gustavo');
+    var hasMovement = containsAliasPhrase_(normalized, 'pix') ||
+      containsAliasPhrase_(normalized, 'mandou') ||
+      containsAliasPhrase_(normalized, 'manda') ||
+      containsAliasPhrase_(normalized, 'transferiu') ||
+      containsAliasPhrase_(normalized, 'transfere') ||
+      containsAliasPhrase_(normalized, 'depositou') ||
+      containsAliasPhrase_(normalized, 'colocou') ||
+      containsAliasPhrase_(normalized, 'enviou');
+    var hasFamilyCash = containsAliasPhrase_(normalized, 'caixa familiar') ||
+      containsAliasPhrase_(normalized, 'conta familia') ||
+      containsAliasPhrase_(normalized, 'conta familiar') ||
+      containsAliasPhrase_(normalized, 'caixa da familia');
+    return hasPerson && hasMovement && hasFamilyCash;
+  }
+
+  function inferPilotTransferPerson_(text) {
+    var normalized = normalizeAliasText_(text);
+    if (containsAliasPhrase_(normalized, 'luana')) return 'Luana';
+    if (containsAliasPhrase_(normalized, 'gustavo')) return 'Gustavo';
+    return '';
   }
 
   function normalizeAliasText_(text) {
@@ -859,6 +940,80 @@ var V55 = (function() {
         created_at: now,
       });
       updateInvoicePayment_(invoiceSheet, invoice.rowNumber, event.valor, 'paga');
+      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
+      return { ok: true, responseText: SUCCESS_TEXT, shouldApplyDomainMutation: true, result_ref: resultRef };
+    } catch (_err) {
+      if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
+        updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
+      }
+      return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  function recordPilotInternalTransfer_(update, message, event, config) {
+    var lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    var idempotencySheetForFailure = null;
+    var idempotencyRowNumberForFailure = null;
+    var resultRefForFailure = '';
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var request = telegramRequest_(update, message);
+      var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
+      var transferSheet = spreadsheet.getSheetByName(SHEETS.TRANSFERENCIAS_INTERNAS);
+      idempotencySheetForFailure = idempotencySheet;
+      verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
+      verifySheetHeaders_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS);
+
+      var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
+      if (existing && existing.status === 'completed') {
+        return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
+      }
+      if (existing && existing.status === 'processing') {
+        return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
+      }
+
+      var now = isoNow_();
+      var resultRef = stableId_('TRF', request.idempotency_key + '|' + event.pessoa + '|' + event.valor + '|family_cash_entry');
+      resultRefForFailure = resultRef;
+      if (existing && existing.rowNumber) {
+        updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
+        idempotencyRowNumberForFailure = existing.rowNumber;
+      } else {
+        appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
+          idempotency_key: request.idempotency_key,
+          source: request.source,
+          external_update_id: request.external_update_id,
+          external_message_id: request.external_message_id,
+          chat_id: request.chat_id,
+          payload_hash: request.payload_hash,
+          status: 'processing',
+          result_ref: resultRef,
+          created_at: now,
+          updated_at: now,
+          error_code: '',
+          observacao: '',
+        });
+        existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
+        idempotencyRowNumberForFailure = existing && existing.rowNumber;
+      }
+
+      appendRow_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS, {
+        id_transferencia: resultRef,
+        data: event.data,
+        competencia: event.competencia,
+        valor: event.valor,
+        fonte_origem: PILOT_EXTERNAL_SOURCE_BY_PERSON[event.pessoa],
+        fonte_destino: PILOT_FAMILY_CASH_SOURCE_ID,
+        pessoa_origem: event.pessoa,
+        pessoa_destino: 'Familiar',
+        escopo: event.escopo,
+        direcao_caixa_familiar: event.direcao_caixa_familiar,
+        descricao: event.descricao,
+        created_at: now,
+      });
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
       return { ok: true, responseText: SUCCESS_TEXT, shouldApplyDomainMutation: true, result_ref: resultRef };
     } catch (_err) {

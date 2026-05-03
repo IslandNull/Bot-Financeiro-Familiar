@@ -389,3 +389,20 @@ Rejected:
 - Depending on non-awaited background work for user-visible replies.
 - Requiring a Telegram bot token in Val Town only to answer normal webhook messages.
 - Sending chat replies for webhook-secret or unauthorized failures.
+
+## V55-D026 - Fourth Real Mutation Is A Narrow Family Cash Entry
+
+Status: Accepted
+Date: 2026-05-02
+
+Decision:
+After the reviewed invoice-payment fixture, the next Apps Script pilot mutation path is limited to one internal transfer shape: an explicit entrada into family cash from Gustavo or Luana. The runtime canonicalizes fixed internal-transfer fields locally, requires source text to name a person, movement, and family cash destination, writes `Idempotency_Log` before `Transferencias_Internas`, and does not write `Lancamentos`, revenue, expense, debt, or person-to-person settlement rows.
+
+Reason:
+Phase 7 needs to prove that internal movement can affect family cash without becoming DRE revenue or a debt between people. The safe pilot target is money entering the shared family cash, not arbitrary transfers, rent classification, or Gustavo/Luana reimbursement language.
+
+Rejected:
+- Enabling all internal transfers at once.
+- Treating a transfer from Luana to Gustavo as a family-cash event.
+- Recording internal movement as receita, despesa, or debt.
+- Depending on OpenAI to decide DRE and net-worth flags for the reviewed transfer shape.
