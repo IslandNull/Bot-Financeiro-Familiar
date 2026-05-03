@@ -406,3 +406,37 @@ Rejected:
 - Treating a transfer from Luana to Gustavo as a family-cash event.
 - Recording internal movement as receita, despesa, or debt.
 - Depending on OpenAI to decide DRE and net-worth flags for the reviewed transfer shape.
+
+## V55-D027 - First Real Report Command Is Read-Only
+
+Status: Accepted
+Date: 2026-05-02
+
+Decision:
+Expose the first Apps Script family report as `/resumo` and `/resumo_familiar`, before monthly closing writes. The command runs after webhook-secret and authorization checks, requires only `SPREADSHEET_ID`, reads the verified V55 sheets, returns aggregate family decision numbers, and does not call OpenAI, require `PILOT_FINANCIAL_MUTATION_ENABLED`, write idempotency rows, or mutate financial sheets.
+
+Reason:
+Phase 8 needs a real user-facing reporting loop, but closing the month is higher risk than reading current aggregate state. A read-only command lets the user validate DRE, cash, invoice exposure, obligations, reserve, net worth, margin, and suggested destination before any `Fechamento_Familiar` write path exists.
+
+Rejected:
+- Triggering reports through natural-language parser calls.
+- Requiring the financial mutation pilot gate for read-only reports.
+- Writing draft or closed monthly rows from Telegram before the reviewed report output is validated.
+- Returning private line-item details in Telegram.
+
+## V55-D028 - Maintain A Redacted Spreadsheet Snapshot
+
+Status: Accepted
+Date: 2026-05-03
+
+Decision:
+Maintain `docs/SPREADSHEET_SNAPSHOT.md` as the current redacted operational snapshot of the real V55 spreadsheet. `SHEET_SCHEMA.md` and `src/schema.js` remain the schema authority; the snapshot records real sheet presence, headers, row counts, aggregate state, and known data-quality notes without private spreadsheet IDs, URLs, chat/user IDs, tokens, webhook secrets, or full financial dumps.
+
+Reason:
+Future agents need enough real spreadsheet context to validate project progress without repeatedly reconstructing the operational state from chat history or private links. The snapshot gives continuity while respecting the repository's sensitive-data boundary.
+
+Rejected:
+- Committing the spreadsheet URL or ID.
+- Treating a full sheet export as acceptable repository evidence.
+- Replacing schema authority with a mutable operational snapshot.
+- Relying only on conversation history for real spreadsheet state.

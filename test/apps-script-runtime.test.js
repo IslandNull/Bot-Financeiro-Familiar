@@ -17,6 +17,8 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, 'apps-script', 'apps
 
 const lancamentosHeaders = ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'created_at'];
 const faturasHeaders = ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'];
+const patrimonioAtivosHeaders = ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'];
+const dividasHeaders = ['id_divida', 'nome', 'credor', 'tipo', 'escopo', 'saldo_devedor', 'parcela_atual', 'parcelas_total', 'valor_parcela', 'taxa_juros', 'sistema_amortizacao', 'data_atualizacao', 'status', 'observacao'];
 const transferenciasHeaders = ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'];
 const idempotencyHeaders = ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'];
 
@@ -47,11 +49,13 @@ function createFakeSheet(headers) {
     };
 }
 
-function createAppsScriptHarness(openAiEvent) {
+function createAppsScriptHarness(openAiEvent, options = {}) {
     const sheets = {
         Idempotency_Log: createFakeSheet(idempotencyHeaders),
         Lancamentos: createFakeSheet(lancamentosHeaders),
         Faturas: createFakeSheet(faturasHeaders),
+        Patrimonio_Ativos: createFakeSheet(patrimonioAtivosHeaders),
+        Dividas: createFakeSheet(dividasHeaders),
         Transferencias_Internas: createFakeSheet(transferenciasHeaders),
     };
     const properties = {
@@ -62,6 +66,7 @@ function createAppsScriptHarness(openAiEvent) {
         SPREADSHEET_ID: 'sheet_1',
         OPENAI_API_KEY: 'test_openai_key',
         OPENAI_MODEL: 'gpt-5.4-nano',
+        ...(options.properties || {}),
     };
     const context = {
         console,
@@ -76,6 +81,7 @@ function createAppsScriptHarness(openAiEvent) {
         },
         UrlFetchApp: {
             fetch(url) {
+                if (options.failOnFetch) throw new Error('UrlFetchApp.fetch should not be called');
                 assert.strictEqual(url, 'https://api.openai.com/v1/responses');
                 return {
                     getResponseCode() {
@@ -119,6 +125,7 @@ function createAppsScriptHarness(openAiEvent) {
             },
             formatDate(_date, timezone, pattern) {
                 if (timezone === 'America/Sao_Paulo' && pattern === 'yyyy-MM-dd') return '2026-04-30';
+                if (timezone === 'America/Sao_Paulo' && pattern === 'yyyy-MM') return '2026-04';
                 if (timezone === 'Etc/UTC') return '2026-04-30T15:00:00Z';
                 throw new Error(`Unexpected formatDate call: ${timezone} ${pattern}`);
             },
@@ -180,6 +187,52 @@ function appendFakeInvoice(sheets, overrides = {}) {
     sheets.Faturas.appendRow(faturasHeaders.map((header) => invoice[header] === undefined ? '' : invoice[header]));
 }
 
+function appendFakeLaunch(sheets, overrides = {}) {
+    const launch = {
+        id_lancamento: 'LAN_TEST',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        valor: 43.9,
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Familiar',
+        escopo: 'Familiar',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        visibilidade: 'detalhada',
+        status: 'efetivado',
+        descricao: 'mercado',
+        created_at: '2026-04-30T15:00:00Z',
+        ...overrides,
+    };
+    sheets.Lancamentos.appendRow(lancamentosHeaders.map((header) => launch[header] === undefined ? '' : launch[header]));
+}
+
+function appendFakeTransfer(sheets, overrides = {}) {
+    const transfer = {
+        id_transferencia: 'TRF_TEST',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: 100,
+        fonte_origem: 'FONTE_EXTERNA_GUSTAVO',
+        fonte_destino: 'FONTE_CONTA_FAMILIA',
+        pessoa_origem: 'Gustavo',
+        pessoa_destino: 'Familiar',
+        escopo: 'Familiar',
+        direcao_caixa_familiar: 'entrada',
+        descricao: 'Gustavo mandou 100 para caixa familiar',
+        created_at: '2026-04-30T15:00:00Z',
+        ...overrides,
+    };
+    sheets.Transferencias_Internas.appendRow(transferenciasHeaders.map((header) => transfer[header] === undefined ? '' : transfer[header]));
+}
+
 test('Apps Script runtime exposes webhook and self-test functions', () => {
     assert.ok(code.includes('function doPost(e)'));
     assert.ok(code.includes('function doGet(e)'));
@@ -216,6 +269,98 @@ test('Apps Script runtime gates and narrows financial mutation', () => {
     assert.ok(code.includes("event.tipo_evento !== 'pagamento_fatura'"));
     assert.ok(code.includes("event.escopo !== 'Familiar'"));
     assert.ok(code.includes('shouldApplyDomainMutation: false'));
+});
+
+test('Apps Script /resumo command is read-only and does not require pilot mutation gate', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeLaunch(sheets, { valor: 43.9 });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_CARD',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_FARMACIA',
+        valor: 42.5,
+        id_fonte: 'FONTE_NUBANK_GU',
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        afeta_caixa_familiar: false,
+        descricao: 'farmacia',
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_PRIVATE',
+        valor: 20,
+        escopo: 'Luana',
+        visibilidade: 'privada',
+        descricao: 'privado',
+    });
+    appendFakeTransfer(sheets, { valor: 100 });
+    appendFakeInvoice(sheets, { valor_previsto: 42.5, valor_pago: '', status: 'prevista' });
+    sheets.Patrimonio_Ativos.appendRow(patrimonioAtivosHeaders.map((header) => ({
+        id_ativo: 'ATIVO_RESERVA',
+        nome: 'Reserva',
+        tipo_ativo: 'liquidez',
+        instituicao: 'Banco',
+        saldo_atual: 1000,
+        data_referencia: '2026-04-30',
+        destinacao: 'reserva',
+        conta_reserva_emergencia: true,
+        ativo: true,
+    })[header] ?? ''));
+    sheets.Dividas.appendRow(dividasHeaders.map((header) => ({
+        id_divida: 'DIV_TEST',
+        nome: 'Financiamento',
+        credor: 'Banco',
+        tipo: 'financiamento',
+        escopo: 'Familiar',
+        saldo_devedor: 10000,
+        parcela_atual: 1,
+        parcelas_total: 10,
+        valor_parcela: 500,
+        taxa_juros: '',
+        sistema_amortizacao: '',
+        data_atualizacao: '2026-04-30',
+        status: 'ativa',
+        observacao: '',
+    })[header] ?? ''));
+
+    const result = postPilotMessage(context, '/resumo');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Resumo familiar 2026-04/);
+    assert.match(result.responseText, /DRE: receitas R\$ 0\.00, despesas R\$ 106\.40, resultado R\$ -106\.40/);
+    assert.match(result.responseText, /Caixa: entradas R\$ 100\.00, saidas R\$ 63\.90, sobra R\$ 36\.10/);
+    assert.match(result.responseText, /Exposicao: faturas R\$ 42\.50, obrigacoes R\$ 500\.00/);
+    assert.match(result.responseText, /Patrimonio: reserva R\$ 1000\.00, patrimonio liquido R\$ -9000\.00/);
+    assert.match(result.responseText, /Modo leitura: nenhuma linha foi gravada\./);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 4);
+    assert.strictEqual(sheets.Faturas.rows.length, 2);
+    assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
+});
+
+test('Apps Script /resumo normalizes sheet date cells used as competencia', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    const sheetDateCompetencia = new Date(Date.UTC(2026, 3, 1, 12, 0, 0));
+    appendFakeLaunch(sheets, { competencia: sheetDateCompetencia, valor: 43.9 });
+    appendFakeTransfer(sheets, { competencia: sheetDateCompetencia, valor: 100 });
+
+    const result = postPilotMessage(context, '/resumo_familiar');
+
+    assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /DRE: receitas R\$ 0\.00, despesas R\$ 43\.90, resultado R\$ -43\.90/);
+    assert.match(result.responseText, /Caixa: entradas R\$ 100\.00, saidas R\$ 43\.90, sobra R\$ 56\.10/);
 });
 
 test('Apps Script runtime uses OpenAI Responses JSON output for parser boundary', () => {

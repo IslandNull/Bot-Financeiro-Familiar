@@ -42,17 +42,24 @@ VERIFIED as of 2026-04-29:
 - The Apps Script runtime has a locally verified next pilot mutation path for one narrow invoice payment fixture against the reviewed Nubank invoice. It canonicalizes invoice-payment fields locally, requires payment/fatura/Nubank source text, checks the existing invoice row and exact expected amount before writing, writes a `pagamento_fatura` launch with `afeta_dre=false` and `afeta_caixa_familiar=true`, updates `Faturas.valor_pago` and `Faturas.status=paga`, preserves completed duplicate suppression, keeps transfer, asset, debt, and adjustment mutations blocked in the real runtime, and passes local syntax check plus `npm test` on 2026-04-30.
 - `REAL_REPO_EVIDENCE`: A user-provided spreadsheet snapshot on 2026-04-30 verifies redacted Phase 7 row evidence for the reviewed invoice payment: `Lancamentos` contains one `pagamento_fatura` row linked to the reviewed Nubank invoice, with DRE disabled and family cash enabled, and `Faturas` shows the reviewed invoice with paid value and status `paga`. The same pilot message produced no Telegram chat response, so the local Val Town proxy was changed to return a Telegram webhook `sendMessage` response synchronously instead of relying on post-response background send work.
 - `LOCAL_VERIFIED`: The Apps Script runtime has a locally verified next pilot mutation path for one narrow internal transfer into family cash. It canonicalizes a reviewed `transferencia_interna` entrada locally, requires text to name Gustavo or Luana, movement, and a family-cash destination, writes `Idempotency_Log` before `Transferencias_Internas`, does not write `Lancamentos`, revenue, expense, debt, or person-to-person settlement rows, and blocks person-to-person transfer text with `PILOT_TEXT_CATEGORY_MISMATCH`. Local syntax check, targeted runtime test, and full `npm test` pass on 2026-05-02; Apps Script deployment, real OpenAI parser call, and real spreadsheet mutation remain UNVERIFIED until run.
+- `USER_REPORTED_REAL`: On 2026-05-02, the internal-transfer pilot was exercised through Apps Script. The reported spreadsheet evidence shows one redacted `Transferencias_Internas` row for a Luana-to-family-cash entrada with source-to-destination mapping into family cash and no person-to-person settlement row. A person-to-person transfer message was blocked with `PILOT_TEXT_CATEGORY_MISMATCH`. The user later clarified that the Telegram message and the row agreed on the amount, but exact raw values are intentionally not recorded in committed evidence.
+- `USER_REPORTED_REAL`: On 2026-05-02, additional internal-transfer pilot checks were exercised through Apps Script. A text without explicit Gustavo/Luana source person for family cash was blocked with `PILOT_TEXT_CATEGORY_MISMATCH`, as expected by the current narrow gate. A person-to-person transfer remained blocked with `PILOT_TEXT_CATEGORY_MISMATCH`. A Gustavo-to-family-cash entrada produced a redacted `Transferencias_Internas` row with source-to-destination mapping into family cash and no reported `Lancamentos` row. A salary/revenue text remained blocked with `PILOT_EVENT_TYPE_BLOCKED`.
 - `REAL_REPO_EVIDENCE`: The real Apps Script Web App URL responds to `GET` with the V55 pilot identity and rejects an invalid-secret `POST` with `INVALID_WEBHOOK_SECRET` before domain mutation.
 - `USER_REPORTED_REAL`: On 2026-05-02, `apps-script/appsscript.json` and `apps-script/Code.js` are deployed to Apps Script, and the unauthorized user/chat gate was validated successfully before parser/writer execution.
 - `REAL_REPO_EVIDENCE`: Real V55 spreadsheet setup is verified by a redacted read-only spreadsheet metadata and header snapshot.
 - `LOCAL_VERIFIED`: `npm test` passes using only Node built-ins.
+- `LOCAL_VERIFIED`: Phase 8 local reporting contracts now include a read-only family summary view, a draft `Fechamento_Familiar` row builder that matches the schema headers, and a reviewed closing workflow that closes only schema-compatible draft rows with explicit `closed_at`. The contracts reuse family closing calculations, preserve draft/closed semantics, and keep private detail out of shared detailed events. Targeted reporting tests and full `npm test` pass on 2026-05-02.
+- `LOCAL_VERIFIED`: The Apps Script runtime now exposes `/resumo` and `/resumo_familiar` as read-only family report commands. They run after webhook-secret and authorization checks, require only `SPREADSHEET_ID`, read `Lancamentos`, `Faturas`, `Transferencias_Internas`, `Patrimonio_Ativos`, and `Dividas`, return aggregate DRE/cash/exposure/reserve/net-worth/margin/destination output, do not call OpenAI, do not require `PILOT_FINANCIAL_MUTATION_ENABLED`, and do not write idempotency or financial rows. Local syntax check and targeted runtime tests pass on 2026-05-02; real Telegram output remains UNVERIFIED.
+- `USER_REPORTED_REAL`: On 2026-05-02, `/resumo` and `/resumo_familiar` returned the same read-only Telegram text, but all aggregate values were zero despite expected May data. The likely issue is spreadsheet cell type normalization for `competencia`; raw financial values are intentionally not recorded here.
+- `LOCAL_VERIFIED`: The Apps Script `/resumo` route now normalizes `competencia` values returned as Google Sheets date cells before filtering the current month, and accepts Portuguese boolean text for read-only asset flags. Local syntax check and targeted Apps Script runtime tests pass on 2026-05-02; corrected real Telegram output remains UNVERIFIED.
+- `REAL_REPO_EVIDENCE`: On 2026-05-03, `docs/SPREADSHEET_SNAPSHOT.md` was added as the redacted operational snapshot for future agents. It records the real spreadsheet title/locale/timezone, 13 expected sheets, header verification, row counts, aggregate 2026-05 state, the empty configuration/patrimony/debt/closing sheets, and the known 2026-04 false-positive pilot row without private spreadsheet IDs, URLs, chat/user IDs, tokens, or full financial dumps.
 
 UNVERIFIED:
 
 - Full Telegram pilot beyond the user-provided market-expense and card-purchase spreadsheet snapshot.
 - Real OpenAI parser calls.
 - Real deployment and Telegram chat-response verification of the synchronous Val Town webhook reply.
-- Real internal-transfer deployment, parser call, and spreadsheet writes.
+- Independent real internal-transfer verification beyond the user-reported spreadsheet row and blocked transfer response.
 
 ## Non-Negotiable Execution Rules
 
@@ -66,9 +73,18 @@ UNVERIFIED:
 
 ## Next Safe Step
 
-Prepare Phase 7: Controlled Telegram Pilot.
+Continue Phase 8: read-only family report pilot.
 
 Required outcome:
+
+- Deploy the Apps Script `/resumo` route, then ask the authorized user to send `/resumo` in Telegram.
+- Compare the Telegram response against the reviewed spreadsheet state at aggregate level only: DRE, family cash entradas/saidas/sobra, invoice exposure, obligations, emergency reserve, net worth, post-obligation margin, and suggested destination.
+- Keep `docs/SPREADSHEET_SNAPSHOT.md` updated whenever real spreadsheet state materially changes.
+- Confirm no rows were added to `Idempotency_Log`, `Lancamentos`, `Faturas`, `Transferencias_Internas`, `Fechamento_Familiar`, `Patrimonio_Ativos`, or `Dividas` by the report command.
+- Record only redacted evidence: command name, touched sheets as read-only, row count deltas, and whether the aggregate fields look correct.
+- Keep monthly closing writes blocked until the read-only report output is user-reviewed.
+
+Phase 7 carryover:
 
 - Follow the Phase 7 pilot order documented below in this file.
 - `USER_REPORTED_REAL`: Hardened Val Town proxy deployment is done on 2026-05-02; keep it as Telegram's webhook target for the next pilot step.
@@ -269,8 +285,8 @@ Pilot order:
 5. One low-value family expense. Local Apps Script path status: VERIFIED locally on 2026-04-30 with `node --check apps-script/Code.js` and `npm test`; user-provided spreadsheet snapshot status: VERIFIED on 2026-04-30 with redacted summary above.
 6. One card purchase. Local Apps Script path status: VERIFIED locally on 2026-04-30 with `node --check apps-script/Code.js` and `npm test`; user-provided spreadsheet snapshot status: VERIFIED on 2026-04-30 with redacted summary above.
 7. One invoice payment fixture only if an invoice exists in the reviewed state. Local Apps Script path status: VERIFIED locally on 2026-04-30 with `node --check apps-script/Code.js` and `npm test`; user-provided spreadsheet snapshot status: VERIFIED on 2026-04-30 with redacted summary above; Telegram chat response status: FAILED in the reported real pilot before the synchronous Val Town reply patch.
-8. One internal transfer into family cash. Local Apps Script path status: `LOCAL_VERIFIED` on 2026-05-02 with `node --check apps-script/Code.js`, `node test/apps-script-runtime.test.js`, and `npm test`; Apps Script push/deploy, real parser call, and real spreadsheet row evidence remain UNVERIFIED.
-9. Produce redacted pilot evidence from the reviewed state. Local evidence contract status: VERIFIED locally on 2026-04-29 with `npm test`; real pilot evidence status: TODO.
+8. One internal transfer into family cash. Local Apps Script path status: `LOCAL_VERIFIED` on 2026-05-02 with `node --check apps-script/Code.js`, `node test/apps-script-runtime.test.js`, and `npm test`; user-reported real row evidence for Luana and Gustavo family-cash entradas plus blocked missing-person and person-to-person transfer statuses: `USER_REPORTED_REAL` on 2026-05-02; independent verification remains UNVERIFIED.
+9. Produce redacted pilot evidence from the reviewed state. Local evidence contract status: VERIFIED locally on 2026-04-29 with `npm test`; real pilot evidence status: partially `USER_REPORTED_REAL` for the internal-transfer scenario, TODO for a complete reviewed redacted evidence summary.
 
 Acceptance:
 
@@ -282,13 +298,16 @@ Acceptance:
 
 ### Phase 8 - Family Reports And Closing
 
+Status: STARTED locally on 2026-05-02.
+
 Goal: make the system useful as a decision tool.
 
 Implement:
 
-- Read-only family summary views.
-- Draft `Fechamento_Familiar` generation from current rows.
-- Closing workflow that records a reviewed monthly state.
+- Read-only family summary views. Status: `LOCAL_VERIFIED` on 2026-05-02 with `node test/reporting.test.js` and `npm test`.
+- Apps Script read-only `/resumo` and `/resumo_familiar` command. Status: `LOCAL_VERIFIED` on 2026-05-02 with `node --check apps-script/Code.js` and `node test/apps-script-runtime.test.js`; first real Telegram output was `USER_REPORTED_REAL` with zero aggregates, and the likely `competencia` type-normalization fix is `LOCAL_VERIFIED`; corrected real Telegram output remains `UNVERIFIED`.
+- Draft `Fechamento_Familiar` generation from current rows. Status: `LOCAL_VERIFIED` on 2026-05-02 with `node test/reporting.test.js` and `npm test`.
+- Closing workflow that records a reviewed monthly state. Status: `LOCAL_VERIFIED` on 2026-05-02 with `node test/reporting.test.js` and `npm test`.
 - Optional formulas only after Apps Script formula standard is followed.
 
 Acceptance:

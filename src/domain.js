@@ -1,6 +1,7 @@
 'use strict';
 
 const { assignInvoiceCycle } = require('./card-cycle');
+const { HEADERS, SHEETS } = require('./schema');
 const { validateParsedEvent } = require('./validator');
 
 function roundMoney(value) {
@@ -214,6 +215,104 @@ function filterSharedDetailedEvents(events) {
     return (events || []).filter((event) => event.visibilidade === 'detalhada' && event.escopo === 'Familiar');
 }
 
+function buildDraftFamilyClosingRow(input) {
+    const closing = computeFamilyClosing(input || {});
+    const row = {
+        ...closing,
+        observacao: (input && input.observacao) || '',
+        created_at: (input && input.created_at) || '',
+        closed_at: '',
+    };
+
+    return HEADERS[SHEETS.FECHAMENTO_FAMILIAR].reduce((result, header) => {
+        result[header] = row[header] === undefined ? '' : row[header];
+        return result;
+    }, {});
+}
+
+function buildFamilySummaryView(input) {
+    const source = input || {};
+    const closing = computeFamilyClosing(source);
+    return {
+        competencia: closing.competencia,
+        status: closing.status,
+        dre: {
+            receitas_dre: closing.receitas_dre,
+            despesas_dre: closing.despesas_dre,
+            resultado_dre: closing.resultado_dre,
+        },
+        caixa: {
+            caixa_entradas: closing.caixa_entradas,
+            caixa_saidas: closing.caixa_saidas,
+            sobra_caixa: closing.sobra_caixa,
+            margem_pos_obrigacoes: closing.margem_pos_obrigacoes,
+        },
+        exposicao: {
+            faturas_60d: closing.faturas_60d,
+            obrigacoes_60d: closing.obrigacoes_60d,
+        },
+        patrimonio: {
+            reserva_total: closing.reserva_total,
+            patrimonio_liquido: closing.patrimonio_liquido,
+        },
+        capacidade: {
+            capacidade_aporte_segura: closing.capacidade_aporte_segura,
+            parcela_maxima_segura: closing.parcela_maxima_segura,
+            pode_avaliar_amortizacao: closing.pode_avaliar_amortizacao,
+            motivo_bloqueio_amortizacao: closing.motivo_bloqueio_amortizacao,
+        },
+        destino: {
+            destino_reserva: closing.destino_reserva,
+            destino_obrigacoes: closing.destino_obrigacoes,
+            destino_investimentos: closing.destino_investimentos,
+            destino_amortizacao: closing.destino_amortizacao,
+            destino_sugerido: closing.destino_sugerido,
+        },
+        eventos_detalhados: filterSharedDetailedEvents(source.events),
+    };
+}
+
+function closeReviewedFamilyClosing(draftRow, options) {
+    const headers = HEADERS[SHEETS.FECHAMENTO_FAMILIAR];
+    const errors = [];
+    if (!draftRow || typeof draftRow !== 'object') {
+        return {
+            ok: false,
+            errors: [{ code: 'MISSING_CLOSING_ROW', field: 'closing', message: 'draft closing row is required' }],
+        };
+    }
+
+    const keys = Object.keys(draftRow);
+    const unexpectedKeys = keys.filter((key) => !headers.includes(key));
+    const missingKeys = headers.filter((key) => !Object.prototype.hasOwnProperty.call(draftRow, key));
+    if (unexpectedKeys.length > 0) {
+        errors.push({ code: 'UNKNOWN_CLOSING_FIELDS', field: 'closing', message: 'closing row has unknown fields', details: unexpectedKeys });
+    }
+    if (missingKeys.length > 0) {
+        errors.push({ code: 'MISSING_CLOSING_FIELDS', field: 'closing', message: 'closing row is missing fields', details: missingKeys });
+    }
+    if (draftRow.status !== 'draft') {
+        errors.push({ code: 'CLOSING_NOT_DRAFT', field: 'status', message: 'only draft closing rows can be closed' });
+    }
+
+    const closedAt = options && options.closed_at;
+    if (!closedAt || typeof closedAt !== 'string') {
+        errors.push({ code: 'MISSING_CLOSED_AT', field: 'closed_at', message: 'closed_at is required to close a reviewed month' });
+    }
+
+    if (errors.length > 0) return { ok: false, errors };
+
+    return {
+        ok: true,
+        row: {
+            ...draftRow,
+            status: 'closed',
+            observacao: (options && options.observacao) || draftRow.observacao || '',
+            closed_at: closedAt,
+        },
+    };
+}
+
 function applyDebtPayment(debt, paymentEvent) {
     if (!debt || !paymentEvent) throw new Error('debt and paymentEvent are required');
     if (paymentEvent.tipo_evento !== 'divida_pagamento') throw new Error('paymentEvent must be divida_pagamento');
@@ -273,6 +372,9 @@ function planCardPurchase(event, card) {
 
 module.exports = {
     applyDebtPayment,
+    buildDraftFamilyClosingRow,
+    buildFamilySummaryView,
+    closeReviewedFamilyClosing,
     computeFamilyClosing,
     computeDecisionCapacity,
     computeNetWorth,

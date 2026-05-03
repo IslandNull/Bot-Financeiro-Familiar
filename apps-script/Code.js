@@ -4,6 +4,7 @@ var V55 = (function() {
   var GENERIC_RECORD_FAILURE = 'Nao consegui registrar agora. Revise a mensagem e tente novamente.';
   var HELP_TEXT = 'Bot financeiro familiar ativo. Envie um lancamento em linguagem natural.';
   var SUCCESS_TEXT = 'Registro recebido.';
+  var FAMILY_SUMMARY_HELP_TEXT = 'Use /resumo para ver o resumo familiar em modo leitura.';
   var DEFAULT_OPENAI_MODEL = 'gpt-5-nano';
   var OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
   var SHEETS = {
@@ -12,12 +13,16 @@ var V55 = (function() {
     CARTOES: 'Cartoes',
     FATURAS: 'Faturas',
     LANCAMENTOS: 'Lancamentos',
+    PATRIMONIO_ATIVOS: 'Patrimonio_Ativos',
+    DIVIDAS: 'Dividas',
     TRANSFERENCIAS_INTERNAS: 'Transferencias_Internas',
     IDEMPOTENCY_LOG: 'Idempotency_Log',
   };
   var HEADERS = {
+    Dividas: ['id_divida', 'nome', 'credor', 'tipo', 'escopo', 'saldo_devedor', 'parcela_atual', 'parcelas_total', 'valor_parcela', 'taxa_juros', 'sistema_amortizacao', 'data_atualizacao', 'status', 'observacao'],
     Faturas: ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'],
     Lancamentos: ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'created_at'],
+    Patrimonio_Ativos: ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'],
     Transferencias_Internas: ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'],
     Idempotency_Log: ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'],
   };
@@ -204,9 +209,13 @@ var V55 = (function() {
     if (text === '/start' || text === '/help') {
       return {
         ok: true,
-        responseText: HELP_TEXT,
+        responseText: HELP_TEXT + '\n' + FAMILY_SUMMARY_HELP_TEXT,
         shouldApplyDomainMutation: false,
       };
+    }
+
+    if (isFamilySummaryCommand_(text)) {
+      return buildPilotFamilySummaryResponse_(config);
     }
 
     if (!config.pilotFinancialMutationEnabled) {
@@ -241,6 +250,156 @@ var V55 = (function() {
     if (!pilotCheck.ok) return pilotCheck;
 
     return recordPilotExpense_(update, message, parsed.event, config);
+  }
+
+  function isFamilySummaryCommand_(text) {
+    return text === '/resumo' || text === '/resumo_familiar';
+  }
+
+  function verifyReportingRuntimeConfig_(config) {
+    if (!config.spreadsheetId) return fail_('MISSING_SPREADSHEET_ID', 'spreadsheetId', GENERIC_RECORD_FAILURE);
+    return { ok: true };
+  }
+
+  function buildPilotFamilySummaryResponse_(config) {
+    var runtimeCheck = verifyReportingRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+      var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
+      var transferSheet = spreadsheet.getSheetByName(SHEETS.TRANSFERENCIAS_INTERNAS);
+      var assetSheet = spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS);
+      var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
+
+      verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+      verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
+      verifySheetHeaders_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS);
+      verifySheetHeaders_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
+      verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
+
+      var competencia = todaySaoPaulo_().slice(0, 7);
+      var launches = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS).filter(function(row) {
+        return normalizeSheetCompetencia_(row.competencia) === competencia && row.status === 'efetivado';
+      });
+      var transfers = readRowsAsObjects_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS).filter(function(row) {
+        return normalizeSheetCompetencia_(row.competencia) === competencia && row.escopo === 'Familiar';
+      });
+      var invoices = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS);
+      var assets = readRowsAsObjects_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
+      var debts = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS);
+      var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts);
+
+      return {
+        ok: true,
+        responseText: formatPilotFamilySummary_(summary),
+        shouldApplyDomainMutation: false,
+      };
+    } catch (_err) {
+      return fail_('REPORT_READ_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    }
+  }
+
+  function computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts) {
+    var dre = launches.reduce(function(summary, row) {
+      var amount = numberFromSheetValue_(row.valor);
+      if (row.afeta_dre !== true) return summary;
+      if (row.tipo_evento === 'receita') summary.receitas_dre = roundMoney_(summary.receitas_dre + amount);
+      if (row.tipo_evento === 'despesa' || row.tipo_evento === 'compra_cartao') summary.despesas_dre = roundMoney_(summary.despesas_dre + amount);
+      summary.resultado_dre = roundMoney_(summary.receitas_dre - summary.despesas_dre);
+      return summary;
+    }, { receitas_dre: 0, despesas_dre: 0, resultado_dre: 0 });
+
+    var cash = launches.reduce(function(summary, row) {
+      var amount = numberFromSheetValue_(row.valor);
+      if (row.afeta_caixa_familiar !== true) return summary;
+      if (row.tipo_evento === 'receita') summary.caixa_entradas = roundMoney_(summary.caixa_entradas + amount);
+      if (row.tipo_evento === 'despesa' || row.tipo_evento === 'pagamento_fatura' || row.tipo_evento === 'aporte' || row.tipo_evento === 'divida_pagamento') {
+        summary.caixa_saidas = roundMoney_(summary.caixa_saidas + amount);
+      }
+      summary.sobra_caixa = roundMoney_(summary.caixa_entradas - summary.caixa_saidas);
+      return summary;
+    }, { caixa_entradas: 0, caixa_saidas: 0, sobra_caixa: 0 });
+
+    cash = transfers.reduce(function(summary, row) {
+      var amount = numberFromSheetValue_(row.valor);
+      if (row.direcao_caixa_familiar === 'entrada') summary.caixa_entradas = roundMoney_(summary.caixa_entradas + amount);
+      if (row.direcao_caixa_familiar === 'saida') summary.caixa_saidas = roundMoney_(summary.caixa_saidas + amount);
+      summary.sobra_caixa = roundMoney_(summary.caixa_entradas - summary.caixa_saidas);
+      return summary;
+    }, cash);
+
+    var faturas60d = sumPilotInvoiceExposure_(invoices);
+    var obrigacoes60d = debts.reduce(function(sum, row) {
+      return row.status === 'ativa' ? roundMoney_(sum + numberFromSheetValue_(row.valor_parcela)) : sum;
+    }, 0);
+    var reservaTotal = assets.reduce(function(sum, row) {
+      return row.ativo !== false && row.conta_reserva_emergencia === true
+        ? roundMoney_(sum + numberFromSheetValue_(row.saldo_atual))
+        : sum;
+    }, 0);
+    var ativosTotal = assets.reduce(function(sum, row) {
+      return row.ativo !== false ? roundMoney_(sum + numberFromSheetValue_(row.saldo_atual)) : sum;
+    }, 0);
+    var dividasTotal = debts.reduce(function(sum, row) {
+      return row.status === 'ativa' ? roundMoney_(sum + numberFromSheetValue_(row.saldo_devedor)) : sum;
+    }, 0);
+    var margemPosObrigacoes = roundMoney_(cash.sobra_caixa - faturas60d - obrigacoes60d);
+
+    return {
+      competencia: competencia,
+      receitas_dre: dre.receitas_dre,
+      despesas_dre: dre.despesas_dre,
+      resultado_dre: dre.resultado_dre,
+      caixa_entradas: cash.caixa_entradas,
+      caixa_saidas: cash.caixa_saidas,
+      sobra_caixa: cash.sobra_caixa,
+      faturas_60d: faturas60d,
+      obrigacoes_60d: obrigacoes60d,
+      reserva_total: reservaTotal,
+      patrimonio_liquido: roundMoney_(ativosTotal - dividasTotal),
+      margem_pos_obrigacoes: margemPosObrigacoes,
+      destino_sugerido: suggestPilotDestination_(cash.sobra_caixa, reservaTotal, faturas60d, obrigacoes60d),
+      eventos_detalhados: countSharedDetailedEvents_(launches),
+    };
+  }
+
+  function sumPilotInvoiceExposure_(invoices) {
+    return invoices.reduce(function(sum, row) {
+      if (['prevista', 'fechada', 'parcialmente_paga'].indexOf(row.status) === -1) return sum;
+      var expected = numberFromSheetValue_(row.valor_fechado) > 0 ? numberFromSheetValue_(row.valor_fechado) : numberFromSheetValue_(row.valor_previsto);
+      var paid = numberFromSheetValue_(row.valor_pago);
+      return roundMoney_(sum + Math.max(0, expected - paid));
+    }, 0);
+  }
+
+  function countSharedDetailedEvents_(launches) {
+    return launches.filter(function(row) {
+      return row.escopo === 'Familiar' && row.visibilidade === 'detalhada';
+    }).length;
+  }
+
+  function suggestPilotDestination_(sobraCaixa, reservaTotal, faturas60d, obrigacoes60d) {
+    var immediateObligations = roundMoney_(faturas60d + obrigacoes60d);
+    if (sobraCaixa <= 0) return 'sem_sobra';
+    if (sobraCaixa < immediateObligations) return 'manter_caixa';
+    if (reservaTotal < 15000) return 'reforcar_reserva';
+    return 'investir_ou_amortizar_revisar';
+  }
+
+  function formatPilotFamilySummary_(summary) {
+    return [
+      'Resumo familiar ' + summary.competencia,
+      'DRE: receitas ' + formatMoney_(summary.receitas_dre) + ', despesas ' + formatMoney_(summary.despesas_dre) + ', resultado ' + formatMoney_(summary.resultado_dre),
+      'Caixa: entradas ' + formatMoney_(summary.caixa_entradas) + ', saidas ' + formatMoney_(summary.caixa_saidas) + ', sobra ' + formatMoney_(summary.sobra_caixa),
+      'Exposicao: faturas ' + formatMoney_(summary.faturas_60d) + ', obrigacoes ' + formatMoney_(summary.obrigacoes_60d),
+      'Patrimonio: reserva ' + formatMoney_(summary.reserva_total) + ', patrimonio liquido ' + formatMoney_(summary.patrimonio_liquido),
+      'Margem pos-obrigacoes: ' + formatMoney_(summary.margem_pos_obrigacoes),
+      'Destino sugerido: ' + summary.destino_sugerido,
+      'Eventos familiares detalhados no mes: ' + summary.eventos_detalhados,
+      'Modo leitura: nenhuma linha foi gravada.',
+    ].join('\n');
   }
 
   function verifyFinancialRuntimeConfig_(config) {
@@ -1131,6 +1290,44 @@ var V55 = (function() {
     }));
   }
 
+  function readRowsAsObjects_(sheet, sheetName) {
+    var headers = HEADERS[sheetName];
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return [];
+    var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    return values.map(function(row) {
+      return headers.reduce(function(result, header, index) {
+        result[header] = normalizeSheetCell_(row[index]);
+        return result;
+      }, {});
+    });
+  }
+
+  function normalizeSheetCell_(value) {
+    if (value === true || value === false) return value;
+    if (typeof value === 'string') {
+      var text = value.trim();
+      if (text === 'TRUE') return true;
+      if (text === 'FALSE') return false;
+      if (text === 'true') return true;
+      if (text === 'false') return false;
+      if (text === 'VERDADEIRO') return true;
+      if (text === 'FALSO') return false;
+      return text;
+    }
+    return value === undefined || value === null ? '' : value;
+  }
+
+  function normalizeSheetCompetencia_(value) {
+    if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+      return Utilities.formatDate(value, 'America/Sao_Paulo', 'yyyy-MM');
+    }
+    var text = stringValue_(value);
+    if (/^\d{4}-\d{2}$/.test(text)) return text;
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 7);
+    return text;
+  }
+
   function findIdempotencyRow_(sheet, idempotencyKey) {
     var lastRow = sheet.getLastRow();
     if (lastRow < 2) return null;
@@ -1185,6 +1382,14 @@ var V55 = (function() {
     if (typeof value === 'number') return isFinite(value) ? value : 0;
     var parsed = parseMoneyText_(String(value || ''));
     return isFinite(parsed) ? parsed : 0;
+  }
+
+  function roundMoney_(value) {
+    return Math.round((Number(value) || 0) * 100) / 100;
+  }
+
+  function formatMoney_(value) {
+    return 'R$ ' + roundMoney_(value).toFixed(2);
   }
 
   function updateIdempotencyStatus_(sheet, rowNumber, status, resultRef, updatedAt, errorCode) {

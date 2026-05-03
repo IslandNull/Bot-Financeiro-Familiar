@@ -2,6 +2,8 @@
 
 This is the V55 sheet schema authority for the clean base. Real spreadsheet presence is VERIFIED for the Phase 6 target by the redacted evidence in `EXECUTION_PLAN.md`.
 
+For the current redacted state of the real spreadsheet, use `docs/SPREADSHEET_SNAPSHOT.md`. That file is operational evidence only; this file remains the schema authority.
+
 ## Sheets
 
 ### Config_Categorias
