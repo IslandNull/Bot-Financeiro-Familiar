@@ -48,7 +48,17 @@ if (!webappUrl || !secret) {
   process.exit(1);
 }
 
-const url = webappUrl + '?action=' + encodeURIComponent(action) + '&secret=' + encodeURIComponent(secret);
+const extraParams = process.argv.slice(3).reduce(function(params, item) {
+  const eqIdx = item.indexOf('=');
+  if (eqIdx <= 0) return params;
+  params[item.slice(0, eqIdx)] = item.slice(eqIdx + 1);
+  return params;
+}, {});
+
+const query = Object.assign({ action, secret }, extraParams);
+const url = webappUrl + '?' + Object.keys(query).map(function(key) {
+  return encodeURIComponent(key) + '=' + encodeURIComponent(query[key]);
+}).join('&');
 
 function httpGet(targetUrl, redirectCount) {
   if (redirectCount > 5) {

@@ -73,10 +73,10 @@ var V55 = (function() {
       return json_(exportSnapshotV55());
     }
     if (action === 'summary') {
-      return json_(exportPilotFamilySummaryV55());
+      return json_(exportPilotFamilySummaryV55(params.competencia));
     }
     if (action === 'closing_draft') {
-      return json_(writeDraftFamilyClosingV55());
+      return json_(writeDraftFamilyClosingV55(params.competencia));
     }
     if (action === 'selftest') {
       return json_(runHelpSmokeSelfTest());
@@ -286,7 +286,7 @@ var V55 = (function() {
   }
 
   function buildPilotFamilySummaryResponse_(config) {
-    var result = readCurrentPilotFamilySummary_(config);
+    var result = readCurrentPilotFamilySummary_(config, '');
     if (!result.ok) return result;
 
     return {
@@ -296,8 +296,8 @@ var V55 = (function() {
     };
   }
 
-  function exportPilotFamilySummaryV55() {
-    var result = readCurrentPilotFamilySummary_(readConfig_());
+  function exportPilotFamilySummaryV55(competencia) {
+    var result = readCurrentPilotFamilySummary_(readConfig_(), competencia);
     if (!result.ok) return result;
     return {
       ok: true,
@@ -307,9 +307,9 @@ var V55 = (function() {
     };
   }
 
-  function writeDraftFamilyClosingV55() {
+  function writeDraftFamilyClosingV55(competencia) {
     var config = readConfig_();
-    var summaryResult = readCurrentPilotFamilySummary_(config);
+    var summaryResult = readCurrentPilotFamilySummary_(config, competencia);
     if (!summaryResult.ok) return summaryResult;
 
     var lock = LockService.getScriptLock();
@@ -352,9 +352,11 @@ var V55 = (function() {
     }
   }
 
-  function readCurrentPilotFamilySummary_(config) {
+  function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
     var runtimeCheck = verifyReportingRuntimeConfig_(config);
     if (!runtimeCheck.ok) return runtimeCheck;
+    var competenciaCheck = normalizeRequestedCompetencia_(requestedCompetencia);
+    if (!competenciaCheck.ok) return competenciaCheck;
 
     try {
       var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
@@ -370,7 +372,7 @@ var V55 = (function() {
       verifySheetHeaders_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
       verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
 
-      var competencia = todaySaoPaulo_().slice(0, 7);
+      var competencia = competenciaCheck.competencia || todaySaoPaulo_().slice(0, 7);
       var launches = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS).filter(function(row) {
         return normalizeSheetCompetencia_(row.competencia) === competencia && row.status === 'efetivado';
       });
@@ -464,6 +466,13 @@ var V55 = (function() {
       destino_sugerido: suggestPilotDestination_(cash.sobra_caixa, reservaTotal, faturas60d, obrigacoes60d),
       eventos_detalhados: countSharedDetailedEvents_(launches),
     };
+  }
+
+  function normalizeRequestedCompetencia_(value) {
+    var text = stringValue_(value);
+    if (!text) return { ok: true, competencia: '' };
+    if (/^\d{4}-\d{2}$/.test(text)) return { ok: true, competencia: text };
+    return fail_('INVALID_REQUESTED_COMPETENCIA', 'competencia', GENERIC_REQUEST_FAILURE);
   }
 
   function computePilotDecisionCapacity_(sobraCaixa, reservaTotal, faturas60d, obrigacoes60d, debts) {

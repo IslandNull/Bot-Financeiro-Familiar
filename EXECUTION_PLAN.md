@@ -15,13 +15,14 @@ Operational authority for Bot Financeiro Familiar V55.
 - Phase 8 started: `/resumo` read-only report works in Telegram.
 - Phase 8 `/resumo` remote verification matches current spreadsheet snapshot for 2026-05.
 - Phase 8 closing draft write path is deployed; production call verified closed-period guard (`CLOSING_ALREADY_CLOSED`) for current competencia.
+- Phase 8 draft creation verified in production for explicit open competencia `2026-04`; snapshot updated.
 - `exportSnapshotV55()` available for auto-generating `docs/SPREADSHEET_SNAPSHOT.md`; remote `summary` action available for read-only `/resumo` verification.
 
 ### Unverified
 
 - Full production readiness beyond pilot gates.
 - Revenue, asset contribution, debt payment, and adjustment mutation paths.
-- Production draft creation/update in `Fechamento_Familiar` for an open competencia.
+- Reviewed close action for existing `Fechamento_Familiar` draft.
 - Config sheets populated (categories, sources, cards still hardcoded in pilot).
 
 ## Execution Rules
@@ -77,7 +78,7 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ### Phase 8 continuation: Production-ready reporting and closing
 
-1. Decide operational handling for current closed competencia before draft creation, or wait for/open next competencia.
+1. Implement reviewed close action for existing `Fechamento_Familiar` draft.
 2. Populate `Config_Categorias`, `Config_Fontes`, `Cartoes` with real data to replace hardcoded pilot IDs.
 3. Widen mutation gates: remove per-category text alias checks, use generic schema-driven validation.
 4. Add remaining event types: `receita`, `aporte`, `divida_pagamento`, `ajuste`.

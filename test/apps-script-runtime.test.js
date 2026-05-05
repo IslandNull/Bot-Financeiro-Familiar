@@ -173,11 +173,12 @@ function postPilotMessage(context, text) {
     return JSON.parse(output.getContentText());
 }
 
-function runRemoteAction(context, action) {
+function runRemoteAction(context, action, params = {}) {
     const output = context.doGet({
         parameter: {
             action,
             secret: 'test_secret',
+            ...params,
         },
     });
     return JSON.parse(output.getContentText());
@@ -481,6 +482,34 @@ test('Apps Script closing_draft action blocks closed family closing rows', () =>
     assert.strictEqual(result.ok, false);
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['CLOSING_ALREADY_CLOSED']);
     assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 2);
+});
+
+test('Apps Script summary and closing_draft actions accept explicit competencia', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeLaunch(sheets, { competencia: '2026-03', valor: 12.34 });
+    appendFakeLaunch(sheets, { competencia: '2026-04', valor: 53.9 });
+    appendFakeTransfer(sheets, { competencia: '2026-03', valor: 50 });
+    appendFakeTransfer(sheets, { competencia: '2026-04', valor: 400 });
+
+    const summary = runRemoteAction(context, 'summary', { competencia: '2026-03' });
+    const draft = runRemoteAction(context, 'closing_draft', { competencia: '2026-03' });
+    const invalid = runRemoteAction(context, 'summary', { competencia: '03-2026' });
+
+    assert.strictEqual(summary.ok, true);
+    assert.strictEqual(summary.summary.competencia, '2026-03');
+    assert.strictEqual(summary.summary.despesas_dre, 12.34);
+    assert.strictEqual(summary.summary.caixa_entradas, 50);
+    assert.strictEqual(draft.ok, true);
+    assert.strictEqual(draft.closing.competencia, '2026-03');
+    assert.strictEqual(draft.closing.despesas_dre, 12.34);
+    assert.strictEqual(invalid.ok, false);
+    assert.deepStrictEqual(invalid.errors.map((error) => error.code), ['INVALID_REQUESTED_COMPETENCIA']);
 });
 
 test('Apps Script runtime uses OpenAI Responses JSON output for parser boundary', () => {
