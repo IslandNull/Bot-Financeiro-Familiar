@@ -285,6 +285,7 @@ test('Apps Script runtime exposes webhook and self-test functions', () => {
     assert.ok(code.includes('function runHelpSmokeSelfTest()'));
     assert.ok(code.includes('function exportPilotFamilySummaryV55()'));
     assert.ok(code.includes('function writeDraftFamilyClosingV55()'));
+    assert.ok(code.includes('function closeReviewedFamilyClosingV55('));
     assert.ok(code.includes('function runTelegramWebhookSetupDryRun()'));
     assert.ok(code.includes('function runTelegramWebhookSetupApply()'));
 });
@@ -482,6 +483,98 @@ test('Apps Script closing_draft action blocks closed family closing rows', () =>
     assert.strictEqual(result.ok, false);
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['CLOSING_ALREADY_CLOSED']);
     assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 2);
+});
+
+test('Apps Script closing_close action closes an existing family closing draft', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeClosing(sheets, {
+        competencia: new Date(Date.UTC(2026, 3, 1, 12, 0, 0)),
+        observacao: 'reviewed draft',
+    });
+
+    const result = runRemoteAction(context, 'closing_close', {
+        competencia: '2026-04',
+        closed_at: '2026-05-05T18:00:00Z',
+        observacao: 'revisado pelo owner',
+    });
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.action, 'closing_close');
+    assert.strictEqual(result.status, 'closed');
+    assert.strictEqual(result.shouldApplyDomainMutation, true);
+    assert.deepStrictEqual(Object.keys(result.closing), fechamentoFamiliarHeaders);
+    assert.strictEqual(result.closing.competencia, '2026-04');
+    assert.strictEqual(result.closing.status, 'closed');
+    assert.strictEqual(result.closing.closed_at, '2026-05-05T18:00:00Z');
+    assert.strictEqual(result.closing.observacao, 'revisado pelo owner');
+    assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 2);
+    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('status')], 'closed');
+    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('competencia')], '2026-04');
+    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('closed_at')], '2026-05-05T18:00:00Z');
+});
+
+test('Apps Script closing_close action fails when draft is absent', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+
+    const result = runRemoteAction(context, 'closing_close', {
+        competencia: '2026-04',
+        closed_at: '2026-05-05T18:00:00Z',
+    });
+
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['CLOSING_DRAFT_NOT_FOUND']);
+    assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 1);
+});
+
+test('Apps Script closing_close action blocks already closed rows', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeClosing(sheets, { status: 'closed', closed_at: '2026-05-01T10:00:00Z' });
+
+    const result = runRemoteAction(context, 'closing_close', {
+        competencia: '2026-04',
+        closed_at: '2026-05-05T18:00:00Z',
+    });
+
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['CLOSING_NOT_DRAFT']);
+    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('status')], 'closed');
+    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('closed_at')], '2026-05-01T10:00:00Z');
+});
+
+test('Apps Script closing_close action requires closed_at metadata', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeClosing(sheets);
+
+    const result = runRemoteAction(context, 'closing_close', { competencia: '2026-04' });
+
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['MISSING_CLOSED_AT']);
+    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('status')], 'draft');
+    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('closed_at')], '');
 });
 
 test('Apps Script summary and closing_draft actions accept explicit competencia', () => {

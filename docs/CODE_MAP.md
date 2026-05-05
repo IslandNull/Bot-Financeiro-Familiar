@@ -6,7 +6,7 @@ Codebase navigation guide for V55.
 
 | Path | Purpose |
 |------|---------|
-| `apps-script/Code.js` | Production Apps Script runtime (~1600 lines). Deploy via `npm run push`. |
+| `apps-script/Code.js` | Production Apps Script runtime (~1700 lines). Deploy via `npm run push`. |
 | `apps-script/appsscript.json` | Apps Script manifest with scopes. |
 | `val-town/telegram-proxy.ts` | Val Town edge proxy: acknowledges Telegram, forwards to Apps Script. |
 | `src/*.js` | Pure Node.js domain contracts (schema, validation, parsing, planning, idempotency, reporting). |
@@ -60,6 +60,8 @@ doGet(e)
   └─ ?action=<name>&secret=<WEBHOOK_SECRET>
        ├─ snapshot → exportSnapshotV55()
        ├─ summary → exportPilotFamilySummaryV55()
+       ├─ closing_draft → writeDraftFamilyClosingV55()
+       ├─ closing_close → closeReviewedFamilyClosingV55()
        └─ selftest → runHelpSmokeSelfTest()
 ```
 

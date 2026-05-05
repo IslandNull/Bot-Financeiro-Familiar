@@ -78,6 +78,12 @@ var V55 = (function() {
     if (action === 'closing_draft') {
       return json_(writeDraftFamilyClosingV55(params.competencia));
     }
+    if (action === 'closing_close') {
+      return json_(closeReviewedFamilyClosingV55(params.competencia, {
+        closed_at: params.closed_at,
+        observacao: params.observacao,
+      }));
+    }
     if (action === 'selftest') {
       return json_(runHelpSmokeSelfTest());
     }
@@ -352,6 +358,53 @@ var V55 = (function() {
     }
   }
 
+  function closeReviewedFamilyClosingV55(competencia, options) {
+    var config = readConfig_();
+    var runtimeCheck = verifyReportingRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+    var competenciaCheck = normalizeRequestedCompetencia_(competencia);
+    if (!competenciaCheck.ok) return competenciaCheck;
+    var targetCompetencia = competenciaCheck.competencia || todaySaoPaulo_().slice(0, 7);
+    var closedAt = stringValue_(options && options.closed_at);
+    if (!closedAt) {
+      return fail_('MISSING_CLOSED_AT', 'closed_at', GENERIC_RECORD_FAILURE);
+    }
+
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var closingSheet = spreadsheet.getSheetByName(SHEETS.FECHAMENTO_FAMILIAR);
+      verifySheetHeaders_(closingSheet, SHEETS.FECHAMENTO_FAMILIAR);
+
+      var existing = findFamilyClosingRow_(closingSheet, targetCompetencia);
+      if (!existing) {
+        return fail_('CLOSING_DRAFT_NOT_FOUND', 'competencia', GENERIC_RECORD_FAILURE);
+      }
+      if (existing.status !== 'draft') {
+        return fail_('CLOSING_NOT_DRAFT', 'status', GENERIC_RECORD_FAILURE);
+      }
+
+      var row = closeFamilyClosingRow_(existing.row, {
+        closed_at: closedAt,
+        observacao: options && options.observacao,
+      });
+      writeRow_(closingSheet, existing.rowNumber, SHEETS.FECHAMENTO_FAMILIAR, row);
+      return {
+        ok: true,
+        action: 'closing_close',
+        status: 'closed',
+        result_ref: 'Fechamento_Familiar:' + row.competencia,
+        closing: row,
+        shouldApplyDomainMutation: true,
+      };
+    } catch (_err) {
+      return fail_('CLOSING_CLOSE_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
   function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
     var runtimeCheck = verifyReportingRuntimeConfig_(config);
     if (!runtimeCheck.ok) return runtimeCheck;
@@ -534,6 +587,18 @@ var V55 = (function() {
       result[header] = row[header] === undefined ? '' : row[header];
       return result;
     }, {});
+  }
+
+  function closeFamilyClosingRow_(draftRow, options) {
+    var row = HEADERS[SHEETS.FECHAMENTO_FAMILIAR].reduce(function(result, header) {
+      result[header] = draftRow[header] === undefined ? '' : draftRow[header];
+      return result;
+    }, {});
+    row.competencia = normalizeSheetCompetencia_(row.competencia);
+    row.status = 'closed';
+    row.observacao = stringValue_(options && options.observacao) || row.observacao;
+    row.closed_at = stringValue_(options && options.closed_at);
+    return row;
   }
 
   function sumPilotInvoiceExposure_(invoices) {
@@ -1560,9 +1625,14 @@ var V55 = (function() {
     var statusIndex = headers.indexOf('status');
     for (var i = 0; i < rows.length; i += 1) {
       if (normalizeSheetCompetencia_(rows[i][competenciaIndex]) === competencia) {
+        var row = headers.reduce(function(result, header, index) {
+          result[header] = normalizeSheetCell_(rows[i][index]);
+          return result;
+        }, {});
         return {
           rowNumber: i + 2,
           status: String(rows[i][statusIndex] || ''),
+          row: row,
         };
       }
     }
