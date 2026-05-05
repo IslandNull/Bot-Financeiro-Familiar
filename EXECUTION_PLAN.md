@@ -25,14 +25,22 @@ Operational authority for Bot Financeiro Familiar V55.
 ## Execution Rules
 
 - Local tests before deploy: `npm run check` (syntax check + all tests).
-- Deploy via `clasp push` after tests pass. Do not manually copy-paste Code.js.
-- Update `docs/SPREADSHEET_SNAPSHOT.md` by running `exportSnapshotV55()` in Apps Script after mutations.
+- Deploy via `npm run push` after tests pass. Do not manually copy-paste Code.js.
+- Update spreadsheet snapshot: `npm run snapshot` (saves to `docs/SPREADSHEET_SNAPSHOT.md` automatically).
+- Run any Apps Script function remotely: `npm run run <functionName>`.
+- Run smoke self-test: `npm run selftest`.
 - New event types follow the existing schema validation pattern. No per-type decision documents needed.
 - Group related changes in batches. Test once at the end, not between micro-steps.
 - Do not commit: `.env`, tokens, API keys, spreadsheet IDs, webhook URLs, chat/user IDs, financial dumps.
 - Preserve V55 domain: family cash, DRE, net worth, obligations, surplus, destination. No person-to-person settlement.
 - Every behavior change includes or updates local tests.
 - Idempotency: always write `Idempotency_Log` before financial rows. Suppress completed duplicates.
+
+### One-time setup for remote execution
+
+`clasp run` requires the Apps Script project to be deployed as **API Executable**:
+Apps Script editor → Deploy → New deployment → Type: API Executable → Deploy.
+After this, `npm run snapshot`, `npm run selftest`, and `npm run run <fn>` work from the terminal.
 
 ## Architecture
 

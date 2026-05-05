@@ -8,10 +8,13 @@
     "test:domain": "node test/domain.test.js",
     "test:schema": "node test/schema.test.js",
     "test:guardrails": "node test/guardrails.test.js",
-    "push": "clasp push",
+    "push": "clasp push --force",
     "pull": "clasp pull",
     "open": "clasp open",
     "logs": "clasp logs --watch",
-    "check": "node --check apps-script/Code.js && npm test"
+    "check": "node --check apps-script/Code.js && npm test",
+    "snapshot": "node scripts/clasp-run.js exportSnapshotV55 --save-snapshot",
+    "run": "node scripts/clasp-run.js",
+    "selftest": "node scripts/clasp-run.js runHelpSmokeSelfTest"
   }
 }

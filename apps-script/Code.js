@@ -1606,5 +1606,11 @@ function runWebhookSecretNegativeSelfTest() {
 }
 
 function exportSnapshotV55() {
-  return V55.exportSnapshotV55();
+  var result = V55.exportSnapshotV55();
+  if (result.ok) {
+    Logger.log(result.snapshot);
+  } else {
+    Logger.log('ERROR: ' + JSON.stringify(result));
+  }
+  return result;
 }
