@@ -262,181 +262,56 @@ Rejected:
 - Logging raw URLs, tokens, webhook secrets, chat IDs, or user IDs from the proxy.
 - Sending arbitrarily long response text to Telegram.
 
-## V55-D018 - First Real Mutation Is A Narrow Pilot Expense
+## V55-D018 - Pilot Mutations Follow Schema-Driven Validation
 
-Status: Accepted
-Date: 2026-04-30
-
-Decision:
-Enable the first real Apps Script financial mutation only behind Script Property `PILOT_FINANCIAL_MUTATION_ENABLED=YES`. The initial allowed mutation is limited to an effective family cash expense using the reviewed V55 category and source for family-market spending. Apps Script must parse through OpenAI Responses JSON output, default to `gpt-5-nano` unless `OPENAI_MODEL` is set, normalize the parser result into the canonical pilot row shape, validate the parsed event again, write `Idempotency_Log` before `Lancamentos`, use `LockService`, suppress completed duplicate deliveries, and mark processing rows as failed when the real write path throws.
-
-Reason:
-The `/help` pilot proved the Telegram, Val Town, and Apps Script route. The next risk is real spreadsheet mutation, so the blast radius must stay small while proving parser, idempotency, lock, and append behavior against the verified V55 spreadsheet.
-
-Rejected:
-- Enabling all event types at once.
-- Letting financial mutation run without an explicit pilot Script Property.
-- Writing a financial row before an idempotency row exists.
-
-## V55-D019 - Pilot Expense Date Defaults To Sao Paulo Today
-
-Status: Accepted
-Date: 2026-04-30
+Status: Accepted (consolidated from D018-D026)
+Date: 2026-05-05
 
 Decision:
-For the narrow Telegram pilot expense path, if the OpenAI parser returns an empty date for a current natural-language launch, Apps Script normalizes the date to today's date in `America/Sao_Paulo` and derives `competencia` from that normalized date.
+All pilot mutations use canonicalization and validation per event type, following the V55 schema and domain rules. The per-event-type pilot gates (originally D018: market expense, D019: date defaults, D020: flag canonicalization, D021: parser lessons, D022: text alias confirmation, D023: card purchase, D024: invoice payment, D025: Val Town webhook reply, D026: internal transfer) are consolidated into the existing code pattern. New event types follow the same schema validation approach without requiring new formal decisions.
 
 Reason:
-The real pilot produced `INVALID_DATE_EMPTY` for a simple current expense message. In this Telegram intake path, an omitted date should mean the current local accounting date, while explicit historical or scheduled dates still have to pass strict validation.
+The pilot proved the safety of the schema-driven approach across 4 event types in production. Per-type decisions created excessive documentation overhead without proportional safety benefit.
 
 Rejected:
-- Rejecting current expense messages only because the parser omitted `data`.
-- Using UTC or server-default timezone for the accounting date.
-- Broadening the pilot mutation beyond the reviewed family cash expense.
+- Maintaining per-event-type decision documents for each new category or type.
+- Removing all validation — the canonicalize/validate pattern remains, just without per-type formal decisions.
 
-## V55-D020 - Pilot Expense Canonicalizes Parser Flags Locally
-
-Status: Accepted
-Date: 2026-04-30
-
-Decision:
-For the narrow market-expense pilot, Apps Script canonicalizes a parsed `despesa` with category `OPEX_MERCADO_SEMANA` into the reviewed family cash shape before the final gate: `id_fonte=FONTE_CONTA_FAMILIA` when omitted, `escopo=Familiar`, `visibilidade=detalhada`, `status=efetivado`, `afeta_dre=true`, `afeta_patrimonio=false`, and `afeta_caixa_familiar=true`. The canonicalizer does not override a non-family scope, non-cash source, non-effective status, non-detailed visibility, or card/invoice/debt/asset references.
-
-Reason:
-The real pilot reached `PILOT_FLAGS_BLOCKED`, proving the model can return semantically close but operationally unsafe boolean flags. The Apps Script adapter should not depend on model exactness for canonical fields that are already fixed by the pilot boundary.
-
-Rejected:
-- Trusting OpenAI boolean flags directly for the reviewed pilot row.
-- Converting card-like or linked-reference events into cash expenses.
-- Expanding the pilot to other categories or event types.
-
-## V55-D021 - V54 Parser Lessons Applied To V55 Pilot
-
-Status: Accepted
-Date: 2026-04-30
-
-Decision:
-Use only technical parser lessons from the V54 repository: quote raw user text in the prompt, keep hard output rules explicit, keep canonical dictionaries visible, add pilot examples, and normalize money locally for the narrow V55 market expense. The V55 runtime accepts safe positive money formats such as `10`, `10.00`, `10,00`, and `R$ 10`; if the parser omits `valor`, the pilot extracts the first money-like value from the original Telegram text before failing closed.
-
-Reason:
-Real pilot traffic showed inconsistent `INVALID_MONEY` for repeated `mercado 10` messages because OpenAI output varied. V54's good pattern was not trusting the model alone: prompt hardening plus local normalization/validation.
-
-Rejected:
-- Importing V54 architecture or couple-settlement domain into V55.
-- Trusting parser money formatting exactly in the Apps Script runtime.
-- Accepting zero, negative, missing, or non-money values silently.
-
-## V55-D022 - Pilot Market Expense Requires Text Alias Confirmation
-
-Status: Accepted
-Date: 2026-04-30
-
-Decision:
-While the only enabled real mutation is the market cash expense pilot, Apps Script must require the original Telegram text to contain an explicit market-like alias such as `mercado`, `supermercado`, `feira`, or `hortifruti` before accepting `OPEX_MERCADO_SEMANA`. If OpenAI classifies unrelated text into the market category, the runtime fails closed with `PILOT_TEXT_CATEGORY_MISMATCH` before idempotency or `Lancamentos` writes.
-
-Reason:
-Real pilot traffic showed `ração do draco 250` being registered because OpenAI classified it as `OPEX_MERCADO_SEMANA`. The pilot must prove one narrow mutation safely, not let the model stretch unrelated expenses into the active category.
-
-Rejected:
-- Accepting `OPEX_MERCADO_SEMANA` from OpenAI without checking the source text.
-- Expanding the pilot to pet, restaurant, pharmacy, or miscellaneous categories in this step.
-- Writing an idempotency row for text/category mismatches.
-
-## V55-D023 - Second Real Mutation Is A Narrow Card Purchase
-
-Status: Accepted
-Date: 2026-04-30
-
-Decision:
-After the low-value market cash expense pilot, the next real Apps Script mutation path is limited to one reviewed card-purchase shape: pharmacy spending on `CARD_NUBANK_GU` through `FONTE_NUBANK_GU`. The runtime canonicalizes fixed fields locally, requires both pharmacy-like and card-like source text, assigns the expected invoice cycle, writes `Idempotency_Log` before `Lancamentos` and `Faturas`, and keeps invoice payment, transfer, asset, debt, and adjustment mutations blocked.
-
-Reason:
-Phase 7 needs to prove the card semantic boundary without opening every card category or payment workflow. A card purchase must affect DRE and invoice exposure now, but not family cash until invoice payment.
-
-Rejected:
-- Enabling all card purchases or all active categories at once.
-- Treating card purchase as a family cash outflow.
-- Enabling invoice payment before the created or reviewed invoice state exists.
-
-## V55-D024 - Third Real Mutation Is A Narrow Invoice Payment Fixture
-
-Status: Accepted
-Date: 2026-04-30
-
-Decision:
-After the reviewed Nubank card-purchase pilot creates an invoice row, the next real Apps Script mutation path is limited to paying that reviewed invoice fixture. The runtime canonicalizes fixed fields locally, requires payment/fatura/Nubank source text, verifies the existing invoice and exact expected amount before writing, records a `pagamento_fatura` launch with `afeta_dre=false` and `afeta_caixa_familiar=true`, and updates the reviewed `Faturas` row to paid.
-
-Reason:
-The product rule is that card purchase is the DRE expense and invoice payment is only the later cash movement. This pilot proves that boundary against the real sheet without enabling arbitrary invoice matching or broad payment workflows.
-
-Rejected:
-- Creating a second DRE expense when paying the invoice.
-- Paying arbitrary invoice IDs before reviewed lookup rules exist.
-- Accepting amount mismatches silently.
-
-## V55-D025 - Val Town Replies Through Telegram Webhook Response
-
-Status: Accepted
-Date: 2026-04-30
-
-Decision:
-For the Phase 7 pilot, Val Town should await the Apps Script response and, when a safe `responseText` is available, return a Telegram webhook `sendMessage` method payload as the HTTP response. Failed auth gates still return plain `ok` without a chat message. This replaces relying on post-response background `sendMessage` work for normal pilot replies.
-
-Reason:
-The real invoice-payment pilot mutated the spreadsheet correctly but produced no Telegram chat response, showing that background reply delivery after Val Town returned `ok` was not reliable enough for the pilot. A synchronous webhook method response keeps the Telegram acknowledgement and chat reply in the same request.
-
-Rejected:
-- Depending on non-awaited background work for user-visible replies.
-- Requiring a Telegram bot token in Val Town only to answer normal webhook messages.
-- Sending chat replies for webhook-secret or unauthorized failures.
-
-## V55-D026 - Fourth Real Mutation Is A Narrow Family Cash Entry
+## V55-D019 - First Real Report Command Is Read-Only
 
 Status: Accepted
 Date: 2026-05-02
 
 Decision:
-After the reviewed invoice-payment fixture, the next Apps Script pilot mutation path is limited to one internal transfer shape: an explicit entrada into family cash from Gustavo or Luana. The runtime canonicalizes fixed internal-transfer fields locally, requires source text to name a person, movement, and family cash destination, writes `Idempotency_Log` before `Transferencias_Internas`, and does not write `Lancamentos`, revenue, expense, debt, or person-to-person settlement rows.
+Expose the first Apps Script family report as `/resumo` and `/resumo_familiar`, before monthly closing writes. The command requires only `SPREADSHEET_ID`, reads the verified V55 sheets, returns aggregate family decision numbers, and does not call OpenAI or mutate financial sheets.
 
 Reason:
-Phase 7 needs to prove that internal movement can affect family cash without becoming DRE revenue or a debt between people. The safe pilot target is money entering the shared family cash, not arbitrary transfers, rent classification, or Gustavo/Luana reimbursement language.
+A read-only command lets the user validate DRE, cash, invoice exposure, obligations, reserve, net worth, margin, and suggested destination before any `Fechamento_Familiar` write path exists.
 
-Rejected:
-- Enabling all internal transfers at once.
-- Treating a transfer from Luana to Gustavo as a family-cash event.
-- Recording internal movement as receita, despesa, or debt.
-- Depending on OpenAI to decide DRE and net-worth flags for the reviewed transfer shape.
+## V55-D020 - Maintain A Redacted Spreadsheet Snapshot
 
-## V55-D027 - First Real Report Command Is Read-Only
-
-Status: Accepted
-Date: 2026-05-02
-
-Decision:
-Expose the first Apps Script family report as `/resumo` and `/resumo_familiar`, before monthly closing writes. The command runs after webhook-secret and authorization checks, requires only `SPREADSHEET_ID`, reads the verified V55 sheets, returns aggregate family decision numbers, and does not call OpenAI, require `PILOT_FINANCIAL_MUTATION_ENABLED`, write idempotency rows, or mutate financial sheets.
-
-Reason:
-Phase 8 needs a real user-facing reporting loop, but closing the month is higher risk than reading current aggregate state. A read-only command lets the user validate DRE, cash, invoice exposure, obligations, reserve, net worth, margin, and suggested destination before any `Fechamento_Familiar` write path exists.
-
-Rejected:
-- Triggering reports through natural-language parser calls.
-- Requiring the financial mutation pilot gate for read-only reports.
-- Writing draft or closed monthly rows from Telegram before the reviewed report output is validated.
-- Returning private line-item details in Telegram.
-
-## V55-D028 - Maintain A Redacted Spreadsheet Snapshot
-
-Status: Accepted
+Status: Accepted (updated 2026-05-05)
 Date: 2026-05-03
 
 Decision:
-Maintain `docs/SPREADSHEET_SNAPSHOT.md` as the current redacted operational snapshot of the real V55 spreadsheet. `SHEET_SCHEMA.md` and `src/schema.js` remain the schema authority; the snapshot records real sheet presence, headers, row counts, aggregate state, and known data-quality notes without private spreadsheet IDs, URLs, chat/user IDs, tokens, webhook secrets, or full financial dumps.
+Maintain `docs/SPREADSHEET_SNAPSHOT.md` as the current redacted operational snapshot. Use `exportSnapshotV55()` in Apps Script to auto-generate the snapshot content instead of manual authoring. The snapshot records sheet presence, headers, row counts, aggregate state, and the current `/resumo` output.
 
 Reason:
-Future agents need enough real spreadsheet context to validate project progress without repeatedly reconstructing the operational state from chat history or private links. The snapshot gives continuity while respecting the repository's sensitive-data boundary.
+Auto-generation eliminates stale snapshots and gives the AI current spreadsheet visibility without private data exposure. Future agents can request a snapshot refresh instead of asking the user to describe changes.
+
+## V55-D021 - AI Workflow Optimization
+
+Status: Accepted
+Date: 2026-05-05
+
+Decision:
+Adopt batch-oriented AI workflow: group related changes, test once at end, deploy via `clasp push`, use auto-generated snapshots, follow schema-driven validation for new types, and keep documentation under 100 lines per authority file.
+
+Reason:
+The previous micro-step workflow with per-change approvals, per-type decisions, and manual deploy consumed ~5x more tokens and time than necessary. The project owner is the only user and trusts the AI to make batched changes.
 
 Rejected:
-- Committing the spreadsheet URL or ID.
-- Treating a full sheet export as acceptable repository evidence.
-- Replacing schema authority with a mutable operational snapshot.
-- Relying only on conversation history for real spreadsheet state.
+- Maintaining micro-step approvals between sub-features.
+- Manual copy-paste deployment.
+- Per-event-type formal decision documents.
+

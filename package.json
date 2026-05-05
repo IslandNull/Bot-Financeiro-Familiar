@@ -7,6 +7,11 @@
     "test": "node test/run-tests.js",
     "test:domain": "node test/domain.test.js",
     "test:schema": "node test/schema.test.js",
-    "test:guardrails": "node test/guardrails.test.js"
+    "test:guardrails": "node test/guardrails.test.js",
+    "push": "clasp push",
+    "pull": "clasp pull",
+    "open": "clasp open",
+    "logs": "clasp logs --watch",
+    "check": "node --check apps-script/Code.js && npm test"
   }
 }
