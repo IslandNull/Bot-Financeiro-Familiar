@@ -7,7 +7,7 @@ Operational authority for Bot Financeiro Familiar V55.
 ### Verified
 
 - Clean V55 repo with local pure contracts, tests, and Apps Script runtime.
-- 16 source modules in `src/`, 18 test files in `test/`. `npm test` passes.
+- 16 source modules in `src/`, 18 test files in `test/`. `npm run check` passed on 2026-05-05.
 - Apps Script `Code.js` (~1600 lines): handles `doPost`, `doGet`, webhook secret, authorization, `/help`, `/resumo`, and 4 pilot mutation paths (despesa, compra_cartao, pagamento_fatura, transferencia_interna).
 - Val Town proxy: acknowledges Telegram, forwards to Apps Script, replies via webhook response.
 - Real V55 spreadsheet: 13 sheets, headers match schema, pilot data exists.
@@ -16,14 +16,16 @@ Operational authority for Bot Financeiro Familiar V55.
 - Phase 8 `/resumo` remote verification matches current spreadsheet snapshot for 2026-05.
 - Phase 8 closing draft write path is deployed; production call verified closed-period guard (`CLOSING_ALREADY_CLOSED`) for current competencia.
 - Phase 8 draft creation verified in production for explicit open competencia `2026-04`; snapshot updated.
+- Local contracts cover `/resumo`, `closing_draft`, and reviewed closing close semantics.
+- Snapshot shows rows in `Config_Categorias`, `Config_Fontes`, and `Cartoes`; Apps Script mutation runtime still uses hardcoded pilot constants/gates.
 - `exportSnapshotV55()` available for auto-generating `docs/SPREADSHEET_SNAPSHOT.md`; remote `summary` action available for read-only `/resumo` verification.
 
 ### Unverified
 
 - Full production readiness beyond pilot gates.
 - Revenue, asset contribution, debt payment, and adjustment mutation paths.
-- Reviewed close action for existing `Fechamento_Familiar` draft.
-- Config sheets populated (categories, sources, cards still hardcoded in pilot).
+- Reviewed close action for existing `Fechamento_Familiar` draft in production/runtime.
+- Real replacement of pilot hardcoded gates with config-driven validation from sheets.
 
 ## Execution Rules
 
@@ -44,7 +46,8 @@ Operational authority for Bot Financeiro Familiar V55.
 
 The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>` for remote function calls.
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env` (gitignored) and calls the endpoint.
-Available actions: `snapshot` (saves spreadsheet to `docs/SPREADSHEET_SNAPSHOT.md`), `summary` (read-only `/resumo` data), `selftest` (smoke `/help`).
+Available actions: `snapshot` (saves spreadsheet to `docs/SPREADSHEET_SNAPSHOT.md`), `summary` (read-only `/resumo` data), `closing_draft` (writes/reuses draft), `selftest` (smoke `/help`).
+Planned action: `closing_close` via `doGet?action=closing_close&secret=<WEBHOOK_SECRET>&competencia=YYYY-MM`; future npm script `closing:close` should call `node scripts/clasp-run.js closing_close`.
 After code push, update the web app version: `clasp deploy -i $DEPLOY_ID` where `DEPLOY_ID` is stored in `.env`. On Windows with PS execution policy, use `npm.cmd` / `clasp.cmd` instead of `npm` / `clasp`.
 
 ## Architecture
@@ -79,9 +82,9 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 ### Phase 8 continuation: Production-ready reporting and closing
 
 1. Implement reviewed close action for existing `Fechamento_Familiar` draft.
-2. Populate `Config_Categorias`, `Config_Fontes`, `Cartoes` with real data to replace hardcoded pilot IDs.
-3. Widen mutation gates: remove per-category text alias checks, use generic schema-driven validation.
-4. Add remaining event types: `receita`, `aporte`, `divida_pagamento`, `ajuste`.
+2. Validate close behavior: only `status=draft`, requires `closed_at`, preserves schema, and blocks already `closed` rows.
+3. Replace pilot hardcoded mutation gates with config-driven validation from `Config_Categorias`, `Config_Fontes`, and `Cartoes`.
+4. Add remaining Telegram/Apps Script event types: `receita`, `aporte`, `divida_pagamento`, `ajuste`.
 
 ### Phase 9 (future): Full operational readiness
 
