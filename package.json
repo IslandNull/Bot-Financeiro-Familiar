@@ -13,8 +13,8 @@
     "open": "clasp open",
     "logs": "clasp logs --watch",
     "check": "node --check apps-script/Code.js && npm test",
-    "snapshot": "node scripts/clasp-run.js exportSnapshotV55 --save-snapshot",
+    "snapshot": "node scripts/clasp-run.js snapshot",
     "run": "node scripts/clasp-run.js",
-    "selftest": "node scripts/clasp-run.js runHelpSmokeSelfTest"
+    "selftest": "node scripts/clasp-run.js selftest"
   }
 }

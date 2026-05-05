@@ -52,12 +52,28 @@ var V55 = (function() {
     return json_(result);
   }
 
-  function doGet() {
-    return json_({
-      ok: true,
-      service: 'Bot Financeiro Familiar V55',
-      phase: 'telegram_pilot',
-    });
+  function doGet(e) {
+    var params = (e && e.parameter) || {};
+    var action = params.action || '';
+    if (!action) {
+      return json_({
+        ok: true,
+        service: 'Bot Financeiro Familiar V55',
+        phase: 'telegram_pilot',
+      });
+    }
+    var config = readConfig_();
+    var secret = parameterValue_(e, 'secret');
+    if (!secret || secret !== config.webhookSecret) {
+      return json_({ ok: false, error: 'INVALID_SECRET' });
+    }
+    if (action === 'snapshot') {
+      return json_(exportSnapshotV55());
+    }
+    if (action === 'selftest') {
+      return json_(runHelpSmokeSelfTest());
+    }
+    return json_({ ok: false, error: 'UNKNOWN_ACTION', action: action });
   }
 
   function runWebhookSecretNegativeSelfTest() {

@@ -36,11 +36,12 @@ Operational authority for Bot Financeiro Familiar V55.
 - Every behavior change includes or updates local tests.
 - Idempotency: always write `Idempotency_Log` before financial rows. Suppress completed duplicates.
 
-### One-time setup for remote execution
+### Remote execution setup
 
-`clasp run` requires the Apps Script project to be deployed as **API Executable**:
-Apps Script editor → Deploy → New deployment → Type: API Executable → Deploy.
-After this, `npm run snapshot`, `npm run selftest`, and `npm run run <fn>` work from the terminal.
+The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>` for remote function calls.
+`scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env` (gitignored) and calls the endpoint.
+Available actions: `snapshot` (saves spreadsheet to `docs/SPREADSHEET_SNAPSHOT.md`), `selftest` (smoke `/help`).
+After creating a new deployment: `clasp deploy -i <DEPLOY_ID>` to update the existing URL to the latest version.
 
 ## Architecture
 
