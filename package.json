@@ -15,6 +15,7 @@
     "check": "node --check apps-script/Code.js && npm test",
     "snapshot": "node scripts/clasp-run.js snapshot",
     "summary": "node scripts/clasp-run.js summary",
+    "closing:draft": "node scripts/clasp-run.js closing_draft",
     "selftest": "node scripts/clasp-run.js selftest"
   }
 }

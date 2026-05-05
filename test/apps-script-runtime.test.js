@@ -19,6 +19,7 @@ const lancamentosHeaders = ['id_lancamento', 'data', 'competencia', 'tipo_evento
 const faturasHeaders = ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'];
 const patrimonioAtivosHeaders = ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'];
 const dividasHeaders = ['id_divida', 'nome', 'credor', 'tipo', 'escopo', 'saldo_devedor', 'parcela_atual', 'parcelas_total', 'valor_parcela', 'taxa_juros', 'sistema_amortizacao', 'data_atualizacao', 'status', 'observacao'];
+const fechamentoFamiliarHeaders = ['competencia', 'status', 'receitas_dre', 'despesas_dre', 'resultado_dre', 'caixa_entradas', 'caixa_saidas', 'sobra_caixa', 'faturas_60d', 'obrigacoes_60d', 'reserva_total', 'patrimonio_liquido', 'margem_pos_obrigacoes', 'capacidade_aporte_segura', 'parcela_maxima_segura', 'pode_avaliar_amortizacao', 'motivo_bloqueio_amortizacao', 'destino_reserva', 'destino_obrigacoes', 'destino_investimentos', 'destino_amortizacao', 'destino_sugerido', 'observacao', 'created_at', 'closed_at'];
 const transferenciasHeaders = ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'];
 const idempotencyHeaders = ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'];
 
@@ -56,6 +57,7 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
         Faturas: createFakeSheet(faturasHeaders),
         Patrimonio_Ativos: createFakeSheet(patrimonioAtivosHeaders),
         Dividas: createFakeSheet(dividasHeaders),
+        Fechamento_Familiar: createFakeSheet(fechamentoFamiliarHeaders),
         Transferencias_Internas: createFakeSheet(transferenciasHeaders),
     };
     const properties = {
@@ -243,12 +245,45 @@ function appendFakeTransfer(sheets, overrides = {}) {
     sheets.Transferencias_Internas.appendRow(transferenciasHeaders.map((header) => transfer[header] === undefined ? '' : transfer[header]));
 }
 
+function appendFakeClosing(sheets, overrides = {}) {
+    const closing = {
+        competencia: '2026-04',
+        status: 'draft',
+        receitas_dre: 0,
+        despesas_dre: 53.9,
+        resultado_dre: -53.9,
+        caixa_entradas: 400,
+        caixa_saidas: 53.9,
+        sobra_caixa: 346.1,
+        faturas_60d: 0,
+        obrigacoes_60d: 0,
+        reserva_total: 0,
+        patrimonio_liquido: 0,
+        margem_pos_obrigacoes: 346.1,
+        capacidade_aporte_segura: 0,
+        parcela_maxima_segura: 86.53,
+        pode_avaliar_amortizacao: false,
+        motivo_bloqueio_amortizacao: 'reserva_abaixo_da_meta',
+        destino_reserva: 346.1,
+        destino_obrigacoes: 0,
+        destino_investimentos: 0,
+        destino_amortizacao: 0,
+        destino_sugerido: 'reforcar_reserva',
+        observacao: 'existing',
+        created_at: '2026-04-30T15:00:00Z',
+        closed_at: '',
+        ...overrides,
+    };
+    sheets.Fechamento_Familiar.appendRow(fechamentoFamiliarHeaders.map((header) => closing[header] === undefined ? '' : closing[header]));
+}
+
 test('Apps Script runtime exposes webhook and self-test functions', () => {
     assert.ok(code.includes('function doPost(e)'));
     assert.ok(code.includes('function doGet(e)'));
     assert.ok(code.includes('function runWebhookSecretNegativeSelfTest()'));
     assert.ok(code.includes('function runHelpSmokeSelfTest()'));
     assert.ok(code.includes('function exportPilotFamilySummaryV55()'));
+    assert.ok(code.includes('function writeDraftFamilyClosingV55()'));
     assert.ok(code.includes('function runTelegramWebhookSetupDryRun()'));
     assert.ok(code.includes('function runTelegramWebhookSetupApply()'));
 });
@@ -397,6 +432,55 @@ test('Apps Script doGet summary action returns current read-only family summary'
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
+});
+
+test('Apps Script closing_draft action writes schema-compatible family closing draft once', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeLaunch(sheets, { valor: 53.9 });
+    appendFakeTransfer(sheets, { valor: 400 });
+    appendFakeInvoice(sheets, { valor_previsto: 42.5, valor_pago: 42.5, status: 'paga' });
+
+    const created = runRemoteAction(context, 'closing_draft');
+    const updated = runRemoteAction(context, 'closing_draft');
+
+    assert.strictEqual(created.ok, true);
+    assert.strictEqual(created.status, 'created');
+    assert.strictEqual(created.shouldApplyDomainMutation, true);
+    assert.deepStrictEqual(Object.keys(created.closing), fechamentoFamiliarHeaders);
+    assert.strictEqual(created.closing.competencia, '2026-04');
+    assert.strictEqual(created.closing.status, 'draft');
+    assert.strictEqual(created.closing.despesas_dre, 53.9);
+    assert.strictEqual(created.closing.caixa_entradas, 400);
+    assert.strictEqual(created.closing.destino_sugerido, 'reforcar_reserva');
+    assert.strictEqual(updated.ok, true);
+    assert.strictEqual(updated.status, 'updated');
+    assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 2);
+    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('competencia')], '2026-04');
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+});
+
+test('Apps Script closing_draft action blocks closed family closing rows', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeLaunch(sheets, { valor: 53.9 });
+    appendFakeClosing(sheets, { status: 'closed', closed_at: '2026-05-01T10:00:00Z' });
+
+    const result = runRemoteAction(context, 'closing_draft');
+
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['CLOSING_ALREADY_CLOSED']);
+    assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 2);
 });
 
 test('Apps Script runtime uses OpenAI Responses JSON output for parser boundary', () => {

@@ -15,11 +15,13 @@ var V55 = (function() {
     LANCAMENTOS: 'Lancamentos',
     PATRIMONIO_ATIVOS: 'Patrimonio_Ativos',
     DIVIDAS: 'Dividas',
+    FECHAMENTO_FAMILIAR: 'Fechamento_Familiar',
     TRANSFERENCIAS_INTERNAS: 'Transferencias_Internas',
     IDEMPOTENCY_LOG: 'Idempotency_Log',
   };
   var HEADERS = {
     Dividas: ['id_divida', 'nome', 'credor', 'tipo', 'escopo', 'saldo_devedor', 'parcela_atual', 'parcelas_total', 'valor_parcela', 'taxa_juros', 'sistema_amortizacao', 'data_atualizacao', 'status', 'observacao'],
+    Fechamento_Familiar: ['competencia', 'status', 'receitas_dre', 'despesas_dre', 'resultado_dre', 'caixa_entradas', 'caixa_saidas', 'sobra_caixa', 'faturas_60d', 'obrigacoes_60d', 'reserva_total', 'patrimonio_liquido', 'margem_pos_obrigacoes', 'capacidade_aporte_segura', 'parcela_maxima_segura', 'pode_avaliar_amortizacao', 'motivo_bloqueio_amortizacao', 'destino_reserva', 'destino_obrigacoes', 'destino_investimentos', 'destino_amortizacao', 'destino_sugerido', 'observacao', 'created_at', 'closed_at'],
     Faturas: ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'],
     Lancamentos: ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'created_at'],
     Patrimonio_Ativos: ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'],
@@ -72,6 +74,9 @@ var V55 = (function() {
     }
     if (action === 'summary') {
       return json_(exportPilotFamilySummaryV55());
+    }
+    if (action === 'closing_draft') {
+      return json_(writeDraftFamilyClosingV55());
     }
     if (action === 'selftest') {
       return json_(runHelpSmokeSelfTest());
@@ -302,6 +307,51 @@ var V55 = (function() {
     };
   }
 
+  function writeDraftFamilyClosingV55() {
+    var config = readConfig_();
+    var summaryResult = readCurrentPilotFamilySummary_(config);
+    if (!summaryResult.ok) return summaryResult;
+
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var closingSheet = spreadsheet.getSheetByName(SHEETS.FECHAMENTO_FAMILIAR);
+      verifySheetHeaders_(closingSheet, SHEETS.FECHAMENTO_FAMILIAR);
+
+      var row = buildDraftFamilyClosingRow_(summaryResult.summary, isoNow_());
+      var existing = findFamilyClosingRow_(closingSheet, row.competencia);
+      if (existing && existing.status === 'closed') {
+        return fail_('CLOSING_ALREADY_CLOSED', 'competencia', GENERIC_RECORD_FAILURE);
+      }
+      if (existing) {
+        writeRow_(closingSheet, existing.rowNumber, SHEETS.FECHAMENTO_FAMILIAR, row);
+        return {
+          ok: true,
+          action: 'closing_draft',
+          status: 'updated',
+          result_ref: 'Fechamento_Familiar:' + row.competencia,
+          closing: row,
+          shouldApplyDomainMutation: true,
+        };
+      }
+
+      appendRow_(closingSheet, SHEETS.FECHAMENTO_FAMILIAR, row);
+      return {
+        ok: true,
+        action: 'closing_draft',
+        status: 'created',
+        result_ref: 'Fechamento_Familiar:' + row.competencia,
+        closing: row,
+        shouldApplyDomainMutation: true,
+      };
+    } catch (_err) {
+      return fail_('CLOSING_DRAFT_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
   function readCurrentPilotFamilySummary_(config) {
     var runtimeCheck = verifyReportingRuntimeConfig_(config);
     if (!runtimeCheck.ok) return runtimeCheck;
@@ -388,6 +438,7 @@ var V55 = (function() {
       return row.status === 'ativa' ? roundMoney_(sum + numberFromSheetValue_(row.saldo_devedor)) : sum;
     }, 0);
     var margemPosObrigacoes = roundMoney_(cash.sobra_caixa - faturas60d - obrigacoes60d);
+    var capacity = computePilotDecisionCapacity_(cash.sobra_caixa, reservaTotal, faturas60d, obrigacoes60d, debts);
 
     return {
       competencia: competencia,
@@ -402,9 +453,78 @@ var V55 = (function() {
       reserva_total: reservaTotal,
       patrimonio_liquido: roundMoney_(ativosTotal - dividasTotal),
       margem_pos_obrigacoes: margemPosObrigacoes,
+      capacidade_aporte_segura: capacity.capacidade_aporte_segura,
+      parcela_maxima_segura: capacity.parcela_maxima_segura,
+      pode_avaliar_amortizacao: capacity.pode_avaliar_amortizacao,
+      motivo_bloqueio_amortizacao: capacity.motivo_bloqueio_amortizacao,
+      destino_reserva: capacity.destino_reserva,
+      destino_obrigacoes: capacity.destino_obrigacoes,
+      destino_investimentos: capacity.destino_investimentos,
+      destino_amortizacao: capacity.destino_amortizacao,
       destino_sugerido: suggestPilotDestination_(cash.sobra_caixa, reservaTotal, faturas60d, obrigacoes60d),
       eventos_detalhados: countSharedDetailedEvents_(launches),
     };
+  }
+
+  function computePilotDecisionCapacity_(sobraCaixa, reservaTotal, faturas60d, obrigacoes60d, debts) {
+    var reserveTarget = 15000;
+    var immediateObligations = roundMoney_(faturas60d + obrigacoes60d);
+    var margemPosObrigacoes = roundMoney_(sobraCaixa - immediateObligations);
+    var reservaGap = roundMoney_(Math.max(0, reserveTarget - reservaTotal));
+    var capacidadeAporteSegura = roundMoney_(Math.max(0, margemPosObrigacoes - reservaGap));
+    var parcelaMaximaSegura = roundMoney_(Math.max(0, margemPosObrigacoes * 0.25));
+    var activeDebts = debts.filter(function(row) { return row.status === 'ativa'; });
+    var debtDataComplete = activeDebts.every(function(row) {
+      return numberFromSheetValue_(row.saldo_devedor) > 0
+        && numberFromSheetValue_(row.valor_parcela) > 0
+        && stringValue_(row.taxa_juros) !== ''
+        && stringValue_(row.sistema_amortizacao) !== '';
+    });
+    var podeAvaliarAmortizacao = reservaGap === 0 && debtDataComplete;
+    return {
+      capacidade_aporte_segura: capacidadeAporteSegura,
+      parcela_maxima_segura: parcelaMaximaSegura,
+      pode_avaliar_amortizacao: podeAvaliarAmortizacao,
+      motivo_bloqueio_amortizacao: podeAvaliarAmortizacao ? '' : (reservaGap > 0 ? 'reserva_abaixo_da_meta' : 'dados_da_divida_incompletos'),
+      destino_reserva: roundMoney_(Math.min(Math.max(0, margemPosObrigacoes), reservaGap)),
+      destino_obrigacoes: roundMoney_(Math.min(Math.max(0, sobraCaixa), immediateObligations)),
+      destino_investimentos: capacidadeAporteSegura,
+      destino_amortizacao: podeAvaliarAmortizacao ? capacidadeAporteSegura : 0,
+    };
+  }
+
+  function buildDraftFamilyClosingRow_(summary, createdAt) {
+    var row = {
+      competencia: summary.competencia,
+      status: 'draft',
+      receitas_dre: summary.receitas_dre,
+      despesas_dre: summary.despesas_dre,
+      resultado_dre: summary.resultado_dre,
+      caixa_entradas: summary.caixa_entradas,
+      caixa_saidas: summary.caixa_saidas,
+      sobra_caixa: summary.sobra_caixa,
+      faturas_60d: summary.faturas_60d,
+      obrigacoes_60d: summary.obrigacoes_60d,
+      reserva_total: summary.reserva_total,
+      patrimonio_liquido: summary.patrimonio_liquido,
+      margem_pos_obrigacoes: summary.margem_pos_obrigacoes,
+      capacidade_aporte_segura: summary.capacidade_aporte_segura,
+      parcela_maxima_segura: summary.parcela_maxima_segura,
+      pode_avaliar_amortizacao: summary.pode_avaliar_amortizacao,
+      motivo_bloqueio_amortizacao: summary.motivo_bloqueio_amortizacao,
+      destino_reserva: summary.destino_reserva,
+      destino_obrigacoes: summary.destino_obrigacoes,
+      destino_investimentos: summary.destino_investimentos,
+      destino_amortizacao: summary.destino_amortizacao,
+      destino_sugerido: summary.destino_sugerido,
+      observacao: 'draft gerado por closing_draft',
+      created_at: createdAt,
+      closed_at: '',
+    };
+    return HEADERS[SHEETS.FECHAMENTO_FAMILIAR].reduce(function(result, header) {
+      result[header] = row[header] === undefined ? '' : row[header];
+      return result;
+    }, {});
   }
 
   function sumPilotInvoiceExposure_(invoices) {
@@ -1332,6 +1452,14 @@ var V55 = (function() {
     }));
   }
 
+  function writeRow_(sheet, rowNumber, sheetName, values) {
+    var headers = HEADERS[sheetName];
+    for (var i = 0; i < headers.length; i += 1) {
+      var header = headers[i];
+      sheet.getRange(rowNumber, i + 1).setValue(values[header] === undefined ? '' : values[header]);
+    }
+  }
+
   function readRowsAsObjects_(sheet, sheetName) {
     var headers = HEADERS[sheetName];
     var lastRow = sheet.getLastRow();
@@ -1407,6 +1535,24 @@ var V55 = (function() {
           valor_previsto: numberFromSheetValue_(rows[i][previstoIndex]),
           valor_fechado: numberFromSheetValue_(rows[i][fechadoIndex]),
           valor_pago: numberFromSheetValue_(rows[i][pagoIndex]),
+          status: String(rows[i][statusIndex] || ''),
+        };
+      }
+    }
+    return null;
+  }
+
+  function findFamilyClosingRow_(sheet, competencia) {
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return null;
+    var headers = HEADERS[SHEETS.FECHAMENTO_FAMILIAR];
+    var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    var competenciaIndex = headers.indexOf('competencia');
+    var statusIndex = headers.indexOf('status');
+    for (var i = 0; i < rows.length; i += 1) {
+      if (normalizeSheetCompetencia_(rows[i][competenciaIndex]) === competencia) {
+        return {
+          rowNumber: i + 2,
           status: String(rows[i][statusIndex] || ''),
         };
       }
@@ -1621,6 +1767,7 @@ var V55 = (function() {
     runTelegramWebhookSetupApply: runTelegramWebhookSetupApply,
     runTelegramWebhookSetupDryRun: runTelegramWebhookSetupDryRun,
     runWebhookSecretNegativeSelfTest: runWebhookSecretNegativeSelfTest,
+    writeDraftFamilyClosingV55: writeDraftFamilyClosingV55,
   };
 })();
 
@@ -1660,6 +1807,12 @@ function exportSnapshotV55() {
 
 function exportPilotFamilySummaryV55() {
   var result = V55.exportPilotFamilySummaryV55();
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+function writeDraftFamilyClosingV55() {
+  var result = V55.writeDraftFamilyClosingV55();
   Logger.log(JSON.stringify(result));
   return result;
 }

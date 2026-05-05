@@ -10,9 +10,10 @@ Before changing code:
 
 1. Run: `git status`, `git branch --show-current`, `ls`
 2. Read: `EXECUTION_PLAN.md` (the single operational authority)
-3. For formula or spreadsheet tasks, also read: `docs/FORMULA_STANDARD.md`
-4. For domain questions, read: `DOMAIN_RULES.md` and `SHEET_SCHEMA.md`
-5. Do not claim a feature exists unless verified in files or command output.
+3. Read: `docs/CODE_MAP.md` (file map, source modules, Code.js architecture)
+4. For formula or spreadsheet tasks, also read: `docs/FORMULA_STANDARD.md`
+5. For domain questions, read: `DOMAIN_RULES.md` and `SHEET_SCHEMA.md`
+6. Do not claim a feature exists unless verified in files or command output.
 
 ## Truth Policy
 
@@ -35,12 +36,13 @@ Never commit: `.env`, Telegram token, OpenAI API key, spreadsheet ID, webhook UR
 
 - **Batch changes.** Group related changes into a single batch. Do not ask for approval between micro-steps of the same feature.
 - **Test once.** Run `npm run check` once at the end of a batch, not between each micro-change.
-- **Deploy with clasp.** Use `npm run push` to deploy after tests pass. Do not ask the user to manually copy-paste code.
-- **Sync spreadsheet state.** Update `docs/SPREADSHEET_SNAPSHOT.md` by running `exportSnapshotV55()` in Apps Script after mutations, not by asking the user to describe what changed.
+- **Deploy with clasp.** Use `npm run push` then `clasp deploy -i $DEPLOY_ID` (from `.env`) to update the web app. Do not ask the user to manually copy-paste code.
+- **Sync spreadsheet state.** Run `npm run snapshot` to auto-generate `docs/SPREADSHEET_SNAPSHOT.md`. Do not ask the user to describe changes.
 - **Schema-driven validation.** When adding a new event type or category, follow the existing schema validation pattern. Do not create a new formal decision document for each event type.
 - **Compact docs.** Keep `EXECUTION_PLAN.md` under 100 lines. Record state, not history.
 - **Trust the owner.** The user is the project owner and only user. Do not add security barriers against the project owner. Pilot safety gates are for protecting the spreadsheet from bugs, not from the user.
 - **Minimize token usage.** Avoid re-reading entire files that haven't changed. Avoid verbose verification reports. State what changed and what was tested — skip the narrative.
+- **Always commit.** After verified changes, run `git add -A && git commit && git push`. Never leave working tree dirty.
 
 ## Validation
 
