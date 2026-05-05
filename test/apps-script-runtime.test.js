@@ -171,6 +171,16 @@ function postPilotMessage(context, text) {
     return JSON.parse(output.getContentText());
 }
 
+function runRemoteAction(context, action) {
+    const output = context.doGet({
+        parameter: {
+            action,
+            secret: 'test_secret',
+        },
+    });
+    return JSON.parse(output.getContentText());
+}
+
 function appendFakeInvoice(sheets, overrides = {}) {
     const invoice = {
         id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
@@ -238,6 +248,7 @@ test('Apps Script runtime exposes webhook and self-test functions', () => {
     assert.ok(code.includes('function doGet(e)'));
     assert.ok(code.includes('function runWebhookSecretNegativeSelfTest()'));
     assert.ok(code.includes('function runHelpSmokeSelfTest()'));
+    assert.ok(code.includes('function exportPilotFamilySummaryV55()'));
     assert.ok(code.includes('function runTelegramWebhookSetupDryRun()'));
     assert.ok(code.includes('function runTelegramWebhookSetupApply()'));
 });
@@ -361,6 +372,31 @@ test('Apps Script /resumo normalizes sheet date cells used as competencia', () =
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /DRE: receitas R\$ 0\.00, despesas R\$ 43\.90, resultado R\$ -43\.90/);
     assert.match(result.responseText, /Caixa: entradas R\$ 100\.00, saidas R\$ 43\.90, sobra R\$ 56\.10/);
+});
+
+test('Apps Script doGet summary action returns current read-only family summary', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeLaunch(sheets, { valor: 53.9 });
+    appendFakeTransfer(sheets, { valor: 400 });
+    appendFakeInvoice(sheets, { valor_previsto: 42.5, valor_pago: 42.5, status: 'paga' });
+
+    const result = runRemoteAction(context, 'summary');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(result.summary.competencia, '2026-04');
+    assert.strictEqual(result.summary.caixa_entradas, 400);
+    assert.strictEqual(result.summary.caixa_saidas, 53.9);
+    assert.match(result.responseText, /Resumo familiar 2026-04/);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
 });
 
 test('Apps Script runtime uses OpenAI Responses JSON output for parser boundary', () => {

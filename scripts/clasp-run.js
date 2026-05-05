@@ -17,7 +17,7 @@ const https = require('https');
 
 const action = process.argv[2];
 if (!action) {
-  console.error('Usage: node scripts/clasp-run.js <snapshot|selftest>');
+  console.error('Usage: node scripts/clasp-run.js <snapshot|summary|selftest>');
   process.exit(1);
 }
 
@@ -57,7 +57,7 @@ function httpGet(targetUrl, redirectCount) {
   }
   return new Promise(function(resolve, reject) {
     const mod = targetUrl.startsWith('https') ? https : require('http');
-    mod.get(targetUrl, { timeout: 30000 }, function(res) {
+    var req = mod.get(targetUrl, { timeout: 30000 }, function(res) {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         resolve(httpGet(res.headers.location, redirectCount + 1));
         return;
@@ -65,7 +65,11 @@ function httpGet(targetUrl, redirectCount) {
       var body = '';
       res.on('data', function(chunk) { body += chunk; });
       res.on('end', function() { resolve({ status: res.statusCode, body: body }); });
-    }).on('error', reject);
+    });
+    req.on('timeout', function() {
+      req.destroy(new Error('Request timed out.'));
+    });
+    req.on('error', reject);
   });
 }
 

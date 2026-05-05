@@ -13,7 +13,8 @@ Operational authority for Bot Financeiro Familiar V55.
 - Real V55 spreadsheet: 13 sheets, headers match schema, pilot data exists.
 - Phase 7 pilot mutations validated in production: market expense, card purchase, invoice payment, internal transfer.
 - Phase 8 started: `/resumo` read-only report works in Telegram.
-- `exportSnapshotV55()` available for auto-generating `docs/SPREADSHEET_SNAPSHOT.md`.
+- Phase 8 `/resumo` remote verification matches current spreadsheet snapshot for 2026-05.
+- `exportSnapshotV55()` available for auto-generating `docs/SPREADSHEET_SNAPSHOT.md`; remote `summary` action available for read-only `/resumo` verification.
 
 ### Unverified
 
@@ -26,11 +27,12 @@ Operational authority for Bot Financeiro Familiar V55.
 
 - Local tests before deploy: `npm run check` (syntax check + all tests).
 - Deploy via `npm run push` after tests pass. Do not manually copy-paste Code.js.
+- After push, update web app version: `clasp deploy -i $DEPLOY_ID` (ID is in `.env`).
 - Update spreadsheet snapshot: `npm run snapshot` (saves to `docs/SPREADSHEET_SNAPSHOT.md` automatically).
-- Run any Apps Script function remotely: `npm run run <functionName>`.
-- Run smoke self-test: `npm run selftest`.
+- Read-only family summary: `npm run summary`. Smoke self-test: `npm run selftest`.
 - New event types follow the existing schema validation pattern. No per-type decision documents needed.
 - Group related changes in batches. Test once at the end, not between micro-steps.
+- Always `git commit` + `git push` after verified changes. Never leave working tree dirty.
 - Do not commit: `.env`, tokens, API keys, spreadsheet IDs, webhook URLs, chat/user IDs, financial dumps.
 - Preserve V55 domain: family cash, DRE, net worth, obligations, surplus, destination. No person-to-person settlement.
 - Every behavior change includes or updates local tests.
@@ -40,8 +42,8 @@ Operational authority for Bot Financeiro Familiar V55.
 
 The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>` for remote function calls.
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env` (gitignored) and calls the endpoint.
-Available actions: `snapshot` (saves spreadsheet to `docs/SPREADSHEET_SNAPSHOT.md`), `selftest` (smoke `/help`).
-After creating a new deployment: `clasp deploy -i <DEPLOY_ID>` to update the existing URL to the latest version.
+Available actions: `snapshot` (saves spreadsheet to `docs/SPREADSHEET_SNAPSHOT.md`), `summary` (read-only `/resumo` data), `selftest` (smoke `/help`).
+After code push, update the web app version: `clasp deploy -i $DEPLOY_ID` where `DEPLOY_ID` is stored in `.env`. On Windows with PS execution policy, use `npm.cmd` / `clasp.cmd` instead of `npm` / `clasp`.
 
 ## Architecture
 
@@ -74,18 +76,14 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ### Phase 8 continuation: Production-ready reporting and closing
 
-1. Verify `/resumo` output matches real spreadsheet state after latest mutations.
-2. Implement `Fechamento_Familiar` write path: draft generation from current rows, closing workflow.
-3. Populate `Config_Categorias`, `Config_Fontes`, `Cartoes` with real data to replace hardcoded pilot IDs.
-4. Widen mutation gates: remove per-category text alias checks, use generic schema-driven validation.
-5. Add remaining event types: `receita`, `aporte`, `divida_pagamento`, `ajuste`.
+1. Implement `Fechamento_Familiar` write path: draft generation from current rows, closing workflow.
+2. Populate `Config_Categorias`, `Config_Fontes`, `Cartoes` with real data to replace hardcoded pilot IDs.
+3. Widen mutation gates: remove per-category text alias checks, use generic schema-driven validation.
+4. Add remaining event types: `receita`, `aporte`, `divida_pagamento`, `ajuste`.
 
 ### Phase 9 (future): Full operational readiness
 
-- Historical data entry for 2026-04 and earlier.
-- Private detail filtering in shared Telegram reports.
-- Recurring income tracking.
-- Source balance snapshots.
+Historical data entry for 2026-04 and earlier; private detail filtering in shared Telegram reports; recurring income tracking; source balance snapshots.
 
 ## Phase History (archived)
 

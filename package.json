@@ -14,7 +14,7 @@
     "logs": "clasp logs --watch",
     "check": "node --check apps-script/Code.js && npm test",
     "snapshot": "node scripts/clasp-run.js snapshot",
-    "run": "node scripts/clasp-run.js",
+    "summary": "node scripts/clasp-run.js summary",
     "selftest": "node scripts/clasp-run.js selftest"
   }
 }

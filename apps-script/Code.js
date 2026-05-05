@@ -70,6 +70,9 @@ var V55 = (function() {
     if (action === 'snapshot') {
       return json_(exportSnapshotV55());
     }
+    if (action === 'summary') {
+      return json_(exportPilotFamilySummaryV55());
+    }
     if (action === 'selftest') {
       return json_(runHelpSmokeSelfTest());
     }
@@ -278,6 +281,28 @@ var V55 = (function() {
   }
 
   function buildPilotFamilySummaryResponse_(config) {
+    var result = readCurrentPilotFamilySummary_(config);
+    if (!result.ok) return result;
+
+    return {
+      ok: true,
+      responseText: result.responseText,
+      shouldApplyDomainMutation: false,
+    };
+  }
+
+  function exportPilotFamilySummaryV55() {
+    var result = readCurrentPilotFamilySummary_(readConfig_());
+    if (!result.ok) return result;
+    return {
+      ok: true,
+      responseText: result.responseText,
+      summary: result.summary,
+      shouldApplyDomainMutation: false,
+    };
+  }
+
+  function readCurrentPilotFamilySummary_(config) {
     var runtimeCheck = verifyReportingRuntimeConfig_(config);
     if (!runtimeCheck.ok) return runtimeCheck;
 
@@ -310,6 +335,7 @@ var V55 = (function() {
       return {
         ok: true,
         responseText: formatPilotFamilySummary_(summary),
+        summary: summary,
         shouldApplyDomainMutation: false,
       };
     } catch (_err) {
@@ -1589,6 +1615,7 @@ var V55 = (function() {
   return {
     doGet: doGet,
     doPost: doPost,
+    exportPilotFamilySummaryV55: exportPilotFamilySummaryV55,
     exportSnapshotV55: exportSnapshotV55,
     runHelpSmokeSelfTest: runHelpSmokeSelfTest,
     runTelegramWebhookSetupApply: runTelegramWebhookSetupApply,
@@ -1628,5 +1655,11 @@ function exportSnapshotV55() {
   } else {
     Logger.log('ERROR: ' + JSON.stringify(result));
   }
+  return result;
+}
+
+function exportPilotFamilySummaryV55() {
+  var result = V55.exportPilotFamilySummaryV55();
+  Logger.log(JSON.stringify(result));
   return result;
 }
