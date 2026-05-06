@@ -32,10 +32,13 @@ Operational authority for Bot Financeiro Familiar V55.
 - Version @45 deployed; remote `summary` verified `Saldos_Fontes` aggregates as zero for 2026-05 because the sheet has no data rows; snapshot updated with `Saldos_Fontes` headers matching schema.
 - Phase 9 private detail filtering in shared Telegram reports is deployed: `/resumo` includes a capped preview of `Familiar` + `detalhada` launch rows only, with sheet dates normalized to `yyyy-MM-dd`.
 - Version @47 deployed; remote `summary` verified 3 visible detailed family events for 2026-05 and no mutation; snapshot updated.
+- UX pass 1 is deployed: `/help` uses plain examples, `/resumo` uses everyday labels, visible launch preview uses category names instead of internal ids, and successful writes return value/date/description guidance.
+- Version @48 deployed; remote `selftest`, `summary`, and `snapshot` succeeded after UX pass 1.
 
 ### Unverified
 
 - Full production readiness beyond pilot gates.
+- UX readiness with Luana using real Telegram messages.
 
 ## Execution Rules
 

@@ -1,8 +1,8 @@
 'use strict';
 
-const GENERIC_FAILURE_TEXT = 'Nao consegui registrar agora. Revise a mensagem e tente novamente.';
+const GENERIC_FAILURE_TEXT = 'Nao consegui anotar isso agora.\nTente mandar de um jeito simples, por exemplo: mercado 42 hoje.';
 const UNAUTHORIZED_TEXT = 'Nao foi possivel processar esta mensagem.';
-const SUCCESS_TEXT = 'Registro recebido.';
+const SUCCESS_TEXT = 'Anotado.';
 
 async function handleTelegramUpdate(input) {
     const deps = (input && input.deps) || {};

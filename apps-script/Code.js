@@ -1,10 +1,21 @@
 var V55 = (function() {
   var GENERIC_REQUEST_FAILURE = 'Nao foi possivel processar esta requisicao.';
   var GENERIC_MESSAGE_FAILURE = 'Nao foi possivel processar esta mensagem.';
-  var GENERIC_RECORD_FAILURE = 'Nao consegui registrar agora. Revise a mensagem e tente novamente.';
-  var HELP_TEXT = 'Bot financeiro familiar ativo. Envie um lancamento em linguagem natural.';
-  var SUCCESS_TEXT = 'Registro recebido.';
-  var FAMILY_SUMMARY_HELP_TEXT = 'Use /resumo para ver o resumo familiar em modo leitura.';
+  var GENERIC_RECORD_FAILURE = 'Nao consegui anotar isso agora.\nTente mandar de um jeito simples, por exemplo: mercado 42 hoje.';
+  var HELP_TEXT = [
+    'Eu anoto os movimentos da familia por mensagem.',
+    '',
+    'Pode mandar assim:',
+    '- mercado 42 hoje',
+    '- farmacia 18 no nubank',
+    '- paguei a fatura nubank 300',
+    '- recebi salario 5000',
+    '- transferi 200 para a conta da familia',
+    '',
+    'Para ver como esta o mes, mande /resumo.'
+  ].join('\n');
+  var SUCCESS_TEXT = 'Anotado.';
+  var FAMILY_SUMMARY_HELP_TEXT = 'O resumo mostra valores do mes em modo leitura.';
   var DEFAULT_OPENAI_MODEL = 'gpt-5-nano';
   var OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
   var SHEETS = {
@@ -426,6 +437,7 @@ var V55 = (function() {
       var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
       var recurringIncomeSheet = spreadsheet.getSheetByName(SHEETS.RENDAS_RECORRENTES);
       var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
+      var categorySheet = spreadsheet.getSheetByName(SHEETS.CONFIG_CATEGORIAS);
 
       verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
       verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
@@ -434,6 +446,7 @@ var V55 = (function() {
       verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
       verifySheetHeaders_(recurringIncomeSheet, SHEETS.RENDAS_RECORRENTES);
       verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
+      verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
 
       var competencia = competenciaCheck.competencia || todaySaoPaulo_().slice(0, 7);
       var launches = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS).filter(function(row) {
@@ -447,7 +460,8 @@ var V55 = (function() {
       var debts = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS);
       var recurringIncomes = readRowsAsObjects_(recurringIncomeSheet, SHEETS.RENDAS_RECORRENTES);
       var sourceBalances = readRowsAsObjects_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
-      var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances);
+      var categoriesById = indexBy_(readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS), 'id_categoria');
+      var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById);
 
       return {
         ok: true,
@@ -460,7 +474,7 @@ var V55 = (function() {
     }
   }
 
-  function computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances) {
+  function computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById) {
     var dre = launches.reduce(function(summary, row) {
       var amount = numberFromSheetValue_(row.valor);
       if (row.afeta_dre !== true) return summary;
@@ -539,7 +553,7 @@ var V55 = (function() {
       destino_amortizacao: capacity.destino_amortizacao,
       destino_sugerido: suggestPilotDestination_(cash.sobra_caixa, reservaTotal, faturas60d, obrigacoes60d),
       eventos_detalhados: countSharedDetailedEvents_(launches),
-      eventos_detalhados_preview: buildSharedDetailedEventPreview_(launches, 5),
+      eventos_detalhados_preview: buildSharedDetailedEventPreview_(launches, 5, categoriesById || {}),
     };
   }
 
@@ -684,12 +698,14 @@ var V55 = (function() {
     });
   }
 
-  function buildSharedDetailedEventPreview_(launches, limit) {
+  function buildSharedDetailedEventPreview_(launches, limit, categoriesById) {
     return filterSharedDetailedEvents_(launches).slice(0, limit).map(function(row) {
+      var category = categoriesById[stringValue_(row.id_categoria)] || {};
       return {
         data: formatSheetDate_(row.data),
         tipo_evento: stringValue_(row.tipo_evento),
         id_categoria: stringValue_(row.id_categoria),
+        categoria: stringValue_(category.nome) || friendlyIdentifier_(row.id_categoria),
         valor: numberFromSheetValue_(row.valor),
         descricao: stringValue_(row.descricao),
       };
@@ -706,25 +722,35 @@ var V55 = (function() {
 
   function formatPilotFamilySummary_(summary) {
     var lines = [
-      'Resumo familiar ' + summary.competencia,
-      'DRE: receitas ' + formatMoney_(summary.receitas_dre) + ', despesas ' + formatMoney_(summary.despesas_dre) + ', resultado ' + formatMoney_(summary.resultado_dre),
-      'Caixa: entradas ' + formatMoney_(summary.caixa_entradas) + ', saidas ' + formatMoney_(summary.caixa_saidas) + ', sobra ' + formatMoney_(summary.sobra_caixa),
-      'Exposicao: faturas ' + formatMoney_(summary.faturas_60d) + ', obrigacoes ' + formatMoney_(summary.obrigacoes_60d),
-      'Patrimonio: reserva ' + formatMoney_(summary.reserva_total) + ', patrimonio liquido ' + formatMoney_(summary.patrimonio_liquido),
-      'Rendas recorrentes: ativas ' + summary.rendas_recorrentes_ativas + ', planejadas ' + formatMoney_(summary.rendas_recorrentes_planejadas) + ', beneficios restritos ' + formatMoney_(summary.beneficios_restritos_planejados),
-      'Saldos por fonte: snapshots ' + summary.saldos_fontes_count + ', final ' + formatMoney_(summary.saldos_fontes_final) + ', disponivel ' + formatMoney_(summary.saldos_fontes_disponivel),
-      'Margem pos-obrigacoes: ' + formatMoney_(summary.margem_pos_obrigacoes),
-      'Destino sugerido: ' + summary.destino_sugerido,
-      'Eventos familiares detalhados no mes: ' + summary.eventos_detalhados,
+      'Resumo da familia - ' + summary.competencia,
+      'Entrou: ' + formatMoney_(summary.caixa_entradas),
+      'Saiu: ' + formatMoney_(summary.caixa_saidas),
+      'Sobrou no caixa: ' + formatMoney_(summary.sobra_caixa),
+      'Contas proximas: ' + formatMoney_(roundMoney_(summary.faturas_60d + summary.obrigacoes_60d)),
+      'Depois das contas: ' + formatMoney_(summary.margem_pos_obrigacoes),
+      'Gastos do mes: ' + formatMoney_(summary.despesas_dre),
+      'Receitas do mes: ' + formatMoney_(summary.receitas_dre),
+      'Reserva: ' + formatMoney_(summary.reserva_total),
+      'Sugestao: ' + friendlyDestination_(summary.destino_sugerido),
+      'Lancamentos visiveis da familia: ' + summary.eventos_detalhados,
     ];
     if (summary.eventos_detalhados_preview && summary.eventos_detalhados_preview.length > 0) {
-      lines.push('Eventos detalhados visiveis:');
+      lines.push('Ultimos lancamentos visiveis:');
       summary.eventos_detalhados_preview.forEach(function(event) {
-        lines.push('- ' + event.data + ' ' + event.id_categoria + ' ' + formatMoney_(event.valor) + ': ' + event.descricao);
+        lines.push('- ' + event.data + ' ' + event.categoria + ' ' + formatMoney_(event.valor) + ': ' + event.descricao);
       });
     }
-    lines.push('Modo leitura: nenhuma linha foi gravada.');
+    lines.push('So consulta: nada foi alterado.');
     return lines.join('\n');
+  }
+
+  function friendlyDestination_(value) {
+    var text = stringValue_(value);
+    if (text === 'sem_sobra') return 'sem sobra por enquanto';
+    if (text === 'manter_caixa') return 'segurar dinheiro para as contas';
+    if (text === 'reforcar_reserva') return 'reforcar a reserva';
+    if (text === 'investir_ou_amortizar_revisar') return 'revisar investimento ou amortizacao';
+    return text || 'revisar';
   }
 
   function verifyFinancialRuntimeConfig_(config) {
@@ -1537,6 +1563,17 @@ var V55 = (function() {
     return (' ' + normalizedText + ' ').indexOf(' ' + normalizedPhrase + ' ') !== -1;
   }
 
+  function recordedEventText_(event, actionLabel) {
+    var lines = [
+      actionLabel || 'Anotado',
+      'Valor: ' + formatMoney_(event.valor),
+    ];
+    if (event.data) lines.push('Data: ' + formatSheetDate_(event.data));
+    if (event.descricao) lines.push('Descricao: ' + event.descricao);
+    lines.push('Mande /resumo para ver o mes.');
+    return lines.join('\n');
+  }
+
   function recordPilotExpense_(update, message, event, config) {
     var lock = LockService.getScriptLock();
     lock.waitLock(10000);
@@ -1608,7 +1645,7 @@ var V55 = (function() {
         created_at: now,
       });
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-      return { ok: true, responseText: SUCCESS_TEXT, shouldApplyDomainMutation: true, result_ref: resultRef };
+      return { ok: true, responseText: recordedEventText_(event, 'Anotado gasto da familia.'), shouldApplyDomainMutation: true, result_ref: resultRef };
     } catch (_err) {
       if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
         updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -1690,7 +1727,7 @@ var V55 = (function() {
         created_at: now,
       });
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-      return { ok: true, responseText: SUCCESS_TEXT, shouldApplyDomainMutation: true, result_ref: resultRef };
+      return { ok: true, responseText: recordedEventText_(event, 'Anotado.'), shouldApplyDomainMutation: true, result_ref: resultRef };
     } catch (_err) {
       if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
         updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -1787,7 +1824,7 @@ var V55 = (function() {
         status: 'prevista',
       });
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-      return { ok: true, responseText: SUCCESS_TEXT, shouldApplyDomainMutation: true, result_ref: resultRef };
+      return { ok: true, responseText: recordedEventText_(event, 'Anotada compra no cartao.'), shouldApplyDomainMutation: true, result_ref: resultRef };
     } catch (_err) {
       if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
         updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -1880,7 +1917,7 @@ var V55 = (function() {
       });
       updateInvoicePayment_(invoiceSheet, invoice.rowNumber, event.valor, 'paga');
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-      return { ok: true, responseText: SUCCESS_TEXT, shouldApplyDomainMutation: true, result_ref: resultRef };
+      return { ok: true, responseText: recordedEventText_(event, 'Anotado pagamento da fatura.'), shouldApplyDomainMutation: true, result_ref: resultRef };
     } catch (_err) {
       if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
         updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -1956,7 +1993,7 @@ var V55 = (function() {
         created_at: now,
       });
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-      return { ok: true, responseText: SUCCESS_TEXT, shouldApplyDomainMutation: true, result_ref: resultRef };
+      return { ok: true, responseText: recordedEventText_(event, 'Anotada transferencia para a familia.'), shouldApplyDomainMutation: true, result_ref: resultRef };
     } catch (_err) {
       if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
         updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -2023,6 +2060,12 @@ var V55 = (function() {
   function stringValue_(value) {
     if (value === undefined || value === null) return '';
     return String(value).trim();
+  }
+
+  function friendlyIdentifier_(value) {
+    var text = stringValue_(value);
+    if (!text) return '';
+    return text.replace(/^[A-Z]+_/, '').replace(/_/g, ' ').toLowerCase();
   }
 
   function todaySaoPaulo_() {
