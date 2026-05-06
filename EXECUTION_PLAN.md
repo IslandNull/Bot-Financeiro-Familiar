@@ -26,6 +26,8 @@ Operational authority for Bot Financeiro Familiar V55.
 - Version @43 deployed with remaining mutation paths and idempotent `ensure_remaining_mutation_config`; remote action added missing active `ajuste` category.
 - Production Telegram write smoke verified for `receita`, `aporte`, `divida_pagamento`, and `ajuste`; remote `summary` and `snapshot` succeeded after smokes.
 - `exportSnapshotV55()` available for auto-generating `docs/SPREADSHEET_SNAPSHOT.md`; remote `summary` action available for read-only `/resumo` verification.
+- Phase 9 recurring income tracking is deployed in `/resumo`, remote `summary`, and snapshot: active recurring income count, planned recurring income, and restricted benefits are aggregated without changing realized DRE/cash.
+- Version @44 deployed; remote `summary` verified 4 active recurring incomes, 8700 planned recurring income, and 1800 restricted benefits for 2026-05; snapshot updated with `Rendas_Recorrentes` headers matching schema.
 
 ### Unverified
 
@@ -86,8 +88,7 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 1. Historical data entry for 2026-04 and earlier.
 2. Private detail filtering in shared Telegram reports.
-3. Recurring income tracking.
-4. Source balance snapshots.
+3. Source balance snapshots.
 
 ## Phase History (archived)
 

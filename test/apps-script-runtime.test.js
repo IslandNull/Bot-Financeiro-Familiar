@@ -20,6 +20,7 @@ const configCategoriasHeaders = ['id_categoria', 'nome', 'grupo', 'tipo_evento_p
 const configFontesHeaders = ['id_fonte', 'nome', 'tipo', 'titular', 'moeda', 'ativo'];
 const cartoesHeaders = ['id_cartao', 'id_fonte', 'nome', 'titular', 'fechamento_dia', 'vencimento_dia', 'limite', 'ativo'];
 const faturasHeaders = ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'];
+const rendasRecorrentesHeaders = ['id_renda', 'pessoa', 'descricao', 'valor_planejado', 'tipo_renda', 'beneficio_restrito', 'ativo', 'observacao'];
 const patrimonioAtivosHeaders = ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'];
 const dividasHeaders = ['id_divida', 'nome', 'credor', 'tipo', 'escopo', 'saldo_devedor', 'parcela_atual', 'parcelas_total', 'valor_parcela', 'taxa_juros', 'sistema_amortizacao', 'data_atualizacao', 'status', 'observacao'];
 const fechamentoFamiliarHeaders = ['competencia', 'status', 'receitas_dre', 'despesas_dre', 'resultado_dre', 'caixa_entradas', 'caixa_saidas', 'sobra_caixa', 'faturas_60d', 'obrigacoes_60d', 'reserva_total', 'patrimonio_liquido', 'margem_pos_obrigacoes', 'capacidade_aporte_segura', 'parcela_maxima_segura', 'pode_avaliar_amortizacao', 'motivo_bloqueio_amortizacao', 'destino_reserva', 'destino_obrigacoes', 'destino_investimentos', 'destino_amortizacao', 'destino_sugerido', 'observacao', 'created_at', 'closed_at'];
@@ -61,6 +62,7 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
         Idempotency_Log: createFakeSheet(idempotencyHeaders),
         Lancamentos: createFakeSheet(lancamentosHeaders),
         Faturas: createFakeSheet(faturasHeaders),
+        Rendas_Recorrentes: createFakeSheet(rendasRecorrentesHeaders),
         Patrimonio_Ativos: createFakeSheet(patrimonioAtivosHeaders),
         Dividas: createFakeSheet(dividasHeaders),
         Fechamento_Familiar: createFakeSheet(fechamentoFamiliarHeaders),
@@ -381,6 +383,21 @@ function appendFakeTransfer(sheets, overrides = {}) {
     sheets.Transferencias_Internas.appendRow(transferenciasHeaders.map((header) => transfer[header] === undefined ? '' : transfer[header]));
 }
 
+function appendFakeRecurringIncome(sheets, overrides = {}) {
+    const income = {
+        id_renda: 'RENDA_SALARIO',
+        pessoa: 'Gustavo',
+        descricao: 'Salario',
+        valor_planejado: 5000,
+        tipo_renda: 'salario',
+        beneficio_restrito: false,
+        ativo: true,
+        observacao: '',
+        ...overrides,
+    };
+    sheets.Rendas_Recorrentes.appendRow(rendasRecorrentesHeaders.map((header) => income[header] === undefined ? '' : income[header]));
+}
+
 function appendFakeAsset(sheets, overrides = {}) {
     const asset = {
         id_ativo: 'ATIVO_CDB_FAMILIAR',
@@ -518,6 +535,20 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
         visibilidade: 'privada',
         descricao: 'privado',
     });
+    appendFakeRecurringIncome(sheets, { valor_planejado: 5000 });
+    appendFakeRecurringIncome(sheets, {
+        id_renda: 'RENDA_BENEFICIO',
+        pessoa: 'Luana',
+        descricao: 'Beneficio',
+        valor_planejado: 600,
+        tipo_renda: 'beneficio',
+        beneficio_restrito: true,
+    });
+    appendFakeRecurringIncome(sheets, {
+        id_renda: 'RENDA_INATIVA',
+        valor_planejado: 900,
+        ativo: false,
+    });
     appendFakeTransfer(sheets, { valor: 100 });
     appendFakeInvoice(sheets, { valor_previsto: 42.5, valor_pago: '', status: 'prevista' });
     sheets.Patrimonio_Ativos.appendRow(patrimonioAtivosHeaders.map((header) => ({
@@ -557,6 +588,7 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.match(result.responseText, /Caixa: entradas R\$ 100\.00, saidas R\$ 63\.90, sobra R\$ 36\.10/);
     assert.match(result.responseText, /Exposicao: faturas R\$ 42\.50, obrigacoes R\$ 500\.00/);
     assert.match(result.responseText, /Patrimonio: reserva R\$ 1000\.00, patrimonio liquido R\$ -9000\.00/);
+    assert.match(result.responseText, /Rendas recorrentes: ativas 2, planejadas R\$ 5600\.00, beneficios restritos R\$ 600\.00/);
     assert.match(result.responseText, /Modo leitura: nenhuma linha foi gravada\./);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 4);
@@ -594,6 +626,7 @@ test('Apps Script doGet summary action returns current read-only family summary'
     appendFakeLaunch(sheets, { valor: 53.9 });
     appendFakeTransfer(sheets, { valor: 400 });
     appendFakeInvoice(sheets, { valor_previsto: 42.5, valor_pago: 42.5, status: 'paga' });
+    appendFakeRecurringIncome(sheets, { valor_planejado: 5000 });
 
     const result = runRemoteAction(context, 'summary');
 
@@ -602,6 +635,9 @@ test('Apps Script doGet summary action returns current read-only family summary'
     assert.strictEqual(result.summary.competencia, '2026-04');
     assert.strictEqual(result.summary.caixa_entradas, 400);
     assert.strictEqual(result.summary.caixa_saidas, 53.9);
+    assert.strictEqual(result.summary.rendas_recorrentes_ativas, 1);
+    assert.strictEqual(result.summary.rendas_recorrentes_planejadas, 5000);
+    assert.strictEqual(result.summary.beneficios_restritos_planejados, 0);
     assert.match(result.responseText, /Resumo familiar 2026-04/);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);

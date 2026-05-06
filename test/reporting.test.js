@@ -75,6 +75,11 @@ test('family closing hardens DRE cash exposure obligations reserve net worth and
             { saldo_atual: 3000, conta_reserva_emergencia: true, ativo: true },
             { saldo_atual: 9000, conta_reserva_emergencia: false, ativo: true },
         ],
+        recurringIncomes: [
+            { valor_planejado: 7000, beneficio_restrito: false, ativo: true },
+            { valor_planejado: 800, beneficio_restrito: true, ativo: true },
+            { valor_planejado: 900, beneficio_restrito: false, ativo: false },
+        ],
         options: { reserveTarget: 2000 },
     });
 
@@ -89,6 +94,9 @@ test('family closing hardens DRE cash exposure obligations reserve net worth and
     assert.strictEqual(closing.reserva_total, 3000);
     assert.strictEqual(closing.patrimonio_liquido, 7000);
     assert.strictEqual(closing.destino_sugerido, 'investir_ou_amortizar_revisar');
+    assert.strictEqual(closing.rendas_recorrentes_ativas, 2);
+    assert.strictEqual(closing.rendas_recorrentes_planejadas, 7800);
+    assert.strictEqual(closing.beneficios_restritos_planejados, 800);
 });
 
 test('shared detailed report excludes private personal and aggregate-only rows', () => {
@@ -206,12 +214,21 @@ test('family summary view is read-only and keeps private detail out', () => {
         invoices: [],
         debts: [],
         assets: [],
+        recurringIncomes: [
+            { descricao: 'salario', valor_planejado: 5000, beneficio_restrito: false, ativo: true },
+            { descricao: 'beneficio', valor_planejado: 600, beneficio_restrito: true, ativo: true },
+        ],
     });
 
     assert.strictEqual(view.competencia, '2026-04');
     assert.strictEqual(view.status, 'draft');
     assert.strictEqual(view.dre.despesas_dre, 200);
     assert.strictEqual(view.caixa.caixa_entradas, 100);
+    assert.deepStrictEqual(view.rendas_recorrentes, {
+        ativas: 2,
+        valor_planejado: 5600,
+        beneficios_restritos: 600,
+    });
     assert.deepStrictEqual(view.eventos_detalhados, [familyDetailed]);
     assert.ok(!JSON.stringify(view.eventos_detalhados).includes('lanche privado'));
 });

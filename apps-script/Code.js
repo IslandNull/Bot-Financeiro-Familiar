@@ -15,6 +15,7 @@ var V55 = (function() {
     LANCAMENTOS: 'Lancamentos',
     PATRIMONIO_ATIVOS: 'Patrimonio_Ativos',
     DIVIDAS: 'Dividas',
+    RENDAS_RECORRENTES: 'Rendas_Recorrentes',
     FECHAMENTO_FAMILIAR: 'Fechamento_Familiar',
     TRANSFERENCIAS_INTERNAS: 'Transferencias_Internas',
     IDEMPOTENCY_LOG: 'Idempotency_Log',
@@ -28,6 +29,7 @@ var V55 = (function() {
     Faturas: ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'],
     Lancamentos: ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'created_at'],
     Patrimonio_Ativos: ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'],
+    Rendas_Recorrentes: ['id_renda', 'pessoa', 'descricao', 'valor_planejado', 'tipo_renda', 'beneficio_restrito', 'ativo', 'observacao'],
     Transferencias_Internas: ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'],
     Idempotency_Log: ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'],
   };
@@ -420,12 +422,14 @@ var V55 = (function() {
       var transferSheet = spreadsheet.getSheetByName(SHEETS.TRANSFERENCIAS_INTERNAS);
       var assetSheet = spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS);
       var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
+      var recurringIncomeSheet = spreadsheet.getSheetByName(SHEETS.RENDAS_RECORRENTES);
 
       verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
       verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
       verifySheetHeaders_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS);
       verifySheetHeaders_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
       verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
+      verifySheetHeaders_(recurringIncomeSheet, SHEETS.RENDAS_RECORRENTES);
 
       var competencia = competenciaCheck.competencia || todaySaoPaulo_().slice(0, 7);
       var launches = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS).filter(function(row) {
@@ -437,7 +441,8 @@ var V55 = (function() {
       var invoices = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS);
       var assets = readRowsAsObjects_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
       var debts = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS);
-      var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts);
+      var recurringIncomes = readRowsAsObjects_(recurringIncomeSheet, SHEETS.RENDAS_RECORRENTES);
+      var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes);
 
       return {
         ok: true,
@@ -450,7 +455,7 @@ var V55 = (function() {
     }
   }
 
-  function computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts) {
+  function computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes) {
     var dre = launches.reduce(function(summary, row) {
       var amount = numberFromSheetValue_(row.valor);
       if (row.afeta_dre !== true) return summary;
@@ -494,6 +499,7 @@ var V55 = (function() {
     var dividasTotal = debts.reduce(function(sum, row) {
       return row.status === 'ativa' ? roundMoney_(sum + numberFromSheetValue_(row.saldo_devedor)) : sum;
     }, 0);
+    var recurringIncome = summarizePilotRecurringIncome_(recurringIncomes || []);
     var margemPosObrigacoes = roundMoney_(cash.sobra_caixa - faturas60d - obrigacoes60d);
     var capacity = computePilotDecisionCapacity_(cash.sobra_caixa, reservaTotal, faturas60d, obrigacoes60d, debts);
 
@@ -509,6 +515,9 @@ var V55 = (function() {
       obrigacoes_60d: obrigacoes60d,
       reserva_total: reservaTotal,
       patrimonio_liquido: roundMoney_(ativosTotal - dividasTotal),
+      rendas_recorrentes_ativas: recurringIncome.rendas_recorrentes_ativas,
+      rendas_recorrentes_planejadas: recurringIncome.rendas_recorrentes_planejadas,
+      beneficios_restritos_planejados: recurringIncome.beneficios_restritos_planejados,
       margem_pos_obrigacoes: margemPosObrigacoes,
       capacidade_aporte_segura: capacity.capacidade_aporte_segura,
       parcela_maxima_segura: capacity.parcela_maxima_segura,
@@ -521,6 +530,23 @@ var V55 = (function() {
       destino_sugerido: suggestPilotDestination_(cash.sobra_caixa, reservaTotal, faturas60d, obrigacoes60d),
       eventos_detalhados: countSharedDetailedEvents_(launches),
     };
+  }
+
+  function summarizePilotRecurringIncome_(rows) {
+    return rows.reduce(function(summary, row) {
+      if (row.ativo === false) return summary;
+      var amount = numberFromSheetValue_(row.valor_planejado);
+      summary.rendas_recorrentes_ativas += 1;
+      summary.rendas_recorrentes_planejadas = roundMoney_(summary.rendas_recorrentes_planejadas + amount);
+      if (row.beneficio_restrito === true) {
+        summary.beneficios_restritos_planejados = roundMoney_(summary.beneficios_restritos_planejados + amount);
+      }
+      return summary;
+    }, {
+      rendas_recorrentes_ativas: 0,
+      rendas_recorrentes_planejadas: 0,
+      beneficios_restritos_planejados: 0,
+    });
   }
 
   function normalizeRequestedCompetencia_(value) {
@@ -633,6 +659,7 @@ var V55 = (function() {
       'Caixa: entradas ' + formatMoney_(summary.caixa_entradas) + ', saidas ' + formatMoney_(summary.caixa_saidas) + ', sobra ' + formatMoney_(summary.sobra_caixa),
       'Exposicao: faturas ' + formatMoney_(summary.faturas_60d) + ', obrigacoes ' + formatMoney_(summary.obrigacoes_60d),
       'Patrimonio: reserva ' + formatMoney_(summary.reserva_total) + ', patrimonio liquido ' + formatMoney_(summary.patrimonio_liquido),
+      'Rendas recorrentes: ativas ' + summary.rendas_recorrentes_ativas + ', planejadas ' + formatMoney_(summary.rendas_recorrentes_planejadas) + ', beneficios restritos ' + formatMoney_(summary.beneficios_restritos_planejados),
       'Margem pos-obrigacoes: ' + formatMoney_(summary.margem_pos_obrigacoes),
       'Destino sugerido: ' + summary.destino_sugerido,
       'Eventos familiares detalhados no mes: ' + summary.eventos_detalhados,
@@ -2275,7 +2302,8 @@ var V55 = (function() {
       var invoices = readRowsAsObjects_(fatSheet, SHEETS.FATURAS);
       var assets = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS), SHEETS.PATRIMONIO_ATIVOS);
       var debts = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.DIVIDAS), SHEETS.DIVIDAS);
-      var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts);
+      var recurringIncomes = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.RENDAS_RECORRENTES), SHEETS.RENDAS_RECORRENTES);
+      var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes);
       lines.push('- Competencia: ' + summary.competencia);
       lines.push('- DRE receitas: ' + summary.receitas_dre);
       lines.push('- DRE despesas: ' + summary.despesas_dre);
@@ -2287,6 +2315,9 @@ var V55 = (function() {
       lines.push('- Obrigacoes 60d: ' + summary.obrigacoes_60d);
       lines.push('- Reserva total: ' + summary.reserva_total);
       lines.push('- Patrimonio liquido: ' + summary.patrimonio_liquido);
+      lines.push('- Rendas recorrentes ativas: ' + summary.rendas_recorrentes_ativas);
+      lines.push('- Rendas recorrentes planejadas: ' + summary.rendas_recorrentes_planejadas);
+      lines.push('- Beneficios restritos planejados: ' + summary.beneficios_restritos_planejados);
       lines.push('- Margem pos-obrigacoes: ' + summary.margem_pos_obrigacoes);
       lines.push('- Destino sugerido: ' + summary.destino_sugerido);
     } catch (_e) {

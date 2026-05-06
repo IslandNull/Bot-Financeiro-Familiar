@@ -115,6 +115,27 @@ function sumEmergencyReserve(assets) {
     );
 }
 
+function summarizeRecurringIncome(recurringIncomes) {
+    return (recurringIncomes || [])
+        .filter((income) => income.ativo !== false)
+        .reduce(
+            (summary, income) => {
+                const amount = Number(income.valor_planejado || 0);
+                summary.rendas_recorrentes_ativas += 1;
+                summary.rendas_recorrentes_planejadas = roundMoney(summary.rendas_recorrentes_planejadas + amount);
+                if (income.beneficio_restrito === true) {
+                    summary.beneficios_restritos_planejados = roundMoney(summary.beneficios_restritos_planejados + amount);
+                }
+                return summary;
+            },
+            {
+                rendas_recorrentes_ativas: 0,
+                rendas_recorrentes_planejadas: 0,
+                beneficios_restritos_planejados: 0,
+            }
+        );
+}
+
 function computeNetWorth(assets, debts) {
     const assetTotal = roundMoney(
         (assets || [])
@@ -182,6 +203,7 @@ function computeFamilyClosing(input) {
     const assets = (input && input.assets) || [];
     const debts = (input && input.debts) || [];
     const invoices = (input && input.invoices) || [];
+    const recurringIncomes = (input && input.recurringIncomes) || [];
     const competencia = input && input.competencia;
 
     const dre = summarizeDre(events);
@@ -190,6 +212,7 @@ function computeFamilyClosing(input) {
     const obrigacoes60d = sumActiveDebtObligations(debts);
     const reservaTotal = sumEmergencyReserve(assets);
     const netWorth = computeNetWorth(assets, debts);
+    const recurringIncome = summarizeRecurringIncome(recurringIncomes);
 
     const closing = {
         competencia,
@@ -200,6 +223,7 @@ function computeFamilyClosing(input) {
         obrigacoes_60d: obrigacoes60d,
         reserva_total: reservaTotal,
         patrimonio_liquido: netWorth.patrimonio_liquido,
+        ...recurringIncome,
     };
 
     Object.assign(closing, computeDecisionCapacity({
@@ -254,6 +278,11 @@ function buildFamilySummaryView(input) {
         patrimonio: {
             reserva_total: closing.reserva_total,
             patrimonio_liquido: closing.patrimonio_liquido,
+        },
+        rendas_recorrentes: {
+            ativas: closing.rendas_recorrentes_ativas,
+            valor_planejado: closing.rendas_recorrentes_planejadas,
+            beneficios_restritos: closing.beneficios_restritos_planejados,
         },
         capacidade: {
             capacidade_aporte_segura: closing.capacidade_aporte_segura,
@@ -385,6 +414,7 @@ module.exports = {
     roundMoney,
     sumEmergencyReserve,
     sumInvoiceExposure,
+    summarizeRecurringIncome,
     summarizeCash,
     summarizeDre,
     suggestDestination,
