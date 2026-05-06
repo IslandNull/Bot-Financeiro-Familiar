@@ -16,6 +16,9 @@ const code = fs.readFileSync(path.join(root, 'apps-script', 'Code.js'), 'utf8');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'apps-script', 'appsscript.json'), 'utf8'));
 
 const lancamentosHeaders = ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'created_at'];
+const configCategoriasHeaders = ['id_categoria', 'nome', 'grupo', 'tipo_evento_padrao', 'classe_dre', 'escopo_padrao', 'afeta_dre_padrao', 'afeta_patrimonio_padrao', 'afeta_caixa_familiar_padrao', 'visibilidade_padrao', 'ativo'];
+const configFontesHeaders = ['id_fonte', 'nome', 'tipo', 'titular', 'moeda', 'ativo'];
+const cartoesHeaders = ['id_cartao', 'id_fonte', 'nome', 'titular', 'fechamento_dia', 'vencimento_dia', 'limite', 'ativo'];
 const faturasHeaders = ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'];
 const patrimonioAtivosHeaders = ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'];
 const dividasHeaders = ['id_divida', 'nome', 'credor', 'tipo', 'escopo', 'saldo_devedor', 'parcela_atual', 'parcelas_total', 'valor_parcela', 'taxa_juros', 'sistema_amortizacao', 'data_atualizacao', 'status', 'observacao'];
@@ -52,6 +55,9 @@ function createFakeSheet(headers) {
 
 function createAppsScriptHarness(openAiEvent, options = {}) {
     const sheets = {
+        Config_Categorias: createFakeSheet(configCategoriasHeaders),
+        Config_Fontes: createFakeSheet(configFontesHeaders),
+        Cartoes: createFakeSheet(cartoesHeaders),
         Idempotency_Log: createFakeSheet(idempotencyHeaders),
         Lancamentos: createFakeSheet(lancamentosHeaders),
         Faturas: createFakeSheet(faturasHeaders),
@@ -60,6 +66,7 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
         Fechamento_Familiar: createFakeSheet(fechamentoFamiliarHeaders),
         Transferencias_Internas: createFakeSheet(transferenciasHeaders),
     };
+    appendRuntimeConfigRows(sheets);
     const properties = {
         WEBHOOK_SECRET: 'test_secret',
         AUTHORIZED_USER_IDS: 'user_1',
@@ -171,6 +178,81 @@ function postPilotMessage(context, text) {
         },
     });
     return JSON.parse(output.getContentText());
+}
+
+function appendRuntimeConfigRows(sheets) {
+    [
+        {
+            id_categoria: 'OPEX_MERCADO_SEMANA',
+            nome: 'Mercado da semana',
+            grupo: 'Casa',
+            tipo_evento_padrao: 'despesa',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'detalhada',
+            ativo: true,
+        },
+        {
+            id_categoria: 'OPEX_FARMACIA',
+            nome: 'Farmacia',
+            grupo: 'Saude',
+            tipo_evento_padrao: 'compra_cartao',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: false,
+            visibilidade_padrao: 'detalhada',
+            ativo: true,
+        },
+        {
+            id_categoria: 'OPEX_LANCHE_TRABALHO',
+            nome: 'Lanche trabalho',
+            grupo: 'Pessoal',
+            tipo_evento_padrao: 'despesa',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Luana',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'privada',
+            ativo: true,
+        },
+        {
+            id_categoria: 'MOV_CAIXA_FAMILIAR',
+            nome: 'Movimento caixa familiar',
+            grupo: 'Caixa',
+            tipo_evento_padrao: 'transferencia_interna',
+            classe_dre: 'nao_dre',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: false,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'resumo',
+            ativo: true,
+        },
+    ].forEach((row) => sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => row[header] === undefined ? '' : row[header])));
+
+    [
+        { id_fonte: 'FONTE_CONTA_FAMILIA', nome: 'Conta familia', tipo: 'conta_corrente', titular: 'Familiar', moeda: 'BRL', ativo: true },
+        { id_fonte: 'FONTE_NUBANK_GU', nome: 'Nubank Gustavo', tipo: 'cartao_credito', titular: 'Gustavo', moeda: 'BRL', ativo: true },
+        { id_fonte: 'FONTE_EXTERNA_GUSTAVO', nome: 'Gustavo externa', tipo: 'externa', titular: 'Gustavo', moeda: 'BRL', ativo: true },
+        { id_fonte: 'FONTE_EXTERNA_LUANA', nome: 'Luana externa', tipo: 'externa', titular: 'Luana', moeda: 'BRL', ativo: true },
+    ].forEach((row) => sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => row[header] === undefined ? '' : row[header])));
+
+    sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fonte: 'FONTE_NUBANK_GU',
+        nome: 'Nubank Gustavo',
+        titular: 'Gustavo',
+        fechamento_dia: 30,
+        vencimento_dia: 7,
+        limite: 5000,
+        ativo: true,
+    })[header] ?? ''));
 }
 
 function runRemoteAction(context, action, params = {}) {
@@ -609,7 +691,7 @@ test('Apps Script runtime uses OpenAI Responses JSON output for parser boundary'
     assert.ok(code.includes("DEFAULT_OPENAI_MODEL = 'gpt-5-nano'"));
     assert.ok(code.includes('https://api.openai.com/v1/responses'));
     assert.ok(code.includes("type: 'json_object'"));
-    assert.ok(code.includes('input: buildParserPrompt_(text)'));
+    assert.ok(code.includes('input: buildParserPrompt_(text, referenceData)'));
     assert.ok(code.includes('extractOpenAIOutputText_'));
     assert.ok(code.includes('if (!parsed.ok) return parsed;'));
     assert.ok(code.includes('OPENAI_RESPONSE_PROCESSING_FAILED'));
@@ -649,7 +731,7 @@ test('Apps Script runtime normalizes pilot parser dates before validation', () =
     assert.ok(code.includes('If the user omits the date'));
     assert.ok(code.includes("If the user says today or hoje"));
     assert.ok(code.includes('if (!text) return todaySaoPaulo_();'));
-    assert.ok(code.includes("normalizeParsedEvent_(parsedEvent, text)"));
+    assert.ok(code.includes("normalizeParsedEvent_(parsedEvent, text, referenceData)"));
     assert.ok(code.includes("normalizeCompetenciaValue_(entry.competencia, normalizedDate)"));
     assert.ok(code.includes('INVALID_DATE_EMPTY'));
     assert.ok(code.includes('INVALID_DATE_TEXTUAL'));
@@ -793,14 +875,14 @@ test('Apps Script pilot expense still blocks card-like references', () => {
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
-test('Apps Script pilot expense blocks parser market false positives from original text', () => {
+test('Apps Script expense accepts config-valid category without text alias gate', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'despesa',
         data: '2026-04-30',
         competencia: '2026-04',
         valor: '250',
-        descricao: 'racao do draco',
-        id_categoria: 'OPEX_MERCADO_SEMANA',
+        descricao: 'lanche no trabalho',
+        id_categoria: 'OPEX_LANCHE_TRABALHO',
         id_fonte: '',
         pessoa: '',
         escopo: '',
@@ -816,12 +898,14 @@ test('Apps Script pilot expense blocks parser market false positives from origin
         status: '',
     });
 
-    const result = postPilotMessage(context, 'ração do draco 250');
+    const result = postPilotMessage(context, 'lanche no trabalho 250');
 
-    assert.strictEqual(result.ok, false);
-    assert.deepStrictEqual(result.errors.map((error) => error.code), ['PILOT_TEXT_CATEGORY_MISMATCH']);
-    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
-    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(result.ok, true);
+    const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(row.id_categoria, 'OPEX_LANCHE_TRABALHO');
+    assert.strictEqual(row.id_fonte, 'FONTE_EXTERNA_LUANA');
+    assert.strictEqual(row.escopo, 'Luana');
+    assert.strictEqual(row.visibilidade, 'privada');
 });
 
 test('Apps Script pilot card purchase writes launch and expected invoice rows', () => {
@@ -872,13 +956,13 @@ test('Apps Script pilot card purchase writes launch and expected invoice rows', 
     assert.strictEqual(invoice.status, 'prevista');
 });
 
-test('Apps Script pilot card purchase blocks unrelated card false positives', () => {
+test('Apps Script card purchase accepts config-valid card without text alias gate', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'compra_cartao',
         data: '2026-04-30',
         competencia: '2026-04',
         valor: '25',
-        descricao: 'pet shop no nubank',
+        descricao: 'consulta no nubank',
         id_categoria: 'OPEX_FARMACIA',
         id_fonte: '',
         pessoa: '',
@@ -895,13 +979,11 @@ test('Apps Script pilot card purchase blocks unrelated card false positives', ()
         status: '',
     });
 
-    const result = postPilotMessage(context, 'pet shop 25 no nubank');
+    const result = postPilotMessage(context, 'consulta 25 no nubank');
 
-    assert.strictEqual(result.ok, false);
-    assert.deepStrictEqual(result.errors.map((error) => error.code), ['PILOT_TEXT_CATEGORY_MISMATCH']);
-    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
-    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    assert.strictEqual(sheets.Faturas.rows.length, 1);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(sheets.Faturas.rows.length, 2);
 });
 
 test('Apps Script pilot invoice payment writes cash launch and marks invoice paid', () => {

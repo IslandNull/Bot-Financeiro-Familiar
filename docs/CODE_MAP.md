@@ -6,7 +6,7 @@ Codebase navigation guide for V55.
 
 | Path | Purpose |
 |------|---------|
-| `apps-script/Code.js` | Production Apps Script runtime (~1700 lines). Deploy via `npm run push`. |
+| `apps-script/Code.js` | Production Apps Script runtime (~2000 lines). Deploy via `npm run push`. |
 | `apps-script/appsscript.json` | Apps Script manifest with scopes. |
 | `val-town/telegram-proxy.ts` | Val Town edge proxy: acknowledges Telegram, forwards to Apps Script. |
 | `src/*.js` | Pure Node.js domain contracts (schema, validation, parsing, planning, idempotency, reporting). |
@@ -50,6 +50,7 @@ doPost(e)
        ├─ /help, /start → static text
        ├─ /resumo → readCurrentPilotFamilySummary_() (read-only)
        └─ Financial mutation path:
+            ├─ readRuntimeReferenceData_() → active Config_Categorias, Config_Fontes, Cartoes, Faturas
             ├─ parseFinancialEventWithOpenAI_()
             ├─ normalizeParsedEvent_() → canonicalizePilotEvent_()
             ├─ validatePilot*Event_()
@@ -69,12 +70,12 @@ doGet(e)
 - All config from `PropertiesService.getScriptProperties()` (never hardcoded secrets)
 - Idempotency: write `Idempotency_Log` before financial rows, suppress completed duplicates
 - LockService for concurrent mutation protection
-- Canonical pilot validation: text alias checks + field canonicalization per event type
+- Runtime mutation validation reads active categories, sources, cards, and payable invoices from sheets
 
 ## Google Sheets (V55) — 13 sheets
 
 **Core data:** `Lancamentos`, `Transferencias_Internas`, `Faturas`, `Fechamento_Familiar`
-**Config (pilot hardcoded):** `Config_Categorias`, `Config_Fontes`, `Cartoes`
+**Config:** `Config_Categorias`, `Config_Fontes`, `Cartoes`
 **Tracking:** `Patrimonio_Ativos`, `Dividas`, `Rendas_Recorrentes`, `Saldos_Fontes`
 **Operational:** `Idempotency_Log`, `Telegram_Send_Log`
 

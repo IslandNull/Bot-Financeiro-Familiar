@@ -2,13 +2,13 @@
 
 Operational authority for Bot Financeiro Familiar V55.
 
-## Current State (2026-05-05)
+## Current State (2026-05-06)
 
 ### Verified
 
 - Clean V55 repo with local pure contracts, tests, and Apps Script runtime.
 - 16 source modules in `src/`, 18 test files in `test/`. `npm run check` passed on 2026-05-05.
-- Apps Script `Code.js` (~1700 lines): handles `doPost`, `doGet`, webhook secret, authorization, `/help`, `/resumo`, closing actions, and 4 pilot mutation paths (despesa, compra_cartao, pagamento_fatura, transferencia_interna).
+- Apps Script `Code.js` (~2000 lines): handles `doPost`, `doGet`, webhook secret, authorization, `/help`, `/resumo`, closing actions, config-driven validation, and 4 mutation paths (despesa, compra_cartao, pagamento_fatura, transferencia_interna).
 - Val Town proxy: acknowledges Telegram, forwards to Apps Script, replies via webhook response.
 - Real V55 spreadsheet: 13 sheets, headers match schema, pilot data exists.
 - Phase 7 pilot mutations validated in production: market expense, card purchase, invoice payment, internal transfer.
@@ -18,14 +18,16 @@ Operational authority for Bot Financeiro Familiar V55.
 - Phase 8 draft creation verified in production for explicit open competencia `2026-04`; snapshot updated.
 - Phase 8 reviewed close action is deployed; production `closing_close` closed `2026-04`, second close was blocked with `CLOSING_NOT_DRAFT`, snapshot updated.
 - Local contracts cover `/resumo`, `closing_draft`, and reviewed closing close semantics, including required `closed_at`.
-- Snapshot shows rows in `Config_Categorias`, `Config_Fontes`, and `Cartoes`; Apps Script mutation runtime still uses hardcoded pilot constants/gates.
+- Snapshot verifies headers and rows in `Config_Categorias`, `Config_Fontes`, and `Cartoes`.
+- Mutation runtime now reads active categories, sources, cards, and payable invoices from sheets; local tests cover config-driven category/source/card validation and no per-category text alias gates.
+- Version @41 deployed; remote `summary` and `snapshot` succeeded after config-driven runtime change.
 - `exportSnapshotV55()` available for auto-generating `docs/SPREADSHEET_SNAPSHOT.md`; remote `summary` action available for read-only `/resumo` verification.
 
 ### Unverified
 
 - Full production readiness beyond pilot gates.
 - Revenue, asset contribution, debt payment, and adjustment mutation paths.
-- Real replacement of pilot hardcoded gates with config-driven validation from sheets.
+- Production Telegram mutation smoke after config-driven validation deploy.
 
 ## Execution Rules
 
@@ -78,9 +80,9 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ## Next Work
 
-### Phase 8 continuation: Config-driven mutation runtime
+### Phase 8 continuation: Remaining mutation types
 
-1. Replace pilot hardcoded mutation gates with config-driven validation from `Config_Categorias`, `Config_Fontes`, and `Cartoes`.
+1. Run one controlled Telegram mutation smoke on the deployed config-driven runtime.
 2. Add remaining Telegram/Apps Script event types: `receita`, `aporte`, `divida_pagamento`, `ajuste`.
 
 ### Phase 9 (future): Full operational readiness
