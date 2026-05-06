@@ -539,6 +539,7 @@ var V55 = (function() {
       destino_amortizacao: capacity.destino_amortizacao,
       destino_sugerido: suggestPilotDestination_(cash.sobra_caixa, reservaTotal, faturas60d, obrigacoes60d),
       eventos_detalhados: countSharedDetailedEvents_(launches),
+      eventos_detalhados_preview: buildSharedDetailedEventPreview_(launches, 5),
     };
   }
 
@@ -674,9 +675,25 @@ var V55 = (function() {
   }
 
   function countSharedDetailedEvents_(launches) {
-    return launches.filter(function(row) {
+    return filterSharedDetailedEvents_(launches).length;
+  }
+
+  function filterSharedDetailedEvents_(launches) {
+    return (launches || []).filter(function(row) {
       return row.escopo === 'Familiar' && row.visibilidade === 'detalhada';
-    }).length;
+    });
+  }
+
+  function buildSharedDetailedEventPreview_(launches, limit) {
+    return filterSharedDetailedEvents_(launches).slice(0, limit).map(function(row) {
+      return {
+        data: formatSheetDate_(row.data),
+        tipo_evento: stringValue_(row.tipo_evento),
+        id_categoria: stringValue_(row.id_categoria),
+        valor: numberFromSheetValue_(row.valor),
+        descricao: stringValue_(row.descricao),
+      };
+    });
   }
 
   function suggestPilotDestination_(sobraCaixa, reservaTotal, faturas60d, obrigacoes60d) {
@@ -688,7 +705,7 @@ var V55 = (function() {
   }
 
   function formatPilotFamilySummary_(summary) {
-    return [
+    var lines = [
       'Resumo familiar ' + summary.competencia,
       'DRE: receitas ' + formatMoney_(summary.receitas_dre) + ', despesas ' + formatMoney_(summary.despesas_dre) + ', resultado ' + formatMoney_(summary.resultado_dre),
       'Caixa: entradas ' + formatMoney_(summary.caixa_entradas) + ', saidas ' + formatMoney_(summary.caixa_saidas) + ', sobra ' + formatMoney_(summary.sobra_caixa),
@@ -699,8 +716,15 @@ var V55 = (function() {
       'Margem pos-obrigacoes: ' + formatMoney_(summary.margem_pos_obrigacoes),
       'Destino sugerido: ' + summary.destino_sugerido,
       'Eventos familiares detalhados no mes: ' + summary.eventos_detalhados,
-      'Modo leitura: nenhuma linha foi gravada.',
-    ].join('\n');
+    ];
+    if (summary.eventos_detalhados_preview && summary.eventos_detalhados_preview.length > 0) {
+      lines.push('Eventos detalhados visiveis:');
+      summary.eventos_detalhados_preview.forEach(function(event) {
+        lines.push('- ' + event.data + ' ' + event.id_categoria + ' ' + formatMoney_(event.valor) + ': ' + event.descricao);
+      });
+    }
+    lines.push('Modo leitura: nenhuma linha foi gravada.');
+    return lines.join('\n');
   }
 
   function verifyFinancialRuntimeConfig_(config) {
@@ -2007,6 +2031,15 @@ var V55 = (function() {
 
   function isoNow_() {
     return Utilities.formatDate(new Date(), 'Etc/UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
+  }
+
+  function formatSheetDate_(value) {
+    if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+      return Utilities.formatDate(value, 'America/Sao_Paulo', 'yyyy-MM-dd');
+    }
+    var text = stringValue_(value);
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+    return text;
   }
 
   function telegramRequest_(update, message) {

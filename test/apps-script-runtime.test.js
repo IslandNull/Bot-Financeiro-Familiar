@@ -534,7 +534,7 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
             OPENAI_API_KEY: '',
         },
     });
-    appendFakeLaunch(sheets, { valor: 43.9 });
+    appendFakeLaunch(sheets, { data: new Date(Date.UTC(2026, 3, 30, 12, 0, 0)), valor: 43.9 });
     appendFakeLaunch(sheets, {
         id_lancamento: 'LAN_CARD',
         tipo_evento: 'compra_cartao',
@@ -552,6 +552,14 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
         escopo: 'Luana',
         visibilidade: 'privada',
         descricao: 'privado',
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_SUMMARY_ONLY',
+        valor: 77,
+        afeta_dre: false,
+        afeta_caixa_familiar: false,
+        visibilidade: 'resumo',
+        descricao: 'agregado',
     });
     appendFakeRecurringIncome(sheets, { valor_planejado: 5000 });
     appendFakeRecurringIncome(sheets, {
@@ -624,9 +632,16 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.match(result.responseText, /Patrimonio: reserva R\$ 1000\.00, patrimonio liquido R\$ -9000\.00/);
     assert.match(result.responseText, /Rendas recorrentes: ativas 2, planejadas R\$ 5600\.00, beneficios restritos R\$ 600\.00/);
     assert.match(result.responseText, /Saldos por fonte: snapshots 2, final R\$ 1550\.00, disponivel R\$ 330\.00/);
+    assert.match(result.responseText, /Eventos familiares detalhados no mes: 2/);
+    assert.match(result.responseText, /Eventos detalhados visiveis:/);
+    assert.match(result.responseText, /- 2026-04-30 OPEX_MERCADO_SEMANA R\$ 43\.90: mercado/);
+    assert.match(result.responseText, /mercado/);
+    assert.match(result.responseText, /farmacia/);
+    assert.doesNotMatch(result.responseText, /privado/);
+    assert.doesNotMatch(result.responseText, /agregado/);
     assert.match(result.responseText, /Modo leitura: nenhuma linha foi gravada\./);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
-    assert.strictEqual(sheets.Lancamentos.rows.length, 4);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 5);
     assert.strictEqual(sheets.Faturas.rows.length, 2);
     assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
 });

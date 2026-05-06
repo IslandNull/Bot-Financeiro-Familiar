@@ -30,6 +30,8 @@ Operational authority for Bot Financeiro Familiar V55.
 - Version @44 deployed; remote `summary` verified 4 active recurring incomes, 8700 planned recurring income, and 1800 restricted benefits for 2026-05; snapshot updated with `Rendas_Recorrentes` headers matching schema.
 - Phase 9 source balance snapshot tracking is deployed in `/resumo`, remote `summary`, and snapshot: latest snapshot per source is aggregated by competencia without changing realized DRE/cash.
 - Version @45 deployed; remote `summary` verified `Saldos_Fontes` aggregates as zero for 2026-05 because the sheet has no data rows; snapshot updated with `Saldos_Fontes` headers matching schema.
+- Phase 9 private detail filtering in shared Telegram reports is deployed: `/resumo` includes a capped preview of `Familiar` + `detalhada` launch rows only, with sheet dates normalized to `yyyy-MM-dd`.
+- Version @47 deployed; remote `summary` verified 3 visible detailed family events for 2026-05 and no mutation; snapshot updated.
 
 ### Unverified
 
@@ -89,7 +91,6 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 ### Phase 9: Full operational readiness
 
 1. Historical data entry for 2026-04 and earlier.
-2. Private detail filtering in shared Telegram reports.
 
 ## Phase History (archived)
 
