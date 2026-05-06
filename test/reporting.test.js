@@ -80,6 +80,12 @@ test('family closing hardens DRE cash exposure obligations reserve net worth and
             { valor_planejado: 800, beneficio_restrito: true, ativo: true },
             { valor_planejado: 900, beneficio_restrito: false, ativo: false },
         ],
+        sourceBalances: [
+            { competencia: '2026-04', id_fonte: 'FONTE_CONTA_FAMILIA', data_referencia: '2026-04-15', saldo_inicial: 100, saldo_final: 150, saldo_disponivel: 140 },
+            { competencia: '2026-04', id_fonte: 'FONTE_CONTA_FAMILIA', data_referencia: '2026-04-30', saldo_inicial: 100, saldo_final: 350, saldo_disponivel: 330 },
+            { competencia: '2026-04', id_fonte: 'FONTE_INVESTIMENTO', data_referencia: '2026-04-30', saldo_inicial: 1000, saldo_final: 1200, saldo_disponivel: 0 },
+            { competencia: '2026-03', id_fonte: 'FONTE_CONTA_FAMILIA', data_referencia: '2026-03-31', saldo_inicial: 10, saldo_final: 20, saldo_disponivel: 20 },
+        ],
         options: { reserveTarget: 2000 },
     });
 
@@ -97,6 +103,10 @@ test('family closing hardens DRE cash exposure obligations reserve net worth and
     assert.strictEqual(closing.rendas_recorrentes_ativas, 2);
     assert.strictEqual(closing.rendas_recorrentes_planejadas, 7800);
     assert.strictEqual(closing.beneficios_restritos_planejados, 800);
+    assert.strictEqual(closing.saldos_fontes_count, 2);
+    assert.strictEqual(closing.saldos_fontes_inicial, 1100);
+    assert.strictEqual(closing.saldos_fontes_final, 1550);
+    assert.strictEqual(closing.saldos_fontes_disponivel, 330);
 });
 
 test('shared detailed report excludes private personal and aggregate-only rows', () => {
@@ -218,6 +228,9 @@ test('family summary view is read-only and keeps private detail out', () => {
             { descricao: 'salario', valor_planejado: 5000, beneficio_restrito: false, ativo: true },
             { descricao: 'beneficio', valor_planejado: 600, beneficio_restrito: true, ativo: true },
         ],
+        sourceBalances: [
+            { competencia: '2026-04', id_fonte: 'FONTE_CONTA_FAMILIA', data_referencia: '2026-04-30', saldo_inicial: 100, saldo_final: 350, saldo_disponivel: 330 },
+        ],
     });
 
     assert.strictEqual(view.competencia, '2026-04');
@@ -228,6 +241,12 @@ test('family summary view is read-only and keeps private detail out', () => {
         ativas: 2,
         valor_planejado: 5600,
         beneficios_restritos: 600,
+    });
+    assert.deepStrictEqual(view.saldos_fontes, {
+        snapshots: 1,
+        saldo_inicial: 100,
+        saldo_final: 350,
+        saldo_disponivel: 330,
     });
     assert.deepStrictEqual(view.eventos_detalhados, [familyDetailed]);
     assert.ok(!JSON.stringify(view.eventos_detalhados).includes('lanche privado'));

@@ -21,6 +21,7 @@ const configFontesHeaders = ['id_fonte', 'nome', 'tipo', 'titular', 'moeda', 'at
 const cartoesHeaders = ['id_cartao', 'id_fonte', 'nome', 'titular', 'fechamento_dia', 'vencimento_dia', 'limite', 'ativo'];
 const faturasHeaders = ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'];
 const rendasRecorrentesHeaders = ['id_renda', 'pessoa', 'descricao', 'valor_planejado', 'tipo_renda', 'beneficio_restrito', 'ativo', 'observacao'];
+const saldosFontesHeaders = ['id_snapshot', 'competencia', 'data_referencia', 'id_fonte', 'saldo_inicial', 'saldo_final', 'saldo_disponivel', 'observacao', 'created_at'];
 const patrimonioAtivosHeaders = ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'];
 const dividasHeaders = ['id_divida', 'nome', 'credor', 'tipo', 'escopo', 'saldo_devedor', 'parcela_atual', 'parcelas_total', 'valor_parcela', 'taxa_juros', 'sistema_amortizacao', 'data_atualizacao', 'status', 'observacao'];
 const fechamentoFamiliarHeaders = ['competencia', 'status', 'receitas_dre', 'despesas_dre', 'resultado_dre', 'caixa_entradas', 'caixa_saidas', 'sobra_caixa', 'faturas_60d', 'obrigacoes_60d', 'reserva_total', 'patrimonio_liquido', 'margem_pos_obrigacoes', 'capacidade_aporte_segura', 'parcela_maxima_segura', 'pode_avaliar_amortizacao', 'motivo_bloqueio_amortizacao', 'destino_reserva', 'destino_obrigacoes', 'destino_investimentos', 'destino_amortizacao', 'destino_sugerido', 'observacao', 'created_at', 'closed_at'];
@@ -63,6 +64,7 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
         Lancamentos: createFakeSheet(lancamentosHeaders),
         Faturas: createFakeSheet(faturasHeaders),
         Rendas_Recorrentes: createFakeSheet(rendasRecorrentesHeaders),
+        Saldos_Fontes: createFakeSheet(saldosFontesHeaders),
         Patrimonio_Ativos: createFakeSheet(patrimonioAtivosHeaders),
         Dividas: createFakeSheet(dividasHeaders),
         Fechamento_Familiar: createFakeSheet(fechamentoFamiliarHeaders),
@@ -398,6 +400,22 @@ function appendFakeRecurringIncome(sheets, overrides = {}) {
     sheets.Rendas_Recorrentes.appendRow(rendasRecorrentesHeaders.map((header) => income[header] === undefined ? '' : income[header]));
 }
 
+function appendFakeSourceBalance(sheets, overrides = {}) {
+    const snapshot = {
+        id_snapshot: 'SALDO_CONTA_FAMILIA_2026_04',
+        competencia: '2026-04',
+        data_referencia: '2026-04-30',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        saldo_inicial: 100,
+        saldo_final: 350,
+        saldo_disponivel: 330,
+        observacao: '',
+        created_at: '2026-04-30T15:00:00Z',
+        ...overrides,
+    };
+    sheets.Saldos_Fontes.appendRow(saldosFontesHeaders.map((header) => snapshot[header] === undefined ? '' : snapshot[header]));
+}
+
 function appendFakeAsset(sheets, overrides = {}) {
     const asset = {
         id_ativo: 'ATIVO_CDB_FAMILIAR',
@@ -549,6 +567,22 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
         valor_planejado: 900,
         ativo: false,
     });
+    appendFakeSourceBalance(sheets, { data_referencia: '2026-04-15', saldo_inicial: 100, saldo_final: 150, saldo_disponivel: 140 });
+    appendFakeSourceBalance(sheets, { data_referencia: '2026-04-30', saldo_inicial: 100, saldo_final: 350, saldo_disponivel: 330 });
+    appendFakeSourceBalance(sheets, {
+        id_snapshot: 'SALDO_INVESTIMENTO_2026_04',
+        id_fonte: 'FONTE_INVESTIMENTO',
+        saldo_inicial: 1000,
+        saldo_final: 1200,
+        saldo_disponivel: 0,
+    });
+    appendFakeSourceBalance(sheets, {
+        id_snapshot: 'SALDO_CONTA_FAMILIA_2026_03',
+        competencia: '2026-03',
+        saldo_inicial: 10,
+        saldo_final: 20,
+        saldo_disponivel: 20,
+    });
     appendFakeTransfer(sheets, { valor: 100 });
     appendFakeInvoice(sheets, { valor_previsto: 42.5, valor_pago: '', status: 'prevista' });
     sheets.Patrimonio_Ativos.appendRow(patrimonioAtivosHeaders.map((header) => ({
@@ -589,6 +623,7 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.match(result.responseText, /Exposicao: faturas R\$ 42\.50, obrigacoes R\$ 500\.00/);
     assert.match(result.responseText, /Patrimonio: reserva R\$ 1000\.00, patrimonio liquido R\$ -9000\.00/);
     assert.match(result.responseText, /Rendas recorrentes: ativas 2, planejadas R\$ 5600\.00, beneficios restritos R\$ 600\.00/);
+    assert.match(result.responseText, /Saldos por fonte: snapshots 2, final R\$ 1550\.00, disponivel R\$ 330\.00/);
     assert.match(result.responseText, /Modo leitura: nenhuma linha foi gravada\./);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 4);
@@ -627,6 +662,7 @@ test('Apps Script doGet summary action returns current read-only family summary'
     appendFakeTransfer(sheets, { valor: 400 });
     appendFakeInvoice(sheets, { valor_previsto: 42.5, valor_pago: 42.5, status: 'paga' });
     appendFakeRecurringIncome(sheets, { valor_planejado: 5000 });
+    appendFakeSourceBalance(sheets, { saldo_inicial: 100, saldo_final: 350, saldo_disponivel: 330 });
 
     const result = runRemoteAction(context, 'summary');
 
@@ -638,6 +674,10 @@ test('Apps Script doGet summary action returns current read-only family summary'
     assert.strictEqual(result.summary.rendas_recorrentes_ativas, 1);
     assert.strictEqual(result.summary.rendas_recorrentes_planejadas, 5000);
     assert.strictEqual(result.summary.beneficios_restritos_planejados, 0);
+    assert.strictEqual(result.summary.saldos_fontes_count, 1);
+    assert.strictEqual(result.summary.saldos_fontes_inicial, 100);
+    assert.strictEqual(result.summary.saldos_fontes_final, 350);
+    assert.strictEqual(result.summary.saldos_fontes_disponivel, 330);
     assert.match(result.responseText, /Resumo familiar 2026-04/);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);

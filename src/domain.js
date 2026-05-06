@@ -136,6 +136,35 @@ function summarizeRecurringIncome(recurringIncomes) {
         );
 }
 
+function summarizeSourceBalances(sourceBalances, competencia) {
+    const selectedBySource = {};
+    (sourceBalances || [])
+        .filter((snapshot) => !competencia || snapshot.competencia === competencia)
+        .forEach((snapshot, index) => {
+            const key = snapshot.id_fonte || `row_${index}`;
+            const current = selectedBySource[key];
+            if (!current || String(snapshot.data_referencia || '') >= String(current.data_referencia || '')) {
+                selectedBySource[key] = snapshot;
+            }
+        });
+
+    return Object.values(selectedBySource).reduce(
+        (summary, snapshot) => {
+            summary.saldos_fontes_count += 1;
+            summary.saldos_fontes_inicial = roundMoney(summary.saldos_fontes_inicial + Number(snapshot.saldo_inicial || 0));
+            summary.saldos_fontes_final = roundMoney(summary.saldos_fontes_final + Number(snapshot.saldo_final || 0));
+            summary.saldos_fontes_disponivel = roundMoney(summary.saldos_fontes_disponivel + Number(snapshot.saldo_disponivel || 0));
+            return summary;
+        },
+        {
+            saldos_fontes_count: 0,
+            saldos_fontes_inicial: 0,
+            saldos_fontes_final: 0,
+            saldos_fontes_disponivel: 0,
+        }
+    );
+}
+
 function computeNetWorth(assets, debts) {
     const assetTotal = roundMoney(
         (assets || [])
@@ -204,6 +233,7 @@ function computeFamilyClosing(input) {
     const debts = (input && input.debts) || [];
     const invoices = (input && input.invoices) || [];
     const recurringIncomes = (input && input.recurringIncomes) || [];
+    const sourceBalances = (input && input.sourceBalances) || [];
     const competencia = input && input.competencia;
 
     const dre = summarizeDre(events);
@@ -213,6 +243,7 @@ function computeFamilyClosing(input) {
     const reservaTotal = sumEmergencyReserve(assets);
     const netWorth = computeNetWorth(assets, debts);
     const recurringIncome = summarizeRecurringIncome(recurringIncomes);
+    const sourceBalanceSummary = summarizeSourceBalances(sourceBalances, competencia);
 
     const closing = {
         competencia,
@@ -224,6 +255,7 @@ function computeFamilyClosing(input) {
         reserva_total: reservaTotal,
         patrimonio_liquido: netWorth.patrimonio_liquido,
         ...recurringIncome,
+        ...sourceBalanceSummary,
     };
 
     Object.assign(closing, computeDecisionCapacity({
@@ -283,6 +315,12 @@ function buildFamilySummaryView(input) {
             ativas: closing.rendas_recorrentes_ativas,
             valor_planejado: closing.rendas_recorrentes_planejadas,
             beneficios_restritos: closing.beneficios_restritos_planejados,
+        },
+        saldos_fontes: {
+            snapshots: closing.saldos_fontes_count,
+            saldo_inicial: closing.saldos_fontes_inicial,
+            saldo_final: closing.saldos_fontes_final,
+            saldo_disponivel: closing.saldos_fontes_disponivel,
         },
         capacidade: {
             capacidade_aporte_segura: closing.capacidade_aporte_segura,
@@ -415,6 +453,7 @@ module.exports = {
     sumEmergencyReserve,
     sumInvoiceExposure,
     summarizeRecurringIncome,
+    summarizeSourceBalances,
     summarizeCash,
     summarizeDre,
     suggestDestination,

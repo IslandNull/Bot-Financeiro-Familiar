@@ -16,6 +16,7 @@ var V55 = (function() {
     PATRIMONIO_ATIVOS: 'Patrimonio_Ativos',
     DIVIDAS: 'Dividas',
     RENDAS_RECORRENTES: 'Rendas_Recorrentes',
+    SALDOS_FONTES: 'Saldos_Fontes',
     FECHAMENTO_FAMILIAR: 'Fechamento_Familiar',
     TRANSFERENCIAS_INTERNAS: 'Transferencias_Internas',
     IDEMPOTENCY_LOG: 'Idempotency_Log',
@@ -30,6 +31,7 @@ var V55 = (function() {
     Lancamentos: ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'created_at'],
     Patrimonio_Ativos: ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'],
     Rendas_Recorrentes: ['id_renda', 'pessoa', 'descricao', 'valor_planejado', 'tipo_renda', 'beneficio_restrito', 'ativo', 'observacao'],
+    Saldos_Fontes: ['id_snapshot', 'competencia', 'data_referencia', 'id_fonte', 'saldo_inicial', 'saldo_final', 'saldo_disponivel', 'observacao', 'created_at'],
     Transferencias_Internas: ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'],
     Idempotency_Log: ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'],
   };
@@ -423,6 +425,7 @@ var V55 = (function() {
       var assetSheet = spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS);
       var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
       var recurringIncomeSheet = spreadsheet.getSheetByName(SHEETS.RENDAS_RECORRENTES);
+      var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
 
       verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
       verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
@@ -430,6 +433,7 @@ var V55 = (function() {
       verifySheetHeaders_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
       verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
       verifySheetHeaders_(recurringIncomeSheet, SHEETS.RENDAS_RECORRENTES);
+      verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
 
       var competencia = competenciaCheck.competencia || todaySaoPaulo_().slice(0, 7);
       var launches = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS).filter(function(row) {
@@ -442,7 +446,8 @@ var V55 = (function() {
       var assets = readRowsAsObjects_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
       var debts = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS);
       var recurringIncomes = readRowsAsObjects_(recurringIncomeSheet, SHEETS.RENDAS_RECORRENTES);
-      var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes);
+      var sourceBalances = readRowsAsObjects_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
+      var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances);
 
       return {
         ok: true,
@@ -455,7 +460,7 @@ var V55 = (function() {
     }
   }
 
-  function computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes) {
+  function computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances) {
     var dre = launches.reduce(function(summary, row) {
       var amount = numberFromSheetValue_(row.valor);
       if (row.afeta_dre !== true) return summary;
@@ -500,6 +505,7 @@ var V55 = (function() {
       return row.status === 'ativa' ? roundMoney_(sum + numberFromSheetValue_(row.saldo_devedor)) : sum;
     }, 0);
     var recurringIncome = summarizePilotRecurringIncome_(recurringIncomes || []);
+    var sourceBalanceSummary = summarizePilotSourceBalances_(sourceBalances || [], competencia);
     var margemPosObrigacoes = roundMoney_(cash.sobra_caixa - faturas60d - obrigacoes60d);
     var capacity = computePilotDecisionCapacity_(cash.sobra_caixa, reservaTotal, faturas60d, obrigacoes60d, debts);
 
@@ -518,6 +524,10 @@ var V55 = (function() {
       rendas_recorrentes_ativas: recurringIncome.rendas_recorrentes_ativas,
       rendas_recorrentes_planejadas: recurringIncome.rendas_recorrentes_planejadas,
       beneficios_restritos_planejados: recurringIncome.beneficios_restritos_planejados,
+      saldos_fontes_count: sourceBalanceSummary.saldos_fontes_count,
+      saldos_fontes_inicial: sourceBalanceSummary.saldos_fontes_inicial,
+      saldos_fontes_final: sourceBalanceSummary.saldos_fontes_final,
+      saldos_fontes_disponivel: sourceBalanceSummary.saldos_fontes_disponivel,
       margem_pos_obrigacoes: margemPosObrigacoes,
       capacidade_aporte_segura: capacity.capacidade_aporte_segura,
       parcela_maxima_segura: capacity.parcela_maxima_segura,
@@ -546,6 +556,31 @@ var V55 = (function() {
       rendas_recorrentes_ativas: 0,
       rendas_recorrentes_planejadas: 0,
       beneficios_restritos_planejados: 0,
+    });
+  }
+
+  function summarizePilotSourceBalances_(rows, competencia) {
+    var selectedBySource = {};
+    rows.forEach(function(row, index) {
+      if (competencia && normalizeSheetCompetencia_(row.competencia) !== competencia) return;
+      var key = stringValue_(row.id_fonte) || ('row_' + index);
+      var current = selectedBySource[key];
+      if (!current || stringValue_(row.data_referencia) >= stringValue_(current.data_referencia)) {
+        selectedBySource[key] = row;
+      }
+    });
+    return Object.keys(selectedBySource).reduce(function(summary, key) {
+      var row = selectedBySource[key];
+      summary.saldos_fontes_count += 1;
+      summary.saldos_fontes_inicial = roundMoney_(summary.saldos_fontes_inicial + numberFromSheetValue_(row.saldo_inicial));
+      summary.saldos_fontes_final = roundMoney_(summary.saldos_fontes_final + numberFromSheetValue_(row.saldo_final));
+      summary.saldos_fontes_disponivel = roundMoney_(summary.saldos_fontes_disponivel + numberFromSheetValue_(row.saldo_disponivel));
+      return summary;
+    }, {
+      saldos_fontes_count: 0,
+      saldos_fontes_inicial: 0,
+      saldos_fontes_final: 0,
+      saldos_fontes_disponivel: 0,
     });
   }
 
@@ -660,6 +695,7 @@ var V55 = (function() {
       'Exposicao: faturas ' + formatMoney_(summary.faturas_60d) + ', obrigacoes ' + formatMoney_(summary.obrigacoes_60d),
       'Patrimonio: reserva ' + formatMoney_(summary.reserva_total) + ', patrimonio liquido ' + formatMoney_(summary.patrimonio_liquido),
       'Rendas recorrentes: ativas ' + summary.rendas_recorrentes_ativas + ', planejadas ' + formatMoney_(summary.rendas_recorrentes_planejadas) + ', beneficios restritos ' + formatMoney_(summary.beneficios_restritos_planejados),
+      'Saldos por fonte: snapshots ' + summary.saldos_fontes_count + ', final ' + formatMoney_(summary.saldos_fontes_final) + ', disponivel ' + formatMoney_(summary.saldos_fontes_disponivel),
       'Margem pos-obrigacoes: ' + formatMoney_(summary.margem_pos_obrigacoes),
       'Destino sugerido: ' + summary.destino_sugerido,
       'Eventos familiares detalhados no mes: ' + summary.eventos_detalhados,
@@ -2303,7 +2339,8 @@ var V55 = (function() {
       var assets = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS), SHEETS.PATRIMONIO_ATIVOS);
       var debts = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.DIVIDAS), SHEETS.DIVIDAS);
       var recurringIncomes = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.RENDAS_RECORRENTES), SHEETS.RENDAS_RECORRENTES);
-      var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes);
+      var sourceBalances = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES), SHEETS.SALDOS_FONTES);
+      var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances);
       lines.push('- Competencia: ' + summary.competencia);
       lines.push('- DRE receitas: ' + summary.receitas_dre);
       lines.push('- DRE despesas: ' + summary.despesas_dre);
@@ -2318,6 +2355,9 @@ var V55 = (function() {
       lines.push('- Rendas recorrentes ativas: ' + summary.rendas_recorrentes_ativas);
       lines.push('- Rendas recorrentes planejadas: ' + summary.rendas_recorrentes_planejadas);
       lines.push('- Beneficios restritos planejados: ' + summary.beneficios_restritos_planejados);
+      lines.push('- Saldos fontes snapshots: ' + summary.saldos_fontes_count);
+      lines.push('- Saldos fontes final: ' + summary.saldos_fontes_final);
+      lines.push('- Saldos fontes disponivel: ' + summary.saldos_fontes_disponivel);
       lines.push('- Margem pos-obrigacoes: ' + summary.margem_pos_obrigacoes);
       lines.push('- Destino sugerido: ' + summary.destino_sugerido);
     } catch (_e) {
