@@ -8,7 +8,7 @@ Operational authority for Bot Financeiro Familiar V55.
 
 - Clean V55 repo with local pure contracts, tests, and Apps Script runtime.
 - 16 source modules in `src/`, 18 test files in `test/`. `npm run check` passed on 2026-05-05.
-- Apps Script `Code.js` (~2000 lines): handles `doPost`, `doGet`, webhook secret, authorization, `/help`, `/resumo`, closing actions, config-driven validation, and 4 mutation paths (despesa, compra_cartao, pagamento_fatura, transferencia_interna).
+- Apps Script `Code.js` (~2000 lines): handles `doPost`, `doGet`, webhook secret, authorization, `/help`, `/resumo`, closing actions, config-driven validation, and mutation paths.
 - Val Town proxy: acknowledges Telegram, forwards to Apps Script, replies via webhook response.
 - Real V55 spreadsheet: 13 sheets, headers match schema, pilot data exists.
 - Phase 7 pilot mutations validated in production: market expense, card purchase, invoice payment, internal transfer.
@@ -23,13 +23,13 @@ Operational authority for Bot Financeiro Familiar V55.
 - Version @41 deployed; remote `summary` and `snapshot` succeeded after config-driven runtime change.
 - Production Telegram mutation smoke after config-driven deploy verified: `mercado 1 hoje` returned `Registro recebido`; remote summary shows 2026-05 despesas 54.90 and eventos detalhados 3; snapshot updated.
 - Remaining mutation paths (`receita`, `aporte`, `divida_pagamento`, `ajuste`) are implemented in Apps Script as config-driven `Lancamentos` writes with active source/category/asset/debt validation; `npm run check` passed on 2026-05-06.
-- Version @42 deployed with remaining mutation paths; remote `snapshot` and read-only `summary` succeeded after deploy.
+- Version @43 deployed with remaining mutation paths and idempotent `ensure_remaining_mutation_config`; remote action added missing active `ajuste` category.
+- Production Telegram write smoke verified for `receita`, `aporte`, `divida_pagamento`, and `ajuste`; remote `summary` and `snapshot` succeeded after smokes.
 - `exportSnapshotV55()` available for auto-generating `docs/SPREADSHEET_SNAPSHOT.md`; remote `summary` action available for read-only `/resumo` verification.
 
 ### Unverified
 
 - Full production readiness beyond pilot gates.
-- Production Telegram write smoke for `receita`, `aporte`, `divida_pagamento`, and `ajuste`.
 
 ## Execution Rules
 
@@ -50,7 +50,7 @@ Operational authority for Bot Financeiro Familiar V55.
 
 The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>` for remote function calls.
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env` (gitignored) and calls the endpoint.
-Available actions: `snapshot` (saves spreadsheet to `docs/SPREADSHEET_SNAPSHOT.md`), `summary` (read-only `/resumo` data), `closing_draft` (writes/reuses draft), `closing_close` (closes draft with `closed_at`), `selftest` (smoke `/help`).
+Available actions: `snapshot` (saves spreadsheet to `docs/SPREADSHEET_SNAPSHOT.md`), `summary` (read-only `/resumo` data), `closing_draft` (writes/reuses draft), `closing_close` (closes draft with `closed_at`), `ensure_remaining_mutation_config` (idempotent config maintenance), `selftest` (smoke `/help`).
 After code push, update the web app version: `clasp deploy -i $DEPLOY_ID` where `DEPLOY_ID` is stored in `.env`. On Windows with PS execution policy, use `npm.cmd` / `clasp.cmd` instead of `npm` / `clasp`.
 
 ## Architecture
@@ -82,13 +82,12 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ## Next Work
 
-### Phase 8 continuation: Remaining mutation verification
+### Phase 9: Full operational readiness
 
-1. Run controlled production Telegram write smoke for `receita`, `aporte`, `divida_pagamento`, and `ajuste`, then `npm run summary` and `npm run snapshot`.
-
-### Phase 9 (future): Full operational readiness
-
-Historical data entry for 2026-04 and earlier; private detail filtering in shared Telegram reports; recurring income tracking; source balance snapshots.
+1. Historical data entry for 2026-04 and earlier.
+2. Private detail filtering in shared Telegram reports.
+3. Recurring income tracking.
+4. Source balance snapshots.
 
 ## Phase History (archived)
 

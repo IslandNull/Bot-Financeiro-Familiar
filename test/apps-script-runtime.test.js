@@ -608,6 +608,25 @@ test('Apps Script doGet summary action returns current read-only family summary'
     assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
 });
 
+test('Apps Script ensure_remaining_mutation_config appends missing category defaults once', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const idIndex = configCategoriasHeaders.indexOf('id_categoria');
+    const adjustmentRowIndex = sheets.Config_Categorias.rows.findIndex((row) => row[idIndex] === 'AJUSTE_REVISAO');
+    assert.ok(adjustmentRowIndex > 0);
+    sheets.Config_Categorias.rows.splice(adjustmentRowIndex, 1);
+    const beforeCount = sheets.Config_Categorias.rows.length;
+
+    const first = runRemoteAction(context, 'ensure_remaining_mutation_config');
+    const second = runRemoteAction(context, 'ensure_remaining_mutation_config');
+
+    assert.strictEqual(first.ok, true);
+    assert.strictEqual(first.appended_count, 1);
+    assert.deepStrictEqual(first.appended.map((row) => row.tipo_evento_padrao), ['ajuste']);
+    assert.strictEqual(sheets.Config_Categorias.rows.length, beforeCount + 1);
+    assert.strictEqual(second.ok, true);
+    assert.strictEqual(second.appended_count, 0);
+});
+
 test('Apps Script closing_draft action writes schema-compatible family closing draft once', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,

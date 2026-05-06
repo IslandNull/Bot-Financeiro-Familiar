@@ -74,6 +74,9 @@ var V55 = (function() {
         observacao: params.observacao,
       }));
     }
+    if (action === 'ensure_remaining_mutation_config') {
+      return json_(ensureRemainingMutationConfigV55());
+    }
     if (action === 'selftest') {
       return json_(runHelpSmokeSelfTest());
     }
@@ -689,6 +692,108 @@ var V55 = (function() {
     } catch (_err) {
       return fail_('CONFIG_READ_FAILED', 'config', GENERIC_RECORD_FAILURE);
     }
+  }
+
+  function ensureRemainingMutationConfigV55() {
+    var config = readConfig_();
+    var runtimeCheck = verifyReportingRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var categorySheet = spreadsheet.getSheetByName(SHEETS.CONFIG_CATEGORIAS);
+      verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
+      var rows = readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
+      var activeTypes = rows.reduce(function(result, row) {
+        if (row.ativo === true && row.tipo_evento_padrao) result[row.tipo_evento_padrao] = true;
+        return result;
+      }, {});
+      var existingIds = rows.reduce(function(result, row) {
+        if (row.id_categoria) result[row.id_categoria] = true;
+        return result;
+      }, {});
+      var appended = [];
+      remainingMutationCategoryDefaults_().forEach(function(row) {
+        if (activeTypes[row.tipo_evento_padrao]) return;
+        var candidate = row;
+        if (existingIds[candidate.id_categoria]) {
+          candidate = cloneObject_(row);
+          candidate.id_categoria = row.id_categoria + '_AUTO';
+        }
+        appendRow_(categorySheet, SHEETS.CONFIG_CATEGORIAS, candidate);
+        appended.push({ id_categoria: candidate.id_categoria, tipo_evento_padrao: candidate.tipo_evento_padrao });
+        activeTypes[candidate.tipo_evento_padrao] = true;
+        existingIds[candidate.id_categoria] = true;
+      });
+      return { ok: true, appended: appended, appended_count: appended.length, shouldApplyDomainMutation: false };
+    } catch (_err) {
+      return fail_('CONFIG_ENSURE_FAILED', 'Config_Categorias', GENERIC_RECORD_FAILURE);
+    }
+  }
+
+  function remainingMutationCategoryDefaults_() {
+    return [
+      {
+        id_categoria: 'REC_RECEITA_FAMILIAR',
+        nome: 'Receita familiar',
+        grupo: 'Receitas',
+        tipo_evento_padrao: 'receita',
+        classe_dre: 'receita_operacional',
+        escopo_padrao: 'Familiar',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: true,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+      },
+      {
+        id_categoria: 'INV_APORTE_FAMILIAR',
+        nome: 'Aporte familiar',
+        grupo: 'Investimentos',
+        tipo_evento_padrao: 'aporte',
+        classe_dre: 'nao_dre',
+        escopo_padrao: 'Familiar',
+        afeta_dre_padrao: false,
+        afeta_patrimonio_padrao: true,
+        afeta_caixa_familiar_padrao: true,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+      },
+      {
+        id_categoria: 'OBR_PAGAMENTO_DIVIDA',
+        nome: 'Pagamento de obrigacao',
+        grupo: 'Obrigacoes',
+        tipo_evento_padrao: 'divida_pagamento',
+        classe_dre: 'nao_dre',
+        escopo_padrao: 'Familiar',
+        afeta_dre_padrao: false,
+        afeta_patrimonio_padrao: true,
+        afeta_caixa_familiar_padrao: true,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+      },
+      {
+        id_categoria: 'AJUSTE_REVISAO',
+        nome: 'Ajuste revisado',
+        grupo: 'Ajustes',
+        tipo_evento_padrao: 'ajuste',
+        classe_dre: 'nao_dre',
+        escopo_padrao: 'Familiar',
+        afeta_dre_padrao: false,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: false,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+      },
+    ];
+  }
+
+  function cloneObject_(value) {
+    var result = {};
+    Object.keys(value).forEach(function(key) {
+      result[key] = value[key];
+    });
+    return result;
   }
 
   function parseFinancialEventWithOpenAI_(text, config, referenceData) {

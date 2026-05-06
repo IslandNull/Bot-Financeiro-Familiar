@@ -17,7 +17,7 @@ const https = require('https');
 
 const action = process.argv[2];
 if (!action) {
-  console.error('Usage: node scripts/clasp-run.js <snapshot|summary|closing_draft|closing_close|selftest>');
+  console.error('Usage: node scripts/clasp-run.js <snapshot|summary|closing_draft|closing_close|ensure_remaining_mutation_config|selftest>');
   process.exit(1);
 }
 

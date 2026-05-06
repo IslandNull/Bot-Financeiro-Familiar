@@ -63,6 +63,7 @@ doGet(e)
        ├─ summary → exportPilotFamilySummaryV55()
        ├─ closing_draft → writeDraftFamilyClosingV55()
        ├─ closing_close → closeReviewedFamilyClosingV55()
+       ├─ ensure_remaining_mutation_config → ensureRemainingMutationConfigV55()
        └─ selftest → runHelpSmokeSelfTest()
 ```
 
@@ -70,7 +71,7 @@ doGet(e)
 - All config from `PropertiesService.getScriptProperties()` (never hardcoded secrets)
 - Idempotency: write `Idempotency_Log` before financial rows, suppress completed duplicates
 - LockService for concurrent mutation protection
-- Runtime mutation validation reads active categories, sources, cards, and payable invoices from sheets
+- Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, and debts from sheets
 
 ## Google Sheets (V55) — 13 sheets
 
