@@ -234,6 +234,58 @@ function appendRuntimeConfigRows(sheets) {
             visibilidade_padrao: 'resumo',
             ativo: true,
         },
+        {
+            id_categoria: 'REC_SALARIO',
+            nome: 'Salario',
+            grupo: 'Receitas',
+            tipo_evento_padrao: 'receita',
+            classe_dre: 'receita_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'resumo',
+            ativo: true,
+        },
+        {
+            id_categoria: 'INV_APORTE',
+            nome: 'Aporte investimento',
+            grupo: 'Investimentos',
+            tipo_evento_padrao: 'aporte',
+            classe_dre: 'nao_dre',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: false,
+            afeta_patrimonio_padrao: true,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'resumo',
+            ativo: true,
+        },
+        {
+            id_categoria: 'OBR_PAGAMENTO_DIVIDA',
+            nome: 'Pagamento divida',
+            grupo: 'Obrigacoes',
+            tipo_evento_padrao: 'divida_pagamento',
+            classe_dre: 'nao_dre',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: false,
+            afeta_patrimonio_padrao: true,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'resumo',
+            ativo: true,
+        },
+        {
+            id_categoria: 'AJUSTE_REVISAO',
+            nome: 'Ajuste revisado',
+            grupo: 'Ajustes',
+            tipo_evento_padrao: 'ajuste',
+            classe_dre: 'nao_dre',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: false,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: false,
+            visibilidade_padrao: 'resumo',
+            ativo: true,
+        },
     ].forEach((row) => sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => row[header] === undefined ? '' : row[header])));
 
     [
@@ -253,6 +305,7 @@ function appendRuntimeConfigRows(sheets) {
         limite: 5000,
         ativo: true,
     })[header] ?? ''));
+
 }
 
 function runRemoteAction(context, action, params = {}) {
@@ -326,6 +379,43 @@ function appendFakeTransfer(sheets, overrides = {}) {
         ...overrides,
     };
     sheets.Transferencias_Internas.appendRow(transferenciasHeaders.map((header) => transfer[header] === undefined ? '' : transfer[header]));
+}
+
+function appendFakeAsset(sheets, overrides = {}) {
+    const asset = {
+        id_ativo: 'ATIVO_CDB_FAMILIAR',
+        nome: 'CDB familiar',
+        tipo_ativo: 'investimento',
+        instituicao: 'Banco',
+        saldo_atual: 1000,
+        data_referencia: '2026-04-30',
+        destinacao: 'Investimento familiar',
+        conta_reserva_emergencia: false,
+        ativo: true,
+        ...overrides,
+    };
+    sheets.Patrimonio_Ativos.appendRow(patrimonioAtivosHeaders.map((header) => asset[header] === undefined ? '' : asset[header]));
+}
+
+function appendFakeDebt(sheets, overrides = {}) {
+    const debt = {
+        id_divida: 'DIV_FINANCIAMENTO_FAMILIAR',
+        nome: 'Financiamento familiar',
+        credor: 'Banco',
+        tipo: 'financiamento',
+        escopo: 'Familiar',
+        saldo_devedor: 10000,
+        parcela_atual: 1,
+        parcelas_total: 10,
+        valor_parcela: 500,
+        taxa_juros: '',
+        sistema_amortizacao: '',
+        data_atualizacao: '2026-04-30',
+        status: 'ativa',
+        observacao: '',
+        ...overrides,
+    };
+    sheets.Dividas.appendRow(dividasHeaders.map((header) => debt[header] === undefined ? '' : debt[header]));
 }
 
 function appendFakeClosing(sheets, overrides = {}) {
@@ -1168,6 +1258,212 @@ test('Apps Script pilot internal transfer requires parser person to match text',
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['PILOT_TRANSFER_PERSON_MISMATCH']);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Transferencias_Internas.rows.length, 1);
+});
+
+test('Apps Script generic launch writes receita with category and source defaults', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'receita',
+        data: '',
+        competencia: '',
+        valor: '5000',
+        descricao: '',
+        id_categoria: 'REC_SALARIO',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'resumo',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: true,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+
+    const result = postPilotMessage(context, 'salario 5000');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'receita');
+    assert.strictEqual(launch.id_categoria, 'REC_SALARIO');
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_FAMILIA');
+    assert.strictEqual(launch.escopo, 'Familiar');
+    assert.strictEqual(launch.visibilidade, 'resumo');
+    assert.strictEqual(launch.afeta_dre, true);
+    assert.strictEqual(launch.afeta_patrimonio, false);
+    assert.strictEqual(launch.afeta_caixa_familiar, true);
+});
+
+test('Apps Script generic launch writes aporte and debt payment with active references', () => {
+    const aporte = createAppsScriptHarness({
+        tipo_evento: 'aporte',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '1000',
+        descricao: 'aporte CDB',
+        id_categoria: 'INV_APORTE',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'resumo',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+    appendFakeAsset(aporte.sheets);
+
+    const aporteResult = postPilotMessage(aporte.context, 'aporte CDB 1000');
+
+    assert.strictEqual(aporteResult.ok, true);
+    const aporteLaunch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, aporte.sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(aporteLaunch.tipo_evento, 'aporte');
+    assert.strictEqual(aporteLaunch.id_ativo, 'ATIVO_CDB_FAMILIAR');
+    assert.strictEqual(aporteLaunch.id_divida, '');
+    assert.strictEqual(aporteLaunch.afeta_dre, false);
+    assert.strictEqual(aporteLaunch.afeta_patrimonio, true);
+    assert.strictEqual(aporteLaunch.afeta_caixa_familiar, true);
+
+    const debtPayment = createAppsScriptHarness({
+        tipo_evento: 'divida_pagamento',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '500',
+        descricao: 'paguei financiamento',
+        id_categoria: 'OBR_PAGAMENTO_DIVIDA',
+        id_fonte: '',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'resumo',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+    appendFakeDebt(debtPayment.sheets);
+
+    const debtResult = postPilotMessage(debtPayment.context, 'paguei financiamento 500');
+
+    assert.strictEqual(debtResult.ok, true);
+    const debtLaunch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, debtPayment.sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(debtLaunch.tipo_evento, 'divida_pagamento');
+    assert.strictEqual(debtLaunch.id_divida, 'DIV_FINANCIAMENTO_FAMILIAR');
+    assert.strictEqual(debtLaunch.id_ativo, '');
+    assert.strictEqual(debtLaunch.afeta_dre, false);
+    assert.strictEqual(debtLaunch.afeta_patrimonio, true);
+    assert.strictEqual(debtLaunch.afeta_caixa_familiar, true);
+});
+
+test('Apps Script generic launch writes reviewed adjustment without financial references', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'ajuste',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '10',
+        descricao: 'ajuste revisado erro importacao',
+        id_categoria: 'AJUSTE_REVISAO',
+        id_fonte: '',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'resumo',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: true,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+
+    const result = postPilotMessage(context, 'ajuste revisado 10 erro importacao');
+
+    assert.strictEqual(result.ok, true);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'ajuste');
+    assert.strictEqual(launch.id_categoria, 'AJUSTE_REVISAO');
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_FAMILIA');
+    assert.strictEqual(launch.id_divida, '');
+    assert.strictEqual(launch.id_ativo, '');
+    assert.strictEqual(launch.afeta_dre, false);
+    assert.strictEqual(launch.afeta_patrimonio, false);
+    assert.strictEqual(launch.afeta_caixa_familiar, false);
+});
+
+test('Apps Script generic launches block inactive asset and debt references', () => {
+    const inactiveAsset = createAppsScriptHarness({
+        tipo_evento: 'aporte',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '1000',
+        descricao: 'aporte CDB',
+        id_categoria: 'INV_APORTE',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'resumo',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: 'ATIVO_INATIVO',
+        afeta_dre: false,
+        afeta_patrimonio: true,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+    appendFakeAsset(inactiveAsset.sheets, { id_ativo: 'ATIVO_INATIVO', ativo: false });
+
+    const assetResult = postPilotMessage(inactiveAsset.context, 'aporte CDB 1000');
+
+    assert.strictEqual(assetResult.ok, false);
+    assert.deepStrictEqual(assetResult.errors.map((error) => error.code), ['PILOT_ASSET_BLOCKED']);
+    assert.strictEqual(inactiveAsset.sheets.Lancamentos.rows.length, 1);
+
+    const inactiveDebt = createAppsScriptHarness({
+        tipo_evento: 'divida_pagamento',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '500',
+        descricao: 'paguei financiamento',
+        id_categoria: 'OBR_PAGAMENTO_DIVIDA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'resumo',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: 'DIV_INATIVA',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: true,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+    appendFakeDebt(inactiveDebt.sheets, { id_divida: 'DIV_INATIVA', status: 'inativa' });
+
+    const debtResult = postPilotMessage(inactiveDebt.context, 'paguei financiamento 500');
+
+    assert.strictEqual(debtResult.ok, false);
+    assert.deepStrictEqual(debtResult.errors.map((error) => error.code), ['PILOT_DEBT_BLOCKED']);
+    assert.strictEqual(inactiveDebt.sheets.Lancamentos.rows.length, 1);
 });
 
 test('Apps Script runtime writes pilot expense with idempotency before launch row', () => {

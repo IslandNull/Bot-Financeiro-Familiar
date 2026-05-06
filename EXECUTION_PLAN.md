@@ -22,12 +22,14 @@ Operational authority for Bot Financeiro Familiar V55.
 - Mutation runtime now reads active categories, sources, cards, and payable invoices from sheets; local tests cover config-driven category/source/card validation and no per-category text alias gates.
 - Version @41 deployed; remote `summary` and `snapshot` succeeded after config-driven runtime change.
 - Production Telegram mutation smoke after config-driven deploy verified: `mercado 1 hoje` returned `Registro recebido`; remote summary shows 2026-05 despesas 54.90 and eventos detalhados 3; snapshot updated.
+- Remaining mutation paths (`receita`, `aporte`, `divida_pagamento`, `ajuste`) are implemented in Apps Script as config-driven `Lancamentos` writes with active source/category/asset/debt validation; `npm run check` passed on 2026-05-06.
+- Version @42 deployed with remaining mutation paths; remote `snapshot` and read-only `summary` succeeded after deploy.
 - `exportSnapshotV55()` available for auto-generating `docs/SPREADSHEET_SNAPSHOT.md`; remote `summary` action available for read-only `/resumo` verification.
 
 ### Unverified
 
 - Full production readiness beyond pilot gates.
-- Revenue, asset contribution, debt payment, and adjustment mutation paths.
+- Production Telegram write smoke for `receita`, `aporte`, `divida_pagamento`, and `ajuste`.
 
 ## Execution Rules
 
@@ -80,9 +82,9 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ## Next Work
 
-### Phase 8 continuation: Remaining mutation types
+### Phase 8 continuation: Remaining mutation verification
 
-1. Add remaining Telegram/Apps Script event types: `receita`, `aporte`, `divida_pagamento`, `ajuste`.
+1. Run controlled production Telegram write smoke for `receita`, `aporte`, `divida_pagamento`, and `ajuste`, then `npm run summary` and `npm run snapshot`.
 
 ### Phase 9 (future): Full operational readiness
 

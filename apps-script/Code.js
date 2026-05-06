@@ -269,6 +269,12 @@ var V55 = (function() {
       return recordPilotInternalTransfer_(update, message, parsed.event, config, referenceData);
     }
 
+    if (isGenericLaunchEventType_(parsed.event.tipo_evento)) {
+      var genericCheck = validatePilotGenericLaunchEvent_(parsed.event, referenceData);
+      if (!genericCheck.ok) return genericCheck;
+      return recordPilotGenericLaunch_(update, message, parsed.event, config);
+    }
+
     var pilotCheck = validatePilotExpenseEvent_(parsed.event, referenceData);
     if (!pilotCheck.ok) return pilotCheck;
 
@@ -645,16 +651,24 @@ var V55 = (function() {
       var sourceSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_FONTES);
       var cardSheet = spreadsheet.getSheetByName(SHEETS.CARTOES);
       var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
+      var assetSheet = spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS);
+      var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
       verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
       verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
       verifySheetHeaders_(cardSheet, SHEETS.CARTOES);
       verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
+      verifySheetHeaders_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
+      verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
 
       var categories = readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS).filter(function(row) { return row.ativo === true; });
       var sources = readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES).filter(function(row) { return row.ativo === true; });
       var cards = readRowsAsObjects_(cardSheet, SHEETS.CARTOES).filter(function(row) { return row.ativo === true; });
       var invoices = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS).filter(function(row) {
         return ['prevista', 'fechada', 'parcialmente_paga'].indexOf(row.status) !== -1;
+      });
+      var assets = readRowsAsObjects_(assetSheet, SHEETS.PATRIMONIO_ATIVOS).filter(function(row) { return row.ativo === true; });
+      var debts = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS).filter(function(row) {
+        return ['ativa', 'em_aberto', 'renegociada'].indexOf(row.status) !== -1;
       });
       return {
         ok: true,
@@ -663,10 +677,14 @@ var V55 = (function() {
         sources: sources,
         cards: cards,
         invoices: invoices,
+        assets: assets,
+        debts: debts,
         categoriesById: indexBy_(categories, 'id_categoria'),
         sourcesById: indexBy_(sources, 'id_fonte'),
         cardsById: indexBy_(cards, 'id_cartao'),
         invoicesById: indexBy_(invoices, 'id_fatura'),
+        assetsById: indexBy_(assets, 'id_ativo'),
+        debtsById: indexBy_(debts, 'id_divida'),
       };
     } catch (_err) {
       return fail_('CONFIG_READ_FAILED', 'config', GENERIC_RECORD_FAILURE);
@@ -731,9 +749,15 @@ var V55 = (function() {
     var expenseCategory = defaultCategoryForType_(referenceData, 'despesa') || {};
     var cardCategory = defaultCategoryForType_(referenceData, 'compra_cartao') || {};
     var transferCategory = defaultCategoryForType_(referenceData, 'transferencia_interna') || {};
+    var revenueCategory = defaultCategoryForType_(referenceData, 'receita') || {};
+    var assetCategory = defaultCategoryForType_(referenceData, 'aporte') || {};
+    var debtCategory = defaultCategoryForType_(referenceData, 'divida_pagamento') || {};
+    var adjustmentCategory = defaultCategoryForType_(referenceData, 'ajuste') || {};
     var familyCashSource = defaultFamilyCashSource_(referenceData) || {};
     var card = defaultActiveCard_(referenceData) || {};
     var invoice = defaultPayableInvoice_(referenceData) || {};
+    var asset = defaultActiveAsset_(referenceData) || {};
+    var debt = defaultActiveDebt_(referenceData) || {};
     return [
       'You are a strict financial event parser for Bot Financeiro Familiar V55.',
       'Return exactly one JSON object. Do not return markdown, comments, arrays, or extra fields. Use empty strings for fields that do not apply.',
@@ -749,12 +773,14 @@ var V55 = (function() {
       'Required keys: tipo_evento, data, competencia, valor, descricao, id_categoria, id_fonte, pessoa, escopo, visibilidade, id_cartao, id_fatura, id_divida, id_ativo, afeta_dre, afeta_patrimonio, afeta_caixa_familiar, direcao_caixa_familiar, status.',
       'If the user omits the date, data must default to ' + todaySaoPaulo_() + ' and competencia must default to ' + todaySaoPaulo_().slice(0, 7) + '.',
       'If the user says today or hoje, data must be exactly ' + todaySaoPaulo_() + ' and competencia must be exactly ' + todaySaoPaulo_().slice(0, 7) + '.',
-      'This pilot currently accepts only low-value family cash market expenses, one reviewed card purchase path, and one reviewed invoice payment path after parsing; still classify the user text correctly.',
+      'This pilot accepts config-driven family launches, one reviewed card purchase path, one reviewed invoice payment path, and reviewed internal family cash entries after parsing; classify the user text correctly.',
       '',
       '# CANONICAL DICTIONARIES',
       formatCategoryDictionaryPrompt_(referenceData),
       formatSourceDictionaryPrompt_(referenceData),
       formatCardDictionaryPrompt_(referenceData),
+      formatAssetDictionaryPrompt_(referenceData),
+      formatDebtDictionaryPrompt_(referenceData),
       '',
       '# PILOT CANONICAL EXAMPLES',
       'Input: "mercado 10" -> valor "10", tipo_evento "despesa", id_categoria "' + stringValue_(expenseCategory.id_categoria) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", escopo "' + stringValue_(expenseCategory.escopo_padrao || 'Familiar') + '".',
@@ -762,7 +788,12 @@ var V55 = (function() {
       'Input: "farmacia 10 no nubank" -> valor "10", tipo_evento "compra_cartao", id_categoria "' + stringValue_(cardCategory.id_categoria) + '", id_cartao "' + stringValue_(card.id_cartao) + '", id_fonte "' + stringValue_(card.id_fonte) + '", escopo "' + stringValue_(cardCategory.escopo_padrao || 'Familiar') + '".',
       'Input: "pagar fatura nubank 42,50" -> valor "42.50", tipo_evento "pagamento_fatura", id_fatura "' + stringValue_(invoice.id_fatura) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", escopo "Familiar".',
       'Input: "Luana mandou 100 para caixa familiar" -> valor "100", tipo_evento "transferencia_interna", id_categoria "' + stringValue_(transferCategory.id_categoria) + '", pessoa "Luana", escopo "' + stringValue_(transferCategory.escopo_padrao || 'Familiar') + '", direcao_caixa_familiar "entrada".',
+      'Input: "salario 5000" -> valor "5000", tipo_evento "receita", id_categoria "' + stringValue_(revenueCategory.id_categoria) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '".',
+      'Input: "aporte CDB 1000" -> valor "1000", tipo_evento "aporte", id_categoria "' + stringValue_(assetCategory.id_categoria) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", id_ativo "' + stringValue_(asset.id_ativo) + '".',
+      'Input: "paguei financiamento 500" -> valor "500", tipo_evento "divida_pagamento", id_categoria "' + stringValue_(debtCategory.id_categoria) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", id_divida "' + stringValue_(debt.id_divida) + '".',
+      'Input: "ajuste revisado 10 erro de importacao" -> valor "10", tipo_evento "ajuste", id_categoria "' + stringValue_(adjustmentCategory.id_categoria) + '".',
       'For a cash expense, use the category default escopo, visibilidade, and afeta_* flags from Config_Categorias; use an active cash source from Config_Fontes; status efetivado.',
+      'For receita, aporte, divida_pagamento, and ajuste, use the matching category defaults from Config_Categorias, active references from the canonical dictionaries, and status efetivado.',
       'For a card purchase, use a category whose tipo_evento_padrao is compra_cartao, an active card from Cartoes, that card source from Config_Fontes, and the category default flags; status efetivado.',
       'For an invoice payment, use tipo_evento pagamento_fatura, escopo Familiar, visibilidade detalhada, afeta_dre false, afeta_patrimonio false, afeta_caixa_familiar true, an active cash source, and status efetivado.',
       'For the reviewed internal transfer, accept only an entrada into family cash. Use id_fonte empty, id_cartao empty, id_fatura empty, id_divida empty, id_ativo empty, the transfer category defaults, and status efetivado.',
@@ -787,6 +818,18 @@ var V55 = (function() {
   function formatCardDictionaryPrompt_(referenceData) {
     return 'Allowed active card ids: ' + referenceData.cards.map(function(row) {
       return row.id_cartao + ' for ' + row.nome + ' (id_fonte ' + row.id_fonte + ', titular ' + row.titular + ')';
+    }).join('; ') + '.';
+  }
+
+  function formatAssetDictionaryPrompt_(referenceData) {
+    return 'Allowed active asset ids: ' + referenceData.assets.map(function(row) {
+      return row.id_ativo + ' for ' + row.nome + ' (destinacao ' + row.destinacao + ')';
+    }).join('; ') + '.';
+  }
+
+  function formatDebtDictionaryPrompt_(referenceData) {
+    return 'Allowed active debt ids: ' + referenceData.debts.map(function(row) {
+      return row.id_divida + ' for ' + row.nome + ' (escopo ' + row.escopo + ', status ' + row.status + ')';
     }).join('; ') + '.';
   }
 
@@ -840,6 +883,7 @@ var V55 = (function() {
     if (event.tipo_evento === 'compra_cartao') return canonicalizePilotCardPurchaseEvent_(event, referenceData);
     if (event.tipo_evento === 'pagamento_fatura') return canonicalizePilotInvoicePaymentEvent_(event, referenceData);
     if (event.tipo_evento === 'transferencia_interna') return canonicalizePilotInternalTransferEvent_(event, referenceData);
+    if (isGenericLaunchEventType_(event.tipo_evento)) return canonicalizePilotGenericLaunchEvent_(event, referenceData);
     return event;
   }
 
@@ -920,6 +964,35 @@ var V55 = (function() {
     event.afeta_dre = false;
     event.afeta_patrimonio = false;
     event.afeta_caixa_familiar = true;
+    return event;
+  }
+
+  function canonicalizePilotGenericLaunchEvent_(event, referenceData) {
+    if (!isGenericLaunchEventType_(event.tipo_evento)) return event;
+    var category = categoryForEvent_(referenceData, event.id_categoria, event.tipo_evento);
+    if (!category) return event;
+    var source = event.id_fonte ? sourceForEvent_(referenceData, event.id_fonte) : defaultCashSourceForScope_(referenceData, category.escopo_padrao);
+    if (category.afeta_caixa_familiar_padrao === true && (!source || source.tipo === 'cartao_credito')) return event;
+    if (source && source.tipo === 'cartao_credito') return event;
+    if (event.escopo && event.escopo !== category.escopo_padrao) return event;
+    if (event.status && event.status !== 'efetivado') return event;
+    if (event.visibilidade && event.visibilidade !== category.visibilidade_padrao) return event;
+    if (event.id_cartao || event.id_fatura) return event;
+    if (event.tipo_evento === 'receita' && (event.id_divida || event.id_ativo)) return event;
+    if (event.tipo_evento === 'aporte') {
+      event.id_ativo = event.id_ativo || stringValue_((defaultActiveAsset_(referenceData) || {}).id_ativo);
+      if (!assetForEvent_(referenceData, event.id_ativo) || event.id_divida) return event;
+    }
+    if (event.tipo_evento === 'divida_pagamento') {
+      event.id_divida = event.id_divida || stringValue_((defaultActiveDebt_(referenceData) || {}).id_divida);
+      if (!debtForEvent_(referenceData, event.id_divida) || event.id_ativo) return event;
+    }
+    if (event.tipo_evento === 'ajuste' && (event.id_divida || event.id_ativo)) return event;
+    if (source) event.id_fonte = source.id_fonte;
+    event.escopo = category.escopo_padrao;
+    event.visibilidade = category.visibilidade_padrao;
+    event.status = 'efetivado';
+    applyCategoryDefaults_(event, category);
     return event;
   }
 
@@ -1008,6 +1081,14 @@ var V55 = (function() {
     return referenceData.cardsById[stringValue_(cardId)] || null;
   }
 
+  function assetForEvent_(referenceData, assetId) {
+    return referenceData.assetsById[stringValue_(assetId)] || null;
+  }
+
+  function debtForEvent_(referenceData, debtId) {
+    return referenceData.debtsById[stringValue_(debtId)] || null;
+  }
+
   function defaultCategoryForType_(referenceData, eventType) {
     for (var i = 0; i < referenceData.categories.length; i += 1) {
       if (referenceData.categories[i].tipo_evento_padrao === eventType) return referenceData.categories[i];
@@ -1035,6 +1116,14 @@ var V55 = (function() {
 
   function defaultPayableInvoice_(referenceData) {
     return referenceData.invoices.length ? referenceData.invoices[0] : null;
+  }
+
+  function defaultActiveAsset_(referenceData) {
+    return referenceData.assets.length ? referenceData.assets[0] : null;
+  }
+
+  function defaultActiveDebt_(referenceData) {
+    return referenceData.debts.length ? referenceData.debts[0] : null;
   }
 
   function applyCategoryDefaults_(event, category) {
@@ -1106,6 +1195,44 @@ var V55 = (function() {
     if (inferPilotTransferPerson_(event.raw_text || event.descricao) !== event.pessoa) return fail_('PILOT_TRANSFER_PERSON_MISMATCH', 'pessoa', GENERIC_RECORD_FAILURE);
     if (event.direcao_caixa_familiar !== 'entrada') return fail_('PILOT_TRANSFER_DIRECTION_BLOCKED', 'direcao_caixa_familiar', GENERIC_RECORD_FAILURE);
     if (event.id_cartao || event.id_fatura || event.id_divida || event.id_ativo) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
+    var flagCheck = validateCategoryFlags_(event, category);
+    if (!flagCheck.ok) return flagCheck;
+    return { ok: true };
+  }
+
+  function isGenericLaunchEventType_(eventType) {
+    return ['receita', 'aporte', 'divida_pagamento', 'ajuste'].indexOf(eventType) !== -1;
+  }
+
+  function validatePilotGenericLaunchEvent_(event, referenceData) {
+    if (!isGenericLaunchEventType_(event.tipo_evento)) return fail_('PILOT_EVENT_TYPE_BLOCKED', 'tipo_evento', GENERIC_RECORD_FAILURE);
+    if (event.status !== 'efetivado') return fail_('PILOT_STATUS_BLOCKED', 'status', GENERIC_RECORD_FAILURE);
+    var category = categoryForEvent_(referenceData, event.id_categoria, event.tipo_evento);
+    if (!category) return fail_('CONFIG_CATEGORY_BLOCKED', 'id_categoria', GENERIC_RECORD_FAILURE);
+    if (event.escopo !== category.escopo_padrao) return fail_('CONFIG_SCOPE_BLOCKED', 'escopo', GENERIC_RECORD_FAILURE);
+    if (event.visibilidade !== category.visibilidade_padrao) return fail_('CONFIG_VISIBILITY_BLOCKED', 'visibilidade', GENERIC_RECORD_FAILURE);
+    if (event.id_cartao || event.id_fatura) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
+    var source = event.id_fonte ? sourceForEvent_(referenceData, event.id_fonte) : null;
+    if (category.afeta_caixa_familiar_padrao === true && (!source || source.tipo === 'cartao_credito')) {
+      return fail_('CONFIG_SOURCE_BLOCKED', 'id_fonte', GENERIC_RECORD_FAILURE);
+    }
+    if (source && source.tipo === 'cartao_credito') return fail_('CONFIG_SOURCE_BLOCKED', 'id_fonte', GENERIC_RECORD_FAILURE);
+    if (event.tipo_evento === 'receita' && (event.id_divida || event.id_ativo)) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
+    if (event.tipo_evento === 'aporte') {
+      if (!event.id_ativo || !assetForEvent_(referenceData, event.id_ativo) || event.id_divida) {
+        return fail_('PILOT_ASSET_BLOCKED', 'id_ativo', GENERIC_RECORD_FAILURE);
+      }
+    }
+    if (event.tipo_evento === 'divida_pagamento') {
+      if (!event.id_divida || !debtForEvent_(referenceData, event.id_divida) || event.id_ativo) {
+        return fail_('PILOT_DEBT_BLOCKED', 'id_divida', GENERIC_RECORD_FAILURE);
+      }
+      if (event.afeta_dre !== false) return fail_('PILOT_FLAGS_BLOCKED', 'flags', GENERIC_RECORD_FAILURE);
+    }
+    if (event.tipo_evento === 'ajuste') {
+      if (event.id_divida || event.id_ativo) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
+      if (!event.descricao || event.descricao.length < 5) return fail_('PILOT_ADJUSTMENT_REASON_BLOCKED', 'descricao', GENERIC_RECORD_FAILURE);
+    }
     var flagCheck = validateCategoryFlags_(event, category);
     if (!flagCheck.ok) return flagCheck;
     return { ok: true };
@@ -1280,6 +1407,88 @@ var V55 = (function() {
         id_fatura: '',
         id_divida: '',
         id_ativo: '',
+        afeta_dre: event.afeta_dre,
+        afeta_patrimonio: event.afeta_patrimonio,
+        afeta_caixa_familiar: event.afeta_caixa_familiar,
+        visibilidade: event.visibilidade,
+        status: event.status,
+        descricao: event.descricao,
+        created_at: now,
+      });
+      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
+      return { ok: true, responseText: SUCCESS_TEXT, shouldApplyDomainMutation: true, result_ref: resultRef };
+    } catch (_err) {
+      if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
+        updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
+      }
+      return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  function recordPilotGenericLaunch_(update, message, event, config) {
+    var lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    var idempotencySheetForFailure = null;
+    var idempotencyRowNumberForFailure = null;
+    var resultRefForFailure = '';
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var request = telegramRequest_(update, message);
+      var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
+      var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+      idempotencySheetForFailure = idempotencySheet;
+      verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
+      verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+
+      var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
+      if (existing && existing.status === 'completed') {
+        return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
+      }
+      if (existing && existing.status === 'processing') {
+        return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
+      }
+
+      var now = isoNow_();
+      var resultRef = stableId_('LAN', request.idempotency_key + '|' + event.tipo_evento + '|' + event.descricao + '|' + event.valor);
+      resultRefForFailure = resultRef;
+      if (existing && existing.rowNumber) {
+        updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
+        idempotencyRowNumberForFailure = existing.rowNumber;
+      } else {
+        appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
+          idempotency_key: request.idempotency_key,
+          source: request.source,
+          external_update_id: request.external_update_id,
+          external_message_id: request.external_message_id,
+          chat_id: request.chat_id,
+          payload_hash: request.payload_hash,
+          status: 'processing',
+          result_ref: resultRef,
+          created_at: now,
+          updated_at: now,
+          error_code: '',
+          observacao: '',
+        });
+        existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
+        idempotencyRowNumberForFailure = existing && existing.rowNumber;
+      }
+
+      appendRow_(launchSheet, SHEETS.LANCAMENTOS, {
+        id_lancamento: resultRef,
+        data: event.data,
+        competencia: event.competencia,
+        tipo_evento: event.tipo_evento,
+        id_categoria: event.id_categoria,
+        valor: event.valor,
+        id_fonte: event.id_fonte,
+        pessoa: event.pessoa,
+        escopo: event.escopo,
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: event.id_divida || '',
+        id_ativo: event.id_ativo || '',
         afeta_dre: event.afeta_dre,
         afeta_patrimonio: event.afeta_patrimonio,
         afeta_caixa_familiar: event.afeta_caixa_familiar,
