@@ -526,6 +526,22 @@ test('Apps Script runtime gates and narrows financial mutation', () => {
     assert.ok(code.includes('shouldApplyDomainMutation: false'));
 });
 
+test('Apps Script help gives practical launch examples without mutating', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+
+    const result = postPilotMessage(context, '/ajuda');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Para lancar, mande uma frase curta/);
+    assert.match(result.responseText, /mercado 42 hoje/);
+    assert.match(result.responseText, /farmacia 18 no nubank/);
+    assert.match(result.responseText, /Luana mandou 200 para caixa familiar/);
+    assert.match(result.responseText, /\/resumo - ver o mes sem alterar nada/);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
 test('Apps Script /resumo command is read-only and does not require pilot mutation gate', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
@@ -625,25 +641,22 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Resumo da familia - 2026-04/);
-    assert.match(result.responseText, /Entrou: R\$ 100\.00/);
-    assert.match(result.responseText, /Saiu: R\$ 63\.90/);
-    assert.match(result.responseText, /Sobrou no caixa: R\$ 36\.10/);
+    assert.match(result.responseText, /Resumo familiar - 2026-04/);
+    assert.match(result.responseText, /Caixa: entrou R\$ 100\.00, saiu R\$ 63\.90, sobrou R\$ 36\.10/);
     assert.match(result.responseText, /Contas proximas: R\$ 542\.50/);
     assert.match(result.responseText, /Depois das contas: R\$ -506\.40/);
-    assert.match(result.responseText, /Gastos do mes: R\$ 106\.40/);
-    assert.match(result.responseText, /Receitas do mes: R\$ 0\.00/);
+    assert.match(result.responseText, /Mes: receitas R\$ 0\.00, gastos R\$ 106\.40/);
     assert.match(result.responseText, /Reserva: R\$ 1000\.00/);
     assert.match(result.responseText, /Sugestao: segurar dinheiro para as contas/);
-    assert.match(result.responseText, /Lancamentos visiveis da familia: 2/);
-    assert.match(result.responseText, /Ultimos lancamentos visiveis:/);
+    assert.match(result.responseText, /Lancamentos detalhados: 2/);
+    assert.match(result.responseText, /Ultimos lancamentos:/);
     assert.match(result.responseText, /- 2026-04-30 Mercado da semana R\$ 43\.90: mercado/);
     assert.doesNotMatch(result.responseText, /OPEX_MERCADO_SEMANA/);
     assert.match(result.responseText, /mercado/);
     assert.match(result.responseText, /farmacia/);
     assert.doesNotMatch(result.responseText, /privado/);
     assert.doesNotMatch(result.responseText, /agregado/);
-    assert.match(result.responseText, /So consulta: nada foi alterado\./);
+    assert.match(result.responseText, /Consulta apenas: nada foi alterado\./);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 5);
     assert.strictEqual(sheets.Faturas.rows.length, 2);
@@ -665,10 +678,8 @@ test('Apps Script /resumo normalizes sheet date cells used as competencia', () =
     const result = postPilotMessage(context, '/resumo_familiar');
 
     assert.strictEqual(result.ok, true);
-    assert.match(result.responseText, /Gastos do mes: R\$ 43\.90/);
-    assert.match(result.responseText, /Entrou: R\$ 100\.00/);
-    assert.match(result.responseText, /Saiu: R\$ 43\.90/);
-    assert.match(result.responseText, /Sobrou no caixa: R\$ 56\.10/);
+    assert.match(result.responseText, /Mes: receitas R\$ 0\.00, gastos R\$ 43\.90/);
+    assert.match(result.responseText, /Caixa: entrou R\$ 100\.00, saiu R\$ 43\.90, sobrou R\$ 56\.10/);
 });
 
 test('Apps Script doGet summary action returns current read-only family summary', () => {
@@ -699,7 +710,7 @@ test('Apps Script doGet summary action returns current read-only family summary'
     assert.strictEqual(result.summary.saldos_fontes_inicial, 100);
     assert.strictEqual(result.summary.saldos_fontes_final, 350);
     assert.strictEqual(result.summary.saldos_fontes_disponivel, 330);
-    assert.match(result.responseText, /Resumo da familia - 2026-04/);
+    assert.match(result.responseText, /Resumo familiar - 2026-04/);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
@@ -974,6 +985,10 @@ test('Apps Script pilot expense canonicalizes fragile parser output before writi
     assert.match(result.responseText, /Valor: R\$ 10\.00/);
     assert.match(result.responseText, /Data: 2026-04-30/);
     assert.match(result.responseText, /Descricao: mercado 10/);
+    assert.match(result.responseText, /Tipo: gasto/);
+    assert.match(result.responseText, /Categoria: Mercado da semana/);
+    assert.match(result.responseText, /Fonte: Conta familia/);
+    assert.match(result.responseText, /Caixa familiar: saiu/);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -1377,6 +1392,37 @@ test('Apps Script pilot internal transfer requires parser person to match text',
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['PILOT_TRANSFER_PERSON_MISMATCH']);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Transferencias_Internas.rows.length, 1);
+});
+
+test('Apps Script validation failures return actionable launch guidance', () => {
+    const { context } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '10',
+        descricao: 'categoria desconhecida',
+        id_categoria: 'OPEX_DESCONHECIDA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const result = postPilotMessage(context, 'categoria desconhecida 10');
+
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_CATEGORY_BLOCKED']);
+    assert.match(result.responseText, /Nao consegui encaixar a categoria/);
+    assert.match(result.responseText, /mercado 42 hoje/);
 });
 
 test('Apps Script generic launch writes receita with category and source defaults', () => {

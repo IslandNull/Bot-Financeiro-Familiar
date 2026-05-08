@@ -1,21 +1,25 @@
 var V55 = (function() {
   var GENERIC_REQUEST_FAILURE = 'Nao foi possivel processar esta requisicao.';
   var GENERIC_MESSAGE_FAILURE = 'Nao foi possivel processar esta mensagem.';
-  var GENERIC_RECORD_FAILURE = 'Nao consegui anotar isso agora.\nTente mandar de um jeito simples, por exemplo: mercado 42 hoje.';
+  var GENERIC_RECORD_FAILURE = 'Nao consegui anotar isso agora.\nMande /ajuda para ver exemplos.';
   var HELP_TEXT = [
-    'Eu anoto os movimentos da familia por mensagem.',
+    'Bot financeiro familiar',
     '',
-    'Pode mandar assim:',
+    'Para lancar, mande uma frase curta com valor e contexto:',
     '- mercado 42 hoje',
     '- farmacia 18 no nubank',
-    '- paguei a fatura nubank 300',
-    '- recebi salario 5000',
-    '- transferi 200 para a conta da familia',
+    '- paguei fatura nubank 300',
+    '- salario 5000',
+    '- Luana mandou 200 para caixa familiar',
+    '- aporte CDB 1000',
+    '- paguei financiamento 500',
     '',
-    'Para ver como esta o mes, mande /resumo.'
+    'Comandos:',
+    '/resumo - ver o mes sem alterar nada',
+    '/ajuda - ver exemplos de lancamento'
   ].join('\n');
   var SUCCESS_TEXT = 'Anotado.';
-  var FAMILY_SUMMARY_HELP_TEXT = 'O resumo mostra valores do mes em modo leitura.';
+  var FAMILY_SUMMARY_HELP_TEXT = 'Dica: se o bot entender algo errado, mande um ajuste revisado com o motivo.';
   var DEFAULT_OPENAI_MODEL = 'gpt-5-nano';
   var OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
   var SHEETS = {
@@ -244,7 +248,7 @@ var V55 = (function() {
     }
 
     var text = message && typeof message.text === 'string' ? message.text.trim() : '';
-    if (text === '/start' || text === '/help') {
+    if (isHelpCommand_(text)) {
       return {
         ok: true,
         responseText: HELP_TEXT + '\n' + FAMILY_SUMMARY_HELP_TEXT,
@@ -272,7 +276,7 @@ var V55 = (function() {
     if (parsed.event.tipo_evento === 'pagamento_fatura') {
       var invoicePaymentCheck = validatePilotInvoicePaymentEvent_(parsed.event, referenceData);
       if (!invoicePaymentCheck.ok) return invoicePaymentCheck;
-      return recordPilotInvoicePayment_(update, message, parsed.event, config);
+      return recordPilotInvoicePayment_(update, message, parsed.event, config, referenceData);
     }
 
     if (parsed.event.tipo_evento === 'compra_cartao') {
@@ -290,13 +294,17 @@ var V55 = (function() {
     if (isGenericLaunchEventType_(parsed.event.tipo_evento)) {
       var genericCheck = validatePilotGenericLaunchEvent_(parsed.event, referenceData);
       if (!genericCheck.ok) return genericCheck;
-      return recordPilotGenericLaunch_(update, message, parsed.event, config);
+      return recordPilotGenericLaunch_(update, message, parsed.event, config, referenceData);
     }
 
     var pilotCheck = validatePilotExpenseEvent_(parsed.event, referenceData);
     if (!pilotCheck.ok) return pilotCheck;
 
-    return recordPilotExpense_(update, message, parsed.event, config);
+    return recordPilotExpense_(update, message, parsed.event, config, referenceData);
+  }
+
+  function isHelpCommand_(text) {
+    return text === '/start' || text === '/help' || text === '/ajuda' || text === '/exemplos';
   }
 
   function isFamilySummaryCommand_(text) {
@@ -722,25 +730,22 @@ var V55 = (function() {
 
   function formatPilotFamilySummary_(summary) {
     var lines = [
-      'Resumo da familia - ' + summary.competencia,
-      'Entrou: ' + formatMoney_(summary.caixa_entradas),
-      'Saiu: ' + formatMoney_(summary.caixa_saidas),
-      'Sobrou no caixa: ' + formatMoney_(summary.sobra_caixa),
+      'Resumo familiar - ' + summary.competencia,
+      'Caixa: entrou ' + formatMoney_(summary.caixa_entradas) + ', saiu ' + formatMoney_(summary.caixa_saidas) + ', sobrou ' + formatMoney_(summary.sobra_caixa),
       'Contas proximas: ' + formatMoney_(roundMoney_(summary.faturas_60d + summary.obrigacoes_60d)),
       'Depois das contas: ' + formatMoney_(summary.margem_pos_obrigacoes),
-      'Gastos do mes: ' + formatMoney_(summary.despesas_dre),
-      'Receitas do mes: ' + formatMoney_(summary.receitas_dre),
+      'Mes: receitas ' + formatMoney_(summary.receitas_dre) + ', gastos ' + formatMoney_(summary.despesas_dre),
       'Reserva: ' + formatMoney_(summary.reserva_total),
       'Sugestao: ' + friendlyDestination_(summary.destino_sugerido),
-      'Lancamentos visiveis da familia: ' + summary.eventos_detalhados,
+      'Lancamentos detalhados: ' + summary.eventos_detalhados,
     ];
     if (summary.eventos_detalhados_preview && summary.eventos_detalhados_preview.length > 0) {
-      lines.push('Ultimos lancamentos visiveis:');
+      lines.push('Ultimos lancamentos:');
       summary.eventos_detalhados_preview.forEach(function(event) {
         lines.push('- ' + event.data + ' ' + event.categoria + ' ' + formatMoney_(event.valor) + ': ' + event.descricao);
       });
     }
-    lines.push('So consulta: nada foi alterado.');
+    lines.push('Consulta apenas: nada foi alterado.');
     return lines.join('\n');
   }
 
@@ -1563,18 +1568,65 @@ var V55 = (function() {
     return (' ' + normalizedText + ' ').indexOf(' ' + normalizedPhrase + ' ') !== -1;
   }
 
-  function recordedEventText_(event, actionLabel) {
+  function recordedEventText_(event, actionLabel, referenceData) {
     var lines = [
       actionLabel || 'Anotado',
       'Valor: ' + formatMoney_(event.valor),
     ];
     if (event.data) lines.push('Data: ' + formatSheetDate_(event.data));
     if (event.descricao) lines.push('Descricao: ' + event.descricao);
+    lines.push('Tipo: ' + friendlyEventType_(event.tipo_evento));
+    var categoryName = friendlyCategoryName_(event.id_categoria, referenceData);
+    if (categoryName) lines.push('Categoria: ' + categoryName);
+    var sourceName = friendlySourceName_(event.id_fonte, referenceData);
+    if (sourceName) lines.push('Fonte: ' + sourceName);
+    var cardName = friendlyCardName_(event.id_cartao, referenceData);
+    if (cardName) lines.push('Cartao: ' + cardName);
+    if (event.id_fatura) lines.push('Fatura: ' + friendlyIdentifier_(event.id_fatura));
+    lines.push('Caixa familiar: ' + friendlyCashEffect_(event));
     lines.push('Mande /resumo para ver o mes.');
     return lines.join('\n');
   }
 
-  function recordPilotExpense_(update, message, event, config) {
+  function friendlyEventType_(value) {
+    var text = stringValue_(value);
+    if (text === 'despesa') return 'gasto';
+    if (text === 'receita') return 'receita';
+    if (text === 'compra_cartao') return 'compra no cartao';
+    if (text === 'pagamento_fatura') return 'pagamento de fatura';
+    if (text === 'transferencia_interna') return 'entrada no caixa familiar';
+    if (text === 'aporte') return 'aporte';
+    if (text === 'divida_pagamento') return 'pagamento de obrigacao';
+    if (text === 'ajuste') return 'ajuste revisado';
+    return text || 'lancamento';
+  }
+
+  function friendlyCashEffect_(event) {
+    if (event.tipo_evento === 'compra_cartao') return 'nao saiu agora; entra na fatura';
+    if (event.tipo_evento === 'transferencia_interna' && event.direcao_caixa_familiar === 'entrada') return 'entrou';
+    if (event.afeta_caixa_familiar === true) {
+      if (event.tipo_evento === 'receita') return 'entrou';
+      return 'saiu';
+    }
+    return 'nao alterou agora';
+  }
+
+  function friendlyCategoryName_(id, referenceData) {
+    var category = referenceData && referenceData.categoriesById && referenceData.categoriesById[stringValue_(id)];
+    return category ? stringValue_(category.nome) : '';
+  }
+
+  function friendlySourceName_(id, referenceData) {
+    var source = referenceData && referenceData.sourcesById && referenceData.sourcesById[stringValue_(id)];
+    return source ? stringValue_(source.nome) : '';
+  }
+
+  function friendlyCardName_(id, referenceData) {
+    var card = referenceData && referenceData.cardsById && referenceData.cardsById[stringValue_(id)];
+    return card ? stringValue_(card.nome) : '';
+  }
+
+  function recordPilotExpense_(update, message, event, config, referenceData) {
     var lock = LockService.getScriptLock();
     lock.waitLock(10000);
     var idempotencySheetForFailure = null;
@@ -1645,7 +1697,7 @@ var V55 = (function() {
         created_at: now,
       });
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-      return { ok: true, responseText: recordedEventText_(event, 'Anotado gasto da familia.'), shouldApplyDomainMutation: true, result_ref: resultRef };
+      return { ok: true, responseText: recordedEventText_(event, 'Anotado gasto da familia.', referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
     } catch (_err) {
       if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
         updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -1656,7 +1708,7 @@ var V55 = (function() {
     }
   }
 
-  function recordPilotGenericLaunch_(update, message, event, config) {
+  function recordPilotGenericLaunch_(update, message, event, config, referenceData) {
     var lock = LockService.getScriptLock();
     lock.waitLock(10000);
     var idempotencySheetForFailure = null;
@@ -1727,7 +1779,7 @@ var V55 = (function() {
         created_at: now,
       });
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-      return { ok: true, responseText: recordedEventText_(event, 'Anotado.'), shouldApplyDomainMutation: true, result_ref: resultRef };
+      return { ok: true, responseText: recordedEventText_(event, 'Anotado.', referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
     } catch (_err) {
       if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
         updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -1824,7 +1876,7 @@ var V55 = (function() {
         status: 'prevista',
       });
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-      return { ok: true, responseText: recordedEventText_(event, 'Anotada compra no cartao.'), shouldApplyDomainMutation: true, result_ref: resultRef };
+      return { ok: true, responseText: recordedEventText_(event, 'Anotada compra no cartao.', referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
     } catch (_err) {
       if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
         updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -1835,7 +1887,7 @@ var V55 = (function() {
     }
   }
 
-  function recordPilotInvoicePayment_(update, message, event, config) {
+  function recordPilotInvoicePayment_(update, message, event, config, referenceData) {
     var lock = LockService.getScriptLock();
     lock.waitLock(10000);
     var idempotencySheetForFailure = null;
@@ -1917,7 +1969,7 @@ var V55 = (function() {
       });
       updateInvoicePayment_(invoiceSheet, invoice.rowNumber, event.valor, 'paga');
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-      return { ok: true, responseText: recordedEventText_(event, 'Anotado pagamento da fatura.'), shouldApplyDomainMutation: true, result_ref: resultRef };
+      return { ok: true, responseText: recordedEventText_(event, 'Anotado pagamento da fatura.', referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
     } catch (_err) {
       if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
         updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -1993,7 +2045,7 @@ var V55 = (function() {
         created_at: now,
       });
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-      return { ok: true, responseText: recordedEventText_(event, 'Anotada transferencia para a familia.'), shouldApplyDomainMutation: true, result_ref: resultRef };
+      return { ok: true, responseText: recordedEventText_(event, 'Anotada transferencia para a familia.', referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
     } catch (_err) {
       if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
         updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -2286,12 +2338,59 @@ var V55 = (function() {
   }
 
   function fail_(code, field, message) {
+    var responseText = message === GENERIC_RECORD_FAILURE ? friendlyFailureText_(code) : message;
     return {
       ok: false,
       shouldApplyDomainMutation: false,
-      responseText: message,
-      errors: [{ code: code, field: field, message: message }],
+      responseText: responseText,
+      errors: [{ code: code, field: field, message: responseText }],
     };
+  }
+
+  function friendlyFailureText_(code) {
+    if (code === 'INVALID_MONEY') {
+      return 'Nao entendi o valor.\nTente assim: mercado 42 hoje';
+    }
+    if (code === 'INVALID_DATE_EMPTY' || code === 'INVALID_DATE_TEXTUAL' || code === 'INVALID_DATE_UNPADDED_ISO' || code === 'INVALID_COMPETENCIA') {
+      return 'Nao entendi a data.\nUse hoje, ontem ou uma data como 2026-04-30.';
+    }
+    if (code === 'CONFIG_CATEGORY_BLOCKED' || code === 'PILOT_TEXT_CATEGORY_MISMATCH') {
+      return 'Nao consegui encaixar a categoria.\nTente uma frase mais direta, por exemplo: mercado 42 hoje.';
+    }
+    if (code === 'CONFIG_SOURCE_BLOCKED') {
+      return 'Nao consegui identificar a fonte do dinheiro.\nTente citar a conta ou mande de forma simples: mercado 42 hoje.';
+    }
+    if (code === 'CONFIG_CARD_BLOCKED' || code === 'CONFIG_CARD_SOURCE_BLOCKED') {
+      return 'Nao consegui identificar o cartao.\nTente assim: farmacia 18 no nubank.';
+    }
+    if (code === 'PILOT_INVOICE_BLOCKED' || code === 'PILOT_INVOICE_NOT_FOUND') {
+      return 'Nao encontrei uma fatura aberta para pagar.\nTente citar cartao e valor, por exemplo: paguei fatura nubank 300.';
+    }
+    if (code === 'PILOT_INVOICE_ALREADY_PAID') {
+      return 'Essa fatura ja aparece como paga.\nSe precisar corrigir, mande um ajuste revisado com o motivo.';
+    }
+    if (code === 'PILOT_INVOICE_AMOUNT_MISMATCH') {
+      return 'O valor nao bate com a fatura aberta.\nConfira o valor ou registre um ajuste revisado.';
+    }
+    if (code === 'PILOT_TRANSFER_PERSON_BLOCKED' || code === 'PILOT_TRANSFER_PERSON_MISMATCH' || code === 'PILOT_TRANSFER_DIRECTION_BLOCKED') {
+      return 'Nao entendi a entrada no caixa familiar.\nTente assim: Luana mandou 200 para caixa familiar.';
+    }
+    if (code === 'PILOT_ASSET_BLOCKED') {
+      return 'Nao consegui identificar o investimento ativo.\nTente assim: aporte CDB 1000.';
+    }
+    if (code === 'PILOT_DEBT_BLOCKED') {
+      return 'Nao consegui identificar a obrigacao.\nTente assim: paguei financiamento 500.';
+    }
+    if (code === 'PILOT_ADJUSTMENT_REASON_BLOCKED') {
+      return 'Ajuste precisa de motivo.\nTente assim: ajuste revisado 10 erro de importacao.';
+    }
+    if (code === 'DUPLICATE_PROCESSING') {
+      return 'Essa mensagem ainda esta sendo processada.\nEspere alguns segundos antes de reenviar.';
+    }
+    if (code === 'OPENAI_FETCH_FAILED' || code === 'OPENAI_REJECTED' || code === 'OPENAI_OUTPUT_NOT_JSON' || code === 'OPENAI_RESPONSE_PROCESSING_FAILED') {
+      return 'Nao consegui interpretar agora.\nTente uma frase curta com valor, por exemplo: mercado 42 hoje.';
+    }
+    return GENERIC_RECORD_FAILURE;
   }
 
   function parseJsonSafe_(value) {
