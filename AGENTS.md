@@ -43,6 +43,10 @@ Never commit: `.env`, Telegram token, OpenAI API key, spreadsheet ID, webhook UR
 - **Trust the owner.** The user is the project owner and only user. Do not add security barriers against the project owner. Pilot safety gates are for protecting the spreadsheet from bugs, not from the user.
 - **Minimize token usage.** Avoid re-reading entire files that haven't changed. Avoid verbose verification reports. State what changed and what was tested — skip the narrative.
 - **Always commit.** After verified changes, run `git add -A && git commit && git push`. Never leave working tree dirty.
+- **No single-use abstractions.** Do not add helpers, wrappers, maps, or validation layers unless they clearly reduce complexity and are used in more than one place.
+- **Match validation to risk.** Skip `npm run check` for documentation-only changes (README, EXECUTION_PLAN, markdown docs). State plainly that validation was skipped and why.
+- **Subagent discipline.** Use subagents only when they save context or time. Assign a narrow task and require: findings, files inspected/changed, validation run (or why skipped), and remaining risks. Avoid subagents for trivial work.
+- **Correct the user.** The user is not a financial or programming expert. If the user suggests something technically wrong, architecturally harmful, or financially inaccurate, say so directly and explain why. Do not silently comply with a bad idea.
 
 ## Validation
 
