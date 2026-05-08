@@ -37,6 +37,8 @@ Operational authority for Bot Financeiro Familiar V55.
 - Local historical JSONL validation tool added for Phase 9 prep: `npm run historical:validate -- <file>` validates planned rows without spreadsheet writes or private-detail output; `npm run check` passed on 2026-05-08.
 - UX pass 2 is deployed: `/help`/`/ajuda` gives practical launch examples, `/resumo` is more compact, confirmations show type/category/source/cash effect, and validation failures return actionable guidance.
 - Version @49 deployed; remote `selftest`, `summary`, and `snapshot` succeeded after UX pass 2 on 2026-05-08.
+- UX pass 3 is deployed: `/resumo` uses family-friendly wording, Brazilian money format, cautious "Orientacao do momento" with deterministic "Por que", and withholds optimistic reserve/investment/amortization guidance when source balances are incomplete.
+- Version @50 deployed; remote `selftest`, `summary`, and `snapshot` succeeded after UX pass 3 on 2026-05-08.
 
 ### Unverified
 

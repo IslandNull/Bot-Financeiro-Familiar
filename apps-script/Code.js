@@ -729,24 +729,121 @@ var V55 = (function() {
   }
 
   function formatPilotFamilySummary_(summary) {
+    var obligations = roundMoney_(summary.faturas_60d + summary.obrigacoes_60d);
+    var guidance = buildPilotGuidance_(summary, obligations);
     var lines = [
-      'Resumo familiar - ' + summary.competencia,
-      'Caixa: entrou ' + formatMoney_(summary.caixa_entradas) + ', saiu ' + formatMoney_(summary.caixa_saidas) + ', sobrou ' + formatMoney_(summary.sobra_caixa),
-      'Contas proximas: ' + formatMoney_(roundMoney_(summary.faturas_60d + summary.obrigacoes_60d)),
-      'Depois das contas: ' + formatMoney_(summary.margem_pos_obrigacoes),
-      'Mes: receitas ' + formatMoney_(summary.receitas_dre) + ', gastos ' + formatMoney_(summary.despesas_dre),
-      'Reserva: ' + formatMoney_(summary.reserva_total),
-      'Sugestao: ' + friendlyDestination_(summary.destino_sugerido),
-      'Lancamentos detalhados: ' + summary.eventos_detalhados,
+      'Resumo de ' + friendlyCompetencia_(summary.competencia),
+      '',
+      buildPilotSituationLine_(summary, obligations),
+      '',
+      'Sobrou no mes: ' + formatMoney_(summary.sobra_caixa),
+      'Contas proximas: ' + formatMoney_(obligations),
     ];
+    if (summary.margem_pos_obrigacoes < 0) {
+      lines.push('Falta para cobrir tudo: ' + formatMoney_(Math.abs(summary.margem_pos_obrigacoes)));
+    } else {
+      lines.push('Depois das contas: ' + formatMoney_(summary.margem_pos_obrigacoes));
+    }
+    lines = lines.concat([
+      '',
+      'Gastos registrados: ' + formatMoney_(summary.despesas_dre),
+      'Reserva: ' + formatMoney_(summary.reserva_total),
+      '',
+      'Orientacao do momento:',
+      guidance.action,
+      '',
+      'Por que:',
+      guidance.reason,
+    ]);
+    if (guidance.caveat) lines.push(guidance.caveat);
     if (summary.eventos_detalhados_preview && summary.eventos_detalhados_preview.length > 0) {
-      lines.push('Ultimos lancamentos:');
+      lines.push('');
+      lines.push('Ultimos gastos:');
       summary.eventos_detalhados_preview.forEach(function(event) {
-        lines.push('- ' + event.data + ' ' + event.categoria + ' ' + formatMoney_(event.valor) + ': ' + event.descricao);
+        lines.push(formatShortDate_(event.data) + ' ' + event.categoria + ' - ' + formatMoney_(event.valor));
       });
     }
-    lines.push('Consulta apenas: nada foi alterado.');
     return lines.join('\n');
+  }
+
+  function buildPilotSituationLine_(summary, obligations) {
+    if (summary.margem_pos_obrigacoes < 0) return 'Hoje a situacao e de atencao.';
+    if (obligations > 0) return 'Hoje as contas proximas parecem cobertas pelos dados registrados.';
+    if (summary.sobra_caixa > 0) return 'Hoje ha sobra registrada no mes.';
+    return 'Hoje ainda nao ha sobra registrada no mes.';
+  }
+
+  function buildPilotGuidance_(summary, obligations) {
+    var lacksSourceBalances = numberFromSheetValue_(summary.saldos_fontes_count) === 0;
+    var caveat = lacksSourceBalances
+      ? 'Nota: ainda falta saldo real das contas para uma orientacao mais completa.'
+      : '';
+    if (summary.sobra_caixa <= 0) {
+      return {
+        action: 'Evitar novos gastos ate revisar as proximas entradas.',
+        reason: 'Nao ha sobra registrada no mes. Sem sobra, o sistema nao deve sugerir reserva, investimento ou amortizacao.',
+        caveat: caveat,
+      };
+    }
+    if (obligations > 0 && summary.margem_pos_obrigacoes < 0) {
+      return {
+        action: 'Segurar o dinheiro agora para as contas proximas.',
+        reason: 'As contas proximas sao maiores que a sobra registrada. Antes de pensar em reserva, investimento ou amortizacao, precisamos garantir os pagamentos.',
+        caveat: caveat,
+      };
+    }
+    if (lacksSourceBalances) {
+      return {
+        action: 'Ainda nao vou sugerir investimento, reserva ou amortizacao.',
+        reason: 'Tenho lancamentos e contas, mas ainda falta o saldo real das contas. Sem esse dado, a orientacao poderia errar.',
+        caveat: caveat,
+      };
+    }
+    if (summary.reserva_total < 15000) {
+      return {
+        action: 'Priorizar reforco da reserva.',
+        reason: 'As contas proximas parecem cobertas e a reserva ainda esta abaixo da meta usada pelo sistema.',
+        caveat: '',
+      };
+    }
+    if (summary.pode_avaliar_amortizacao !== true) {
+      return {
+        action: 'Manter o dinheiro disponivel e revisar investimento com calma.',
+        reason: 'As contas e a reserva parecem cobertas, mas ainda faltam dados completos da divida para comparar amortizacao com seguranca.',
+        caveat: '',
+      };
+    }
+    return {
+      action: 'Revisar investimento ou amortizacao antes de decidir.',
+      reason: 'As contas e a reserva parecem cobertas. A proxima decisao depende de comparar retorno, juros e liquidez.',
+      caveat: '',
+    };
+  }
+
+  function friendlyCompetencia_(competencia) {
+    var text = stringValue_(competencia);
+    var months = {
+      '01': 'janeiro',
+      '02': 'fevereiro',
+      '03': 'marco',
+      '04': 'abril',
+      '05': 'maio',
+      '06': 'junho',
+      '07': 'julho',
+      '08': 'agosto',
+      '09': 'setembro',
+      '10': 'outubro',
+      '11': 'novembro',
+      '12': 'dezembro',
+    };
+    if (/^\d{4}-\d{2}$/.test(text)) return months[text.slice(5, 7)] || text;
+    return text || 'este mes';
+  }
+
+  function formatShortDate_(value) {
+    var text = formatSheetDate_(value);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text.slice(8, 10) + '/' + text.slice(5, 7);
+    return text;
   }
 
   function friendlyDestination_(value) {
@@ -2306,7 +2403,7 @@ var V55 = (function() {
   }
 
   function formatMoney_(value) {
-    return 'R$ ' + roundMoney_(value).toFixed(2);
+    return 'R$ ' + roundMoney_(value).toFixed(2).replace('.', ',');
   }
 
   function updateIdempotencyStatus_(sheet, rowNumber, status, resultRef, updatedAt, errorCode) {

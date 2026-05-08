@@ -641,22 +641,22 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Resumo familiar - 2026-04/);
-    assert.match(result.responseText, /Caixa: entrou R\$ 100\.00, saiu R\$ 63\.90, sobrou R\$ 36\.10/);
-    assert.match(result.responseText, /Contas proximas: R\$ 542\.50/);
-    assert.match(result.responseText, /Depois das contas: R\$ -506\.40/);
-    assert.match(result.responseText, /Mes: receitas R\$ 0\.00, gastos R\$ 106\.40/);
-    assert.match(result.responseText, /Reserva: R\$ 1000\.00/);
-    assert.match(result.responseText, /Sugestao: segurar dinheiro para as contas/);
-    assert.match(result.responseText, /Lancamentos detalhados: 2/);
-    assert.match(result.responseText, /Ultimos lancamentos:/);
-    assert.match(result.responseText, /- 2026-04-30 Mercado da semana R\$ 43\.90: mercado/);
+    assert.match(result.responseText, /Resumo de abril/);
+    assert.match(result.responseText, /Hoje a situacao e de atencao\./);
+    assert.match(result.responseText, /Sobrou no mes: R\$ 36,10/);
+    assert.match(result.responseText, /Contas proximas: R\$ 542,50/);
+    assert.match(result.responseText, /Falta para cobrir tudo: R\$ 506,40/);
+    assert.match(result.responseText, /Gastos registrados: R\$ 106,40/);
+    assert.match(result.responseText, /Reserva: R\$ 1000,00/);
+    assert.match(result.responseText, /Orientacao do momento:\nSegurar o dinheiro agora para as contas proximas\./);
+    assert.match(result.responseText, /Por que:\nAs contas proximas sao maiores que a sobra registrada/);
+    assert.doesNotMatch(result.responseText, /Nota: ainda falta saldo real das contas/);
+    assert.match(result.responseText, /Ultimos gastos:/);
+    assert.match(result.responseText, /30\/04 Mercado da semana - R\$ 43,90/);
     assert.doesNotMatch(result.responseText, /OPEX_MERCADO_SEMANA/);
-    assert.match(result.responseText, /mercado/);
-    assert.match(result.responseText, /farmacia/);
+    assert.match(result.responseText, /Mercado da semana/);
     assert.doesNotMatch(result.responseText, /privado/);
     assert.doesNotMatch(result.responseText, /agregado/);
-    assert.match(result.responseText, /Consulta apenas: nada foi alterado\./);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 5);
     assert.strictEqual(sheets.Faturas.rows.length, 2);
@@ -678,8 +678,10 @@ test('Apps Script /resumo normalizes sheet date cells used as competencia', () =
     const result = postPilotMessage(context, '/resumo_familiar');
 
     assert.strictEqual(result.ok, true);
-    assert.match(result.responseText, /Mes: receitas R\$ 0\.00, gastos R\$ 43\.90/);
-    assert.match(result.responseText, /Caixa: entrou R\$ 100\.00, saiu R\$ 43\.90, sobrou R\$ 56\.10/);
+    assert.match(result.responseText, /Gastos registrados: R\$ 43,90/);
+    assert.match(result.responseText, /Sobrou no mes: R\$ 56,10/);
+    assert.match(result.responseText, /Ainda nao vou sugerir investimento, reserva ou amortizacao/);
+    assert.match(result.responseText, /ainda falta o saldo real das contas/);
 });
 
 test('Apps Script doGet summary action returns current read-only family summary', () => {
@@ -710,7 +712,7 @@ test('Apps Script doGet summary action returns current read-only family summary'
     assert.strictEqual(result.summary.saldos_fontes_inicial, 100);
     assert.strictEqual(result.summary.saldos_fontes_final, 350);
     assert.strictEqual(result.summary.saldos_fontes_disponivel, 330);
-    assert.match(result.responseText, /Resumo familiar - 2026-04/);
+    assert.match(result.responseText, /Resumo de abril/);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
@@ -982,7 +984,7 @@ test('Apps Script pilot expense canonicalizes fragile parser output before writi
 
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Anotado gasto da familia\./);
-    assert.match(result.responseText, /Valor: R\$ 10\.00/);
+    assert.match(result.responseText, /Valor: R\$ 10,00/);
     assert.match(result.responseText, /Data: 2026-04-30/);
     assert.match(result.responseText, /Descricao: mercado 10/);
     assert.match(result.responseText, /Tipo: gasto/);
