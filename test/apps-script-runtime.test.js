@@ -533,6 +533,9 @@ test('Apps Script help gives practical launch examples without mutating', () => 
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /💰 Bot financeiro familiar/);
+    assert.match(result.responseText, /✍️ Para lancar/);
+    assert.match(result.responseText, /📌 Comandos:/);
     assert.match(result.responseText, /Para lancar, mande uma frase curta/);
     assert.match(result.responseText, /mercado 42 hoje/);
     assert.match(result.responseText, /farmacia 18 no nubank/);
@@ -641,6 +644,9 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /📊 Resumo de abril/);
+    assert.match(result.responseText, /💵 Sobrou no mes/);
+    assert.match(result.responseText, /🧭 Orientacao do momento/);
     assert.match(result.responseText, /Resumo de abril/);
     assert.match(result.responseText, /Hoje a situacao e de atencao\./);
     assert.match(result.responseText, /Sobrou no mes: R\$ 36,10/);
@@ -983,6 +989,9 @@ test('Apps Script pilot expense canonicalizes fragile parser output before writi
     const result = postPilotMessage(context, 'mercado 10');
 
     assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /✅ Anotado gasto da familia\./);
+    assert.match(result.responseText, /💵 Valor:/);
+    assert.match(result.responseText, /📊 Mande \/resumo/);
     assert.match(result.responseText, /Anotado gasto da familia\./);
     assert.match(result.responseText, /Valor: R\$ 10,00/);
     assert.match(result.responseText, /Data: 2026-04-30/);

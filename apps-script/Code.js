@@ -1,25 +1,25 @@
 var V55 = (function() {
   var GENERIC_REQUEST_FAILURE = 'Nao foi possivel processar esta requisicao.';
   var GENERIC_MESSAGE_FAILURE = 'Nao foi possivel processar esta mensagem.';
-  var GENERIC_RECORD_FAILURE = 'Nao consegui anotar isso agora.\nMande /ajuda para ver exemplos.';
+  var GENERIC_RECORD_FAILURE = '⚠️ Nao consegui anotar isso agora.\n💡 Mande /ajuda para ver exemplos.';
   var HELP_TEXT = [
-    'Bot financeiro familiar',
+    '💰 Bot financeiro familiar',
     '',
-    'Para lancar, mande uma frase curta com valor e contexto:',
-    '- mercado 42 hoje',
-    '- farmacia 18 no nubank',
-    '- paguei fatura nubank 300',
-    '- salario 5000',
-    '- Luana mandou 200 para caixa familiar',
-    '- aporte CDB 1000',
-    '- paguei financiamento 500',
+    '✍️ Para lancar, mande uma frase curta com valor e contexto:',
+    '• mercado 42 hoje',
+    '• farmacia 18 no nubank',
+    '• paguei fatura nubank 300',
+    '• salario 5000',
+    '• Luana mandou 200 para caixa familiar',
+    '• aporte CDB 1000',
+    '• paguei financiamento 500',
     '',
-    'Comandos:',
-    '/resumo - ver o mes sem alterar nada',
-    '/ajuda - ver exemplos de lancamento'
+    '📌 Comandos:',
+    '📊 /resumo - ver o mes sem alterar nada',
+    '💡 /ajuda - ver exemplos de lancamento'
   ].join('\n');
-  var SUCCESS_TEXT = 'Anotado.';
-  var FAMILY_SUMMARY_HELP_TEXT = 'Dica: se o bot entender algo errado, mande um ajuste revisado com o motivo.';
+  var SUCCESS_TEXT = '✅ Anotado.';
+  var FAMILY_SUMMARY_HELP_TEXT = '💡 Dica: se o bot entender algo errado, mande um ajuste revisado com o motivo.';
   var DEFAULT_OPENAI_MODEL = 'gpt-5-nano';
   var OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
   var SHEETS = {
@@ -732,51 +732,51 @@ var V55 = (function() {
     var obligations = roundMoney_(summary.faturas_60d + summary.obrigacoes_60d);
     var guidance = buildPilotGuidance_(summary, obligations);
     var lines = [
-      'Resumo de ' + friendlyCompetencia_(summary.competencia),
+      '📊 Resumo de ' + friendlyCompetencia_(summary.competencia),
       '',
       buildPilotSituationLine_(summary, obligations),
       '',
-      'Sobrou no mes: ' + formatMoney_(summary.sobra_caixa),
-      'Contas proximas: ' + formatMoney_(obligations),
+      '💵 Sobrou no mes: ' + formatMoney_(summary.sobra_caixa),
+      '🧾 Contas proximas: ' + formatMoney_(obligations),
     ];
     if (summary.margem_pos_obrigacoes < 0) {
-      lines.push('Falta para cobrir tudo: ' + formatMoney_(Math.abs(summary.margem_pos_obrigacoes)));
+      lines.push('⚠️ Falta para cobrir tudo: ' + formatMoney_(Math.abs(summary.margem_pos_obrigacoes)));
     } else {
-      lines.push('Depois das contas: ' + formatMoney_(summary.margem_pos_obrigacoes));
+      lines.push('✅ Depois das contas: ' + formatMoney_(summary.margem_pos_obrigacoes));
     }
     lines = lines.concat([
       '',
-      'Gastos registrados: ' + formatMoney_(summary.despesas_dre),
-      'Reserva: ' + formatMoney_(summary.reserva_total),
+      '🛒 Gastos registrados: ' + formatMoney_(summary.despesas_dre),
+      '🏦 Reserva: ' + formatMoney_(summary.reserva_total),
       '',
-      'Orientacao do momento:',
+      '🧭 Orientacao do momento:',
       guidance.action,
       '',
-      'Por que:',
+      '🔎 Por que:',
       guidance.reason,
     ]);
     if (guidance.caveat) lines.push(guidance.caveat);
     if (summary.eventos_detalhados_preview && summary.eventos_detalhados_preview.length > 0) {
       lines.push('');
-      lines.push('Ultimos gastos:');
+      lines.push('🧾 Ultimos gastos:');
       summary.eventos_detalhados_preview.forEach(function(event) {
-        lines.push(formatShortDate_(event.data) + ' ' + event.categoria + ' - ' + formatMoney_(event.valor));
+        lines.push('• ' + formatShortDate_(event.data) + ' ' + event.categoria + ' - ' + formatMoney_(event.valor));
       });
     }
     return lines.join('\n');
   }
 
   function buildPilotSituationLine_(summary, obligations) {
-    if (summary.margem_pos_obrigacoes < 0) return 'Hoje a situacao e de atencao.';
-    if (obligations > 0) return 'Hoje as contas proximas parecem cobertas pelos dados registrados.';
-    if (summary.sobra_caixa > 0) return 'Hoje ha sobra registrada no mes.';
-    return 'Hoje ainda nao ha sobra registrada no mes.';
+    if (summary.margem_pos_obrigacoes < 0) return '⚠️ Hoje a situacao e de atencao.';
+    if (obligations > 0) return '✅ Hoje as contas proximas parecem cobertas pelos dados registrados.';
+    if (summary.sobra_caixa > 0) return '✅ Hoje ha sobra registrada no mes.';
+    return 'ℹ️ Hoje ainda nao ha sobra registrada no mes.';
   }
 
   function buildPilotGuidance_(summary, obligations) {
     var lacksSourceBalances = numberFromSheetValue_(summary.saldos_fontes_count) === 0;
     var caveat = lacksSourceBalances
-      ? 'Nota: ainda falta saldo real das contas para uma orientacao mais completa.'
+      ? 'ℹ️ Nota: ainda falta saldo real das contas para uma orientacao mais completa.'
       : '';
     if (summary.sobra_caixa <= 0) {
       return {
@@ -1667,21 +1667,21 @@ var V55 = (function() {
 
   function recordedEventText_(event, actionLabel, referenceData) {
     var lines = [
-      actionLabel || 'Anotado',
-      'Valor: ' + formatMoney_(event.valor),
+      '✅ ' + (actionLabel || 'Anotado'),
+      '💵 Valor: ' + formatMoney_(event.valor),
     ];
-    if (event.data) lines.push('Data: ' + formatSheetDate_(event.data));
-    if (event.descricao) lines.push('Descricao: ' + event.descricao);
-    lines.push('Tipo: ' + friendlyEventType_(event.tipo_evento));
+    if (event.data) lines.push('📅 Data: ' + formatSheetDate_(event.data));
+    if (event.descricao) lines.push('📝 Descricao: ' + event.descricao);
+    lines.push('🏷️ Tipo: ' + friendlyEventType_(event.tipo_evento));
     var categoryName = friendlyCategoryName_(event.id_categoria, referenceData);
-    if (categoryName) lines.push('Categoria: ' + categoryName);
+    if (categoryName) lines.push('📂 Categoria: ' + categoryName);
     var sourceName = friendlySourceName_(event.id_fonte, referenceData);
-    if (sourceName) lines.push('Fonte: ' + sourceName);
+    if (sourceName) lines.push('🏦 Fonte: ' + sourceName);
     var cardName = friendlyCardName_(event.id_cartao, referenceData);
-    if (cardName) lines.push('Cartao: ' + cardName);
-    if (event.id_fatura) lines.push('Fatura: ' + friendlyIdentifier_(event.id_fatura));
-    lines.push('Caixa familiar: ' + friendlyCashEffect_(event));
-    lines.push('Mande /resumo para ver o mes.');
+    if (cardName) lines.push('💳 Cartao: ' + cardName);
+    if (event.id_fatura) lines.push('🧾 Fatura: ' + friendlyIdentifier_(event.id_fatura));
+    lines.push('👨‍👩‍👧 Caixa familiar: ' + friendlyCashEffect_(event));
+    lines.push('📊 Mande /resumo para ver o mes.');
     return lines.join('\n');
   }
 
@@ -2446,46 +2446,46 @@ var V55 = (function() {
 
   function friendlyFailureText_(code) {
     if (code === 'INVALID_MONEY') {
-      return 'Nao entendi o valor.\nTente assim: mercado 42 hoje';
+      return '⚠️ Nao entendi o valor.\n💡 Tente assim: mercado 42 hoje';
     }
     if (code === 'INVALID_DATE_EMPTY' || code === 'INVALID_DATE_TEXTUAL' || code === 'INVALID_DATE_UNPADDED_ISO' || code === 'INVALID_COMPETENCIA') {
-      return 'Nao entendi a data.\nUse hoje, ontem ou uma data como 2026-04-30.';
+      return '⚠️ Nao entendi a data.\n💡 Use hoje, ontem ou uma data como 2026-04-30.';
     }
     if (code === 'CONFIG_CATEGORY_BLOCKED' || code === 'PILOT_TEXT_CATEGORY_MISMATCH') {
-      return 'Nao consegui encaixar a categoria.\nTente uma frase mais direta, por exemplo: mercado 42 hoje.';
+      return '⚠️ Nao consegui encaixar a categoria.\n💡 Tente uma frase mais direta, por exemplo: mercado 42 hoje.';
     }
     if (code === 'CONFIG_SOURCE_BLOCKED') {
-      return 'Nao consegui identificar a fonte do dinheiro.\nTente citar a conta ou mande de forma simples: mercado 42 hoje.';
+      return '⚠️ Nao consegui identificar a fonte do dinheiro.\n💡 Tente citar a conta ou mande de forma simples: mercado 42 hoje.';
     }
     if (code === 'CONFIG_CARD_BLOCKED' || code === 'CONFIG_CARD_SOURCE_BLOCKED') {
-      return 'Nao consegui identificar o cartao.\nTente assim: farmacia 18 no nubank.';
+      return '⚠️ Nao consegui identificar o cartao.\n💡 Tente assim: farmacia 18 no nubank.';
     }
     if (code === 'PILOT_INVOICE_BLOCKED' || code === 'PILOT_INVOICE_NOT_FOUND') {
-      return 'Nao encontrei uma fatura aberta para pagar.\nTente citar cartao e valor, por exemplo: paguei fatura nubank 300.';
+      return '⚠️ Nao encontrei uma fatura aberta para pagar.\n💡 Tente citar cartao e valor, por exemplo: paguei fatura nubank 300.';
     }
     if (code === 'PILOT_INVOICE_ALREADY_PAID') {
-      return 'Essa fatura ja aparece como paga.\nSe precisar corrigir, mande um ajuste revisado com o motivo.';
+      return 'ℹ️ Essa fatura ja aparece como paga.\n💡 Se precisar corrigir, mande um ajuste revisado com o motivo.';
     }
     if (code === 'PILOT_INVOICE_AMOUNT_MISMATCH') {
-      return 'O valor nao bate com a fatura aberta.\nConfira o valor ou registre um ajuste revisado.';
+      return '⚠️ O valor nao bate com a fatura aberta.\n💡 Confira o valor ou registre um ajuste revisado.';
     }
     if (code === 'PILOT_TRANSFER_PERSON_BLOCKED' || code === 'PILOT_TRANSFER_PERSON_MISMATCH' || code === 'PILOT_TRANSFER_DIRECTION_BLOCKED') {
-      return 'Nao entendi a entrada no caixa familiar.\nTente assim: Luana mandou 200 para caixa familiar.';
+      return '⚠️ Nao entendi a entrada no caixa familiar.\n💡 Tente assim: Luana mandou 200 para caixa familiar.';
     }
     if (code === 'PILOT_ASSET_BLOCKED') {
-      return 'Nao consegui identificar o investimento ativo.\nTente assim: aporte CDB 1000.';
+      return '⚠️ Nao consegui identificar o investimento ativo.\n💡 Tente assim: aporte CDB 1000.';
     }
     if (code === 'PILOT_DEBT_BLOCKED') {
-      return 'Nao consegui identificar a obrigacao.\nTente assim: paguei financiamento 500.';
+      return '⚠️ Nao consegui identificar a obrigacao.\n💡 Tente assim: paguei financiamento 500.';
     }
     if (code === 'PILOT_ADJUSTMENT_REASON_BLOCKED') {
-      return 'Ajuste precisa de motivo.\nTente assim: ajuste revisado 10 erro de importacao.';
+      return '⚠️ Ajuste precisa de motivo.\n💡 Tente assim: ajuste revisado 10 erro de importacao.';
     }
     if (code === 'DUPLICATE_PROCESSING') {
-      return 'Essa mensagem ainda esta sendo processada.\nEspere alguns segundos antes de reenviar.';
+      return '⏳ Essa mensagem ainda esta sendo processada.\n💡 Espere alguns segundos antes de reenviar.';
     }
     if (code === 'OPENAI_FETCH_FAILED' || code === 'OPENAI_REJECTED' || code === 'OPENAI_OUTPUT_NOT_JSON' || code === 'OPENAI_RESPONSE_PROCESSING_FAILED') {
-      return 'Nao consegui interpretar agora.\nTente uma frase curta com valor, por exemplo: mercado 42 hoje.';
+      return '⚠️ Nao consegui interpretar agora.\n💡 Tente uma frase curta com valor, por exemplo: mercado 42 hoje.';
     }
     return GENERIC_RECORD_FAILURE;
   }
