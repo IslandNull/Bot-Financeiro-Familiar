@@ -17,6 +17,7 @@
     "summary": "node scripts/clasp-run.js summary",
     "closing:draft": "node scripts/clasp-run.js closing_draft",
     "closing:close": "node scripts/clasp-run.js closing_close",
-    "selftest": "node scripts/clasp-run.js selftest"
+    "selftest": "node scripts/clasp-run.js selftest",
+    "historical:validate": "node scripts/historical-validate.js"
   }
 }

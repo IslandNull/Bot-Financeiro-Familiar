@@ -2,7 +2,7 @@
 
 Operational authority for Bot Financeiro Familiar V55.
 
-## Current State (2026-05-06)
+## Current State (2026-05-08)
 
 ### Verified
 
@@ -34,6 +34,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Version @47 deployed; remote `summary` verified 3 visible detailed family events for 2026-05 and no mutation; snapshot updated.
 - UX pass 1 is deployed: `/help` uses plain examples, `/resumo` uses everyday labels, visible launch preview uses category names instead of internal ids, and successful writes return value/date/description guidance.
 - Version @48 deployed; remote `selftest`, `summary`, and `snapshot` succeeded after UX pass 1.
+- Local historical JSONL validation tool added for Phase 9 prep: `npm run historical:validate -- <file>` validates planned rows without spreadsheet writes or private-detail output; `npm run check` passed on 2026-05-08.
 
 ### Unverified
 
@@ -93,7 +94,7 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ### Phase 9: Full operational readiness
 
-1. Historical data entry for 2026-04 and earlier.
+1. Prepare local JSONL batches for 2026-04 and earlier, validate with `npm run historical:validate -- <file>`, then add reviewed write path for the validated batches.
 
 ## Phase History (archived)
 
