@@ -1702,6 +1702,7 @@ test('Apps Script manifest is a web app in project timezone', () => {
     assert.strictEqual(manifest.runtimeVersion, 'V8');
     assert.strictEqual(manifest.webapp.executeAs, 'USER_DEPLOYING');
     assert.strictEqual(manifest.webapp.access, 'ANYONE_ANONYMOUS');
+    assert.strictEqual(manifest.executionApi.access, 'ANYONE');
 });
 
 test('Apps Script manifest declares runtime service scopes explicitly', () => {

@@ -2,7 +2,7 @@
 
 Operational authority for Bot Financeiro Familiar V55.
 
-## Current State (2026-05-08)
+## Current State (2026-05-13)
 
 ### Verified
 
@@ -22,13 +22,13 @@ Operational authority for Bot Financeiro Familiar V55.
 - Local historical JSONL validation tool added for Phase 9 prep: `npm run historical:validate -- <file>` validates planned rows without spreadsheet writes or private-detail output; `npm run check` passed on 2026-05-08.
 - UX passes 1-4 are deployed: `/help`, `/resumo`, confirmations, and validation failures use practical wording, Brazilian money format, cautious guidance, and lightweight emoji markers without changing calculations or schema.
 - Version @51 deployed; `npm run check`, remote `selftest`, `summary`, and `snapshot` succeeded after UX pass 4 on 2026-05-08.
-- Version @53 deployed with `ensure_april_2026_config`; local `npm run check` passed on 2026-05-13.
+- Version @56 deployed with web app + Execution API manifest; `npm run selftest`, `npm run snapshot`, and `npm run check` passed on 2026-05-13.
+- `ensure_april_2026_config` ran in production and appended 13 config rows: 11 reviewed April categories, `FONTE_MERCADO_PAGO_GU`, and `CARD_MERCADO_PAGO_GU`; snapshot verifies `Config_Categorias` 36 rows, `Config_Fontes` 11 rows, and `Cartoes` 4 rows.
 
 ### Unverified
 
 - Full production readiness beyond pilot gates.
 - UX readiness with Luana using real Telegram messages after pass 4.
-- Production execution of `ensure_april_2026_config`: current web app endpoint returns Google Drive "Acesso negado"; `clasp run` is not configured as API executable.
 
 ## Execution Rules
 
@@ -83,9 +83,8 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ### Phase 9: Full operational readiness
 
-1. Restore remote execution access for the web app or API executable, then run `ensure_april_2026_config` and snapshot to verify Mercado Pago config and reviewed April category rows.
-2. Ask Luana to use `/ajuda`, `/resumo`, and 2-3 real Telegram messages; adjust only if readability or wording still blocks daily use.
-3. Prepare one small reviewed local JSONL batch for 2026-04, validate with `npm run historical:validate -- <file>`, then decide the reviewed write path before scaling to earlier months.
+1. Ask Luana to use `/ajuda`, `/resumo`, and 2-3 real Telegram messages; adjust only if readability or wording still blocks daily use.
+2. Prepare one small reviewed local JSONL batch for 2026-04 using the verified Mercado Pago config, validate with `npm run historical:validate -- <file>`, then decide the reviewed write path before scaling to earlier months.
 
 ## Phase History (archived)
 
