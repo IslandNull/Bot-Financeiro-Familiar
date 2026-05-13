@@ -59,6 +59,10 @@ var V55 = (function() {
     var update = parseUpdate_(e);
     if (!update.ok) return json_(update);
 
+    if (update.value && update.value.action === 'historical_import_reviewed') {
+      return json_(handleReviewedHistoricalImport_(update.value, config));
+    }
+
     var result = handleTelegramUpdate_(update.value, config);
     return json_(result);
   }
@@ -304,6 +308,141 @@ var V55 = (function() {
     if (!pilotCheck.ok) return pilotCheck;
 
     return recordPilotExpense_(update, message, parsed.event, config, referenceData);
+  }
+
+  function handleReviewedHistoricalImport_(payload, config) {
+    if (!payload || payload.reviewed !== true) {
+      return fail_('HISTORICAL_REVIEW_REQUIRED', 'reviewed', GENERIC_REQUEST_FAILURE);
+    }
+    if (payload.competencia !== '2026-04') {
+      return fail_('HISTORICAL_COMPETENCIA_BLOCKED', 'competencia', GENERIC_REQUEST_FAILURE);
+    }
+    var entries = Array.isArray(payload.entries) ? payload.entries : [];
+    if (!entries.length || entries.length > 5) {
+      return fail_('HISTORICAL_BATCH_SIZE_BLOCKED', 'entries', GENERIC_REQUEST_FAILURE);
+    }
+
+    var runtimeCheck = verifyFinancialRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+
+    var referenceData = readRuntimeReferenceData_(config);
+    if (!referenceData.ok) return referenceData;
+
+    var dryRun = payload.dry_run !== false;
+    var summary = {
+      validEvents: 0,
+      appliedEvents: 0,
+      duplicateEvents: 0,
+      byCompetencia: {},
+      byType: {},
+      result_refs: [],
+    };
+    var errors = [];
+    var validated = [];
+    for (var i = 0; i < entries.length; i += 1) {
+      var entry = entries[i] || {};
+      var lineNumber = entry.lineNumber || i + 1;
+      var normalized = normalizeParsedEvent_(entry.event, stringValue_((entry.event || {}).descricao), referenceData);
+      if (!normalized.ok) {
+        errors.push({ lineNumber: lineNumber, errors: normalized.errors });
+        continue;
+      }
+      if (normalized.event.competencia !== payload.competencia) {
+        errors.push({ lineNumber: lineNumber, errors: [{ code: 'HISTORICAL_EVENT_COMPETENCIA_MISMATCH', field: 'competencia', message: GENERIC_REQUEST_FAILURE }] });
+        continue;
+      }
+      var validation = validateReviewedHistoricalEvent_(normalized.event, referenceData);
+      if (!validation.ok) {
+        errors.push({ lineNumber: lineNumber, errors: validation.errors });
+        continue;
+      }
+      summary.validEvents += 1;
+      incrementCount_(summary.byCompetencia, normalized.event.competencia);
+      incrementCount_(summary.byType, normalized.event.tipo_evento);
+      validated.push({ entry: entry, lineNumber: lineNumber, event: normalized.event });
+    }
+
+    if (errors.length) {
+      return {
+        ok: false,
+        shouldApplyDomainMutation: false,
+        dry_run: dryRun,
+        summary: summary,
+        validationErrors: errors,
+      };
+    }
+    if (dryRun) {
+      return {
+        ok: true,
+        shouldApplyDomainMutation: false,
+        dry_run: true,
+        summary: summary,
+      };
+    }
+
+    for (var j = 0; j < validated.length; j += 1) {
+      var item = validated[j];
+      var recordResult = recordReviewedHistoricalEvent_(payload, item.entry, item.lineNumber, item.event, config, referenceData);
+      if (!recordResult.ok) {
+        errors.push({ lineNumber: item.lineNumber, errors: recordResult.errors });
+        continue;
+      }
+      if (recordResult.status === 'duplicate_completed') summary.duplicateEvents += 1;
+      else summary.appliedEvents += 1;
+      summary.result_refs.push(recordResult.result_ref || '');
+    }
+
+    if (errors.length) {
+      return {
+        ok: false,
+        shouldApplyDomainMutation: false,
+        dry_run: dryRun,
+        summary: summary,
+        validationErrors: errors,
+      };
+    }
+    return {
+      ok: true,
+      shouldApplyDomainMutation: !dryRun && summary.appliedEvents > 0,
+      dry_run: dryRun,
+      summary: summary,
+    };
+  }
+
+  function validateReviewedHistoricalEvent_(event, referenceData) {
+    if (event.tipo_evento === 'pagamento_fatura') return validatePilotInvoicePaymentEvent_(event, referenceData);
+    if (event.tipo_evento === 'compra_cartao') return validatePilotCardPurchaseEvent_(event, referenceData);
+    if (event.tipo_evento === 'transferencia_interna') return validatePilotInternalTransferEvent_(event, referenceData);
+    if (isGenericLaunchEventType_(event.tipo_evento)) return validatePilotGenericLaunchEvent_(event, referenceData);
+    return validatePilotExpenseEvent_(event, referenceData);
+  }
+
+  function recordReviewedHistoricalEvent_(payload, entry, lineNumber, event, config, referenceData) {
+    var request = historicalRequest_(payload, entry, lineNumber);
+    var update = { update_id: request.external_update_id };
+    var message = { message_id: request.external_message_id, chat: { id: '' }, __request: request };
+    if (event.tipo_evento === 'pagamento_fatura') return recordPilotInvoicePayment_(update, message, event, config, referenceData);
+    if (event.tipo_evento === 'compra_cartao') return recordPilotCardPurchase_(update, message, event, config, referenceData);
+    if (event.tipo_evento === 'transferencia_interna') return recordPilotInternalTransfer_(update, message, event, config, referenceData);
+    if (isGenericLaunchEventType_(event.tipo_evento)) return recordPilotGenericLaunch_(update, message, event, config, referenceData);
+    return recordPilotExpense_(update, message, event, config, referenceData);
+  }
+
+  function historicalRequest_(payload, entry, lineNumber) {
+    var batchId = stringValue_(payload.batch_id) || 'reviewed-2026-04';
+    var eventJson = JSON.stringify((entry && entry.event) || {});
+    return {
+      idempotency_key: 'historical:' + payload.competencia + ':' + batchId + ':' + lineNumber,
+      source: 'historical_jsonl',
+      external_update_id: batchId,
+      external_message_id: String(lineNumber),
+      chat_id: '',
+      payload_hash: stableId_('PAY', eventJson),
+    };
+  }
+
+  function incrementCount_(target, key) {
+    target[key] = (target[key] || 0) + 1;
   }
 
   function isHelpCommand_(text) {
@@ -1974,7 +2113,7 @@ var V55 = (function() {
     var resultRefForFailure = '';
     try {
       var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
-      var request = telegramRequest_(update, message);
+      var request = mutationRequest_(update, message);
       var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
       var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
       idempotencySheetForFailure = idempotencySheet;
@@ -2056,7 +2195,7 @@ var V55 = (function() {
     var resultRefForFailure = '';
     try {
       var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
-      var request = telegramRequest_(update, message);
+      var request = mutationRequest_(update, message);
       var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
       var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
       idempotencySheetForFailure = idempotencySheet;
@@ -2138,7 +2277,7 @@ var V55 = (function() {
     var resultRefForFailure = '';
     try {
       var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
-      var request = telegramRequest_(update, message);
+      var request = mutationRequest_(update, message);
       var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
       var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
       var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
@@ -2235,7 +2374,7 @@ var V55 = (function() {
     var resultRefForFailure = '';
     try {
       var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
-      var request = telegramRequest_(update, message);
+      var request = mutationRequest_(update, message);
       var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
       var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
       var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
@@ -2328,7 +2467,7 @@ var V55 = (function() {
     var resultRefForFailure = '';
     try {
       var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
-      var request = telegramRequest_(update, message);
+      var request = mutationRequest_(update, message);
       var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
       var transferSheet = spreadsheet.getSheetByName(SHEETS.TRANSFERENCIAS_INTERNAS);
       idempotencySheetForFailure = idempotencySheet;
@@ -2477,7 +2616,8 @@ var V55 = (function() {
     return text;
   }
 
-  function telegramRequest_(update, message) {
+  function mutationRequest_(update, message) {
+    if (message && message.__request) return message.__request;
     var updateId = update && update.update_id === undefined ? '' : String(update.update_id);
     var messageId = message && message.message_id === undefined ? '' : String(message.message_id);
     var chatId = message && message.chat && message.chat.id !== undefined ? String(message.chat.id) : '';

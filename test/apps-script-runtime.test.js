@@ -184,6 +184,23 @@ function postPilotMessage(context, text) {
     return JSON.parse(output.getContentText());
 }
 
+function postHistoricalImport(context, entries, options = {}) {
+    const output = context.doPost({
+        parameter: { secret: 'test_secret' },
+        postData: {
+            contents: JSON.stringify({
+                action: 'historical_import_reviewed',
+                reviewed: options.reviewed !== undefined ? options.reviewed : true,
+                competencia: options.competencia || '2026-04',
+                batch_id: options.batch_id || 'test-batch',
+                dry_run: options.dry_run !== undefined ? options.dry_run : true,
+                entries,
+            }),
+        },
+    });
+    return JSON.parse(output.getContentText());
+}
+
 function appendRuntimeConfigRows(sheets) {
     [
         {
@@ -765,6 +782,144 @@ test('Apps Script ensure_april_2026_config appends reviewed config rows once', (
     assert.strictEqual(second.appended_count, 0);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     assert.strictEqual(sheets.Faturas.rows.length, 1);
+});
+
+test('Apps Script reviewed historical import dry-run validates without writing private details', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    runRemoteAction(context, 'ensure_april_2026_config');
+
+    const result = postHistoricalImport(context, [{
+        lineNumber: 7,
+        event: {
+            tipo_evento: 'compra_cartao',
+            data: '2026-04-02',
+            competencia: '2026-04',
+            valor: '20.00',
+            descricao: 'historico privado',
+            id_categoria: 'OPEX_FARMACIA',
+            id_fonte: 'FONTE_MERCADO_PAGO_GU',
+            pessoa: 'Gustavo',
+            escopo: 'Familiar',
+            visibilidade: 'detalhada',
+            id_cartao: 'CARD_MERCADO_PAGO_GU',
+            afeta_dre: true,
+            afeta_patrimonio: false,
+            afeta_caixa_familiar: false,
+        },
+    }]);
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.dry_run, true);
+    assert.strictEqual(result.summary.validEvents, 1);
+    assert.strictEqual(result.summary.appliedEvents, 0);
+    assert.deepStrictEqual(result.summary.byType, { compra_cartao: 1 });
+    assert.strictEqual(JSON.stringify(result).includes('historico privado'), false);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Faturas.rows.length, 1);
+});
+
+test('Apps Script reviewed historical import applies narrowly and suppresses duplicates', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    runRemoteAction(context, 'ensure_april_2026_config');
+    const entries = [{
+        lineNumber: 7,
+        event: {
+            tipo_evento: 'compra_cartao',
+            data: '2026-04-02',
+            competencia: '2026-04',
+            valor: '20.00',
+            descricao: 'historico privado',
+            id_categoria: 'OPEX_FARMACIA',
+            id_fonte: 'FONTE_MERCADO_PAGO_GU',
+            pessoa: 'Gustavo',
+            escopo: 'Familiar',
+            visibilidade: 'detalhada',
+            id_cartao: 'CARD_MERCADO_PAGO_GU',
+            afeta_dre: true,
+            afeta_patrimonio: false,
+            afeta_caixa_familiar: false,
+        },
+    }];
+
+    const first = postHistoricalImport(context, entries, { dry_run: false });
+    const second = postHistoricalImport(context, entries, { dry_run: false });
+
+    assert.strictEqual(first.ok, true);
+    assert.strictEqual(first.summary.appliedEvents, 1);
+    assert.strictEqual(first.summary.duplicateEvents, 0);
+    assert.strictEqual(second.ok, true);
+    assert.strictEqual(second.summary.appliedEvents, 0);
+    assert.strictEqual(second.summary.duplicateEvents, 1);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
+    assert.strictEqual(sheets.Idempotency_Log.rows[1][idempotencyHeaders.indexOf('source')], 'historical_jsonl');
+    assert.strictEqual(sheets.Idempotency_Log.rows[1][idempotencyHeaders.indexOf('idempotency_key')], 'historical:2026-04:test-batch:7');
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(sheets.Faturas.rows.length, 2);
+});
+
+test('Apps Script reviewed historical import validates whole batch before writing', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    runRemoteAction(context, 'ensure_april_2026_config');
+
+    const result = postHistoricalImport(context, [
+        {
+            lineNumber: 1,
+            event: {
+                tipo_evento: 'compra_cartao',
+                data: '2026-04-02',
+                competencia: '2026-04',
+                valor: '20.00',
+                descricao: 'historico privado',
+                id_categoria: 'OPEX_FARMACIA',
+                id_fonte: 'FONTE_MERCADO_PAGO_GU',
+                pessoa: 'Gustavo',
+                escopo: 'Familiar',
+                visibilidade: 'detalhada',
+                id_cartao: 'CARD_MERCADO_PAGO_GU',
+                afeta_dre: true,
+                afeta_patrimonio: false,
+                afeta_caixa_familiar: false,
+            },
+        },
+        {
+            lineNumber: 2,
+            event: {
+                tipo_evento: 'compra_cartao',
+                data: '2026-04-02',
+                competencia: '2026-04',
+                valor: 'valor_invalido',
+                descricao: 'historico privado invalido',
+                id_categoria: 'OPEX_FARMACIA',
+                id_fonte: 'FONTE_MERCADO_PAGO_GU',
+                pessoa: 'Gustavo',
+                escopo: 'Familiar',
+                visibilidade: 'detalhada',
+                id_cartao: 'CARD_MERCADO_PAGO_GU',
+                afeta_dre: true,
+                afeta_patrimonio: false,
+                afeta_caixa_familiar: false,
+            },
+        },
+    ], { dry_run: false });
+
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.summary.validEvents, 1);
+    assert.strictEqual(result.validationErrors[0].lineNumber, 2);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Faturas.rows.length, 1);
+});
+
+test('Apps Script reviewed historical import rejects unreviewed or out-of-scope batches', () => {
+    const { context } = createAppsScriptHarness(null, { failOnFetch: true });
+    const unreviewed = postHistoricalImport(context, [], { reviewed: false });
+    const wrongCompetencia = postHistoricalImport(context, [{ lineNumber: 1, event: {} }], { competencia: '2026-03' });
+
+    assert.strictEqual(unreviewed.ok, false);
+    assert.strictEqual(unreviewed.errors[0].code, 'HISTORICAL_REVIEW_REQUIRED');
+    assert.strictEqual(wrongCompetencia.ok, false);
+    assert.strictEqual(wrongCompetencia.errors[0].code, 'HISTORICAL_COMPETENCIA_BLOCKED');
 });
 
 test('Apps Script closing_draft action writes schema-compatible family closing draft once', () => {

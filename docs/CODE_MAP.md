@@ -13,6 +13,7 @@ Codebase navigation guide for V55.
 | `test/*.js` | Node.js tests. Run with `npm test`. |
 | `scripts/clasp-run.js` | HTTP-based remote execution helper. Reads `.env` for `WEBAPP_URL`, `WEBHOOK_SECRET`, `DEPLOY_ID`. |
 | `scripts/historical-validate.js` | Local JSONL validator for historical event batches. It plans rows and prints redacted aggregates only. |
+| `scripts/historical-write.js` | Reviewed historical JSONL dry-run/apply client. Sends private events to Apps Script over the web app; prints aggregate counts only. |
 | `EXECUTION_PLAN.md` | Operational authority: current state, rules, next steps. |
 | `DOMAIN_RULES.md` | Financial domain rules (event types, scopes, visibility, mandatory rules). |
 | `SHEET_SCHEMA.md` | Canonical V55 sheet schema (13 sheets). |
@@ -47,7 +48,8 @@ Codebase navigation guide for V55.
 doPost(e)
   └─ verifyWebhookSecret_()
   └─ parseUpdate_()
-  └─ handleTelegramUpdate_()
+  ├─ action=historical_import_reviewed → handleReviewedHistoricalImport_()
+  └─ otherwise handleTelegramUpdate_()
        ├─ isAuthorized_()
        ├─ /help, /start → static text
        ├─ /resumo → readCurrentPilotFamilySummary_() (read-only)
