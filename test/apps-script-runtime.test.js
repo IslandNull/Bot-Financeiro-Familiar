@@ -743,6 +743,30 @@ test('Apps Script ensure_remaining_mutation_config appends missing category defa
     assert.strictEqual(second.appended_count, 0);
 });
 
+test('Apps Script ensure_april_2026_config appends reviewed config rows once', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const beforeCategories = sheets.Config_Categorias.rows.length;
+    const beforeSources = sheets.Config_Fontes.rows.length;
+    const beforeCards = sheets.Cartoes.rows.length;
+
+    const first = runRemoteAction(context, 'ensure_april_2026_config');
+    const second = runRemoteAction(context, 'ensure_april_2026_config');
+
+    assert.strictEqual(first.ok, true);
+    assert.strictEqual(first.shouldApplyDomainMutation, false);
+    assert.strictEqual(first.appended.categories.length, 11);
+    assert.deepStrictEqual(first.appended.sources, ['FONTE_MERCADO_PAGO_GU']);
+    assert.deepStrictEqual(first.appended.cards, ['CARD_MERCADO_PAGO_GU']);
+    assert.strictEqual(first.appended_count, 13);
+    assert.strictEqual(sheets.Config_Categorias.rows.length, beforeCategories + 11);
+    assert.strictEqual(sheets.Config_Fontes.rows.length, beforeSources + 1);
+    assert.strictEqual(sheets.Cartoes.rows.length, beforeCards + 1);
+    assert.strictEqual(second.ok, true);
+    assert.strictEqual(second.appended_count, 0);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Faturas.rows.length, 1);
+});
+
 test('Apps Script closing_draft action writes schema-compatible family closing draft once', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,

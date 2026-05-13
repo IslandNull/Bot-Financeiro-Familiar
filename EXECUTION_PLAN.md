@@ -7,7 +7,7 @@ Operational authority for Bot Financeiro Familiar V55.
 ### Verified
 
 - Clean V55 repo with local pure contracts, tests, and Apps Script runtime.
-- 16 source modules in `src/`, 18 test files in `test/`; latest `npm run check` passed on 2026-05-08.
+- 16 source modules in `src/`, 18 test files in `test/`; latest `npm run check` passed on 2026-05-13.
 - Apps Script `Code.js` (~2000 lines): handles `doPost`, `doGet`, webhook secret, authorization, `/help`, `/resumo`, closing actions, config-driven validation, and mutation paths.
 - Val Town proxy: acknowledges Telegram, forwards to Apps Script, replies via webhook response.
 - Real V55 spreadsheet: 13 sheets, headers match schema, pilot data exists.
@@ -22,11 +22,13 @@ Operational authority for Bot Financeiro Familiar V55.
 - Local historical JSONL validation tool added for Phase 9 prep: `npm run historical:validate -- <file>` validates planned rows without spreadsheet writes or private-detail output; `npm run check` passed on 2026-05-08.
 - UX passes 1-4 are deployed: `/help`, `/resumo`, confirmations, and validation failures use practical wording, Brazilian money format, cautious guidance, and lightweight emoji markers without changing calculations or schema.
 - Version @51 deployed; `npm run check`, remote `selftest`, `summary`, and `snapshot` succeeded after UX pass 4 on 2026-05-08.
+- Version @53 deployed with `ensure_april_2026_config`; local `npm run check` passed on 2026-05-13.
 
 ### Unverified
 
 - Full production readiness beyond pilot gates.
 - UX readiness with Luana using real Telegram messages after pass 4.
+- Production execution of `ensure_april_2026_config`: current web app endpoint returns Google Drive "Acesso negado"; `clasp run` is not configured as API executable.
 
 ## Execution Rules
 
@@ -47,7 +49,7 @@ Operational authority for Bot Financeiro Familiar V55.
 
 The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>` for remote function calls.
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env` (gitignored) and calls the endpoint.
-Available actions: `snapshot` (saves spreadsheet to `docs/SPREADSHEET_SNAPSHOT.md`), `summary` (read-only `/resumo` data), `closing_draft` (writes/reuses draft), `closing_close` (closes draft with `closed_at`), `ensure_remaining_mutation_config` (idempotent config maintenance), `selftest` (smoke `/help`).
+Available actions: `snapshot` (saves spreadsheet to `docs/SPREADSHEET_SNAPSHOT.md`), `summary` (read-only `/resumo` data), `closing_draft` (writes/reuses draft), `closing_close` (closes draft with `closed_at`), `ensure_remaining_mutation_config` and `ensure_april_2026_config` (idempotent config maintenance), `selftest` (smoke `/help`).
 After code push, update the web app version: `clasp deploy -i $DEPLOY_ID` where `DEPLOY_ID` is stored in `.env`. On Windows with PS execution policy, use `npm.cmd` / `clasp.cmd` instead of `npm` / `clasp`.
 
 ## Architecture
@@ -81,8 +83,9 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ### Phase 9: Full operational readiness
 
-1. Ask Luana to use `/ajuda`, `/resumo`, and 2-3 real Telegram messages; adjust only if readability or wording still blocks daily use.
-2. Prepare one small reviewed local JSONL batch for 2026-04, validate with `npm run historical:validate -- <file>`, then decide the reviewed write path before scaling to earlier months.
+1. Restore remote execution access for the web app or API executable, then run `ensure_april_2026_config` and snapshot to verify Mercado Pago config and reviewed April category rows.
+2. Ask Luana to use `/ajuda`, `/resumo`, and 2-3 real Telegram messages; adjust only if readability or wording still blocks daily use.
+3. Prepare one small reviewed local JSONL batch for 2026-04, validate with `npm run historical:validate -- <file>`, then decide the reviewed write path before scaling to earlier months.
 
 ## Phase History (archived)
 

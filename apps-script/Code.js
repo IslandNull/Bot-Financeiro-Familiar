@@ -96,6 +96,9 @@ var V55 = (function() {
     if (action === 'ensure_remaining_mutation_config') {
       return json_(ensureRemainingMutationConfigV55());
     }
+    if (action === 'ensure_april_2026_config') {
+      return json_(ensureApril2026ConfigV55());
+    }
     if (action === 'selftest') {
       return json_(runHelpSmokeSelfTest());
     }
@@ -944,6 +947,246 @@ var V55 = (function() {
     } catch (_err) {
       return fail_('CONFIG_ENSURE_FAILED', 'Config_Categorias', GENERIC_RECORD_FAILURE);
     }
+  }
+
+  function ensureApril2026ConfigV55() {
+    var config = readConfig_();
+    var runtimeCheck = verifyReportingRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var categorySheet = spreadsheet.getSheetByName(SHEETS.CONFIG_CATEGORIAS);
+      var sourceSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_FONTES);
+      var cardSheet = spreadsheet.getSheetByName(SHEETS.CARTOES);
+      verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
+      verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
+      verifySheetHeaders_(cardSheet, SHEETS.CARTOES);
+
+      var appendedCategories = appendMissingRowsById_(
+        categorySheet,
+        SHEETS.CONFIG_CATEGORIAS,
+        april2026CategoryDefaults_(),
+        'id_categoria'
+      );
+      var appendedSources = appendMissingRowsById_(
+        sourceSheet,
+        SHEETS.CONFIG_FONTES,
+        april2026SourceDefaults_(),
+        'id_fonte'
+      );
+      var appendedCards = appendMissingRowsById_(
+        cardSheet,
+        SHEETS.CARTOES,
+        april2026CardDefaults_(),
+        'id_cartao'
+      );
+
+      return {
+        ok: true,
+        appended: {
+          categories: appendedCategories,
+          sources: appendedSources,
+          cards: appendedCards,
+        },
+        appended_count: appendedCategories.length + appendedSources.length + appendedCards.length,
+        shouldApplyDomainMutation: false,
+      };
+    } catch (_err) {
+      return fail_('APRIL_2026_CONFIG_ENSURE_FAILED', 'config', GENERIC_RECORD_FAILURE);
+    }
+  }
+
+  function appendMissingRowsById_(sheet, sheetName, rows, idField) {
+    var existingRows = readRowsAsObjects_(sheet, sheetName);
+    var existingIds = existingRows.reduce(function(result, row) {
+      if (row[idField]) result[row[idField]] = true;
+      return result;
+    }, {});
+    var appended = [];
+    rows.forEach(function(row) {
+      if (existingIds[row[idField]]) return;
+      appendRow_(sheet, sheetName, row);
+      appended.push(row[idField]);
+      existingIds[row[idField]] = true;
+    });
+    return appended;
+  }
+
+  function april2026SourceDefaults_() {
+    return [
+      {
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        nome: 'Mercado Pago Gustavo',
+        tipo: 'cartao_credito',
+        titular: 'Gustavo',
+        moeda: 'BRL',
+        ativo: true,
+      },
+    ];
+  }
+
+  function april2026CardDefaults_() {
+    return [
+      {
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        nome: 'Mercado Pago Gustavo',
+        titular: 'Gustavo',
+        fechamento_dia: 30,
+        vencimento_dia: 7,
+        limite: '',
+        ativo: true,
+      },
+    ];
+  }
+
+  function april2026CategoryDefaults_() {
+    return [
+      {
+        id_categoria: 'OPEX_ALIMENTACAO_FORA',
+        nome: 'Alimentacao fora',
+        grupo: 'Alimentacao',
+        tipo_evento_padrao: 'compra_cartao',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Familiar',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: false,
+        visibilidade_padrao: 'detalhada',
+        ativo: true,
+      },
+      {
+        id_categoria: 'OPEX_CARREIRA_PROCESSO_SELETIVO',
+        nome: 'Carreira e processo seletivo',
+        grupo: 'Carreira',
+        tipo_evento_padrao: 'compra_cartao',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: false,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+      },
+      {
+        id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO',
+        nome: 'Transporte trabalho Gustavo',
+        grupo: 'Transporte',
+        tipo_evento_padrao: 'compra_cartao',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: false,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+      },
+      {
+        id_categoria: 'OPEX_TRANSPORTE_TRABALHO_LUANA',
+        nome: 'Transporte trabalho Luana',
+        grupo: 'Transporte',
+        tipo_evento_padrao: 'compra_cartao',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Luana',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: false,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+      },
+      {
+        id_categoria: 'OPEX_TRANSPORTE_PESSOAL',
+        nome: 'Transporte pessoal',
+        grupo: 'Transporte',
+        tipo_evento_padrao: 'compra_cartao',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: false,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+      },
+      {
+        id_categoria: 'OPEX_LAZER_PESSOAL',
+        nome: 'Lazer pessoal',
+        grupo: 'Lazer',
+        tipo_evento_padrao: 'compra_cartao',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: false,
+        visibilidade_padrao: 'privada',
+        ativo: true,
+      },
+      {
+        id_categoria: 'OPEX_CUIDADOS_PESSOAIS',
+        nome: 'Cuidados pessoais',
+        grupo: 'Pessoal',
+        tipo_evento_padrao: 'compra_cartao',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: false,
+        visibilidade_padrao: 'privada',
+        ativo: true,
+      },
+      {
+        id_categoria: 'OPEX_CUSTO_REEMBOLSAVEL_CLIENTE',
+        nome: 'Custo reembolsavel cliente',
+        grupo: 'Trabalho',
+        tipo_evento_padrao: 'compra_cartao',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: false,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+      },
+      {
+        id_categoria: 'REC_REEMBOLSO_CLIENTE',
+        nome: 'Reembolso cliente',
+        grupo: 'Receitas',
+        tipo_evento_padrao: 'receita',
+        classe_dre: 'receita_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: true,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+      },
+      {
+        id_categoria: 'REC_BONIFICACAO_MANUTENCAO_CLIENTE',
+        nome: 'Bonificacao manutencao cliente',
+        grupo: 'Receitas',
+        tipo_evento_padrao: 'receita',
+        classe_dre: 'receita_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: true,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+      },
+      {
+        id_categoria: 'REC_REEMBOLSO_PROCESSO_SELETIVO',
+        nome: 'Reembolso processo seletivo',
+        grupo: 'Receitas',
+        tipo_evento_padrao: 'receita',
+        classe_dre: 'receita_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: true,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+      },
+    ];
   }
 
   function remainingMutationCategoryDefaults_() {
@@ -2644,6 +2887,7 @@ var V55 = (function() {
     doPost: doPost,
     exportPilotFamilySummaryV55: exportPilotFamilySummaryV55,
     exportSnapshotV55: exportSnapshotV55,
+    ensureApril2026ConfigV55: ensureApril2026ConfigV55,
     runHelpSmokeSelfTest: runHelpSmokeSelfTest,
     runTelegramWebhookSetupApply: runTelegramWebhookSetupApply,
     runTelegramWebhookSetupDryRun: runTelegramWebhookSetupDryRun,
@@ -2683,6 +2927,12 @@ function exportSnapshotV55() {
   } else {
     Logger.log('ERROR: ' + JSON.stringify(result));
   }
+  return result;
+}
+
+function ensureApril2026ConfigV55() {
+  var result = V55.ensureApril2026ConfigV55();
+  Logger.log(JSON.stringify(result));
   return result;
 }
 

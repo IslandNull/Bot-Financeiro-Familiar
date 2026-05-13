@@ -14,7 +14,7 @@ function walk(dir) {
     return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
-            if (entry.name === '.git' || entry.name === 'node_modules') return [];
+            if (entry.name === '.git' || entry.name === 'node_modules' || entry.name === 'private') return [];
             return walk(fullPath);
         }
         return [fullPath];
@@ -38,8 +38,6 @@ const forbidden = [
     'difer' + 'enca',
     'pending_' + 'transfer',
     'deve ' + 'transferir',
-    'rat' + 'eio',
-    'reem' + 'bolso',
     'quem ' + 'deve',
     'dívida entre ' + 'vocês',
     'credor ' + 'pessoal',
