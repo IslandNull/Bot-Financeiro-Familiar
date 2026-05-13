@@ -25,6 +25,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Version @56 deployed with web app + Execution API manifest; `npm run selftest`, `npm run snapshot`, and `npm run check` passed on 2026-05-13.
 - `ensure_april_2026_config` ran in production and appended 13 config rows: 11 reviewed April categories, `FONTE_MERCADO_PAGO_GU`, and `CARD_MERCADO_PAGO_GU`; snapshot verifies `Config_Categorias` 36 rows, `Config_Fontes` 11 rows, and `Cartoes` 4 rows.
 - Telegram → Val Town → Apps Script path verified after endpoint repair: real `/ajuda` returned the expected help text on 2026-05-13.
+- Small reviewed 2026-04 Mercado Pago JSONL batch validated locally on 2026-05-13: `private/abril-2026/historico-2026-04-ready-reviewed.jsonl` produced 1 valid event and 2 planned rows (`Lancamentos`, `Faturas`) with no spreadsheet write.
 
 ### Unverified
 
@@ -84,7 +85,7 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ### Phase 9: Full operational readiness
 
-1. Prepare one small reviewed local JSONL batch for 2026-04 using the verified Mercado Pago config, validate with `npm run historical:validate -- <file>`, then decide the reviewed write path before scaling to earlier months.
+1. Decide and implement the reviewed write path for the validated small 2026-04 Mercado Pago batch before scaling to earlier months. There is currently no historical import/write command; keep the first production write narrow, idempotent, and reviewed.
 2. Ask Luana to use `/ajuda`, `/resumo`, and 2-3 real Telegram messages; adjust only if readability or wording still blocks daily use.
 
 ## Phase History (archived)
