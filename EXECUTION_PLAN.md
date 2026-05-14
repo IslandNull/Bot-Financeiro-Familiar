@@ -27,8 +27,8 @@ Operational authority for Bot Financeiro Familiar V55.
 - Telegram → Val Town → Apps Script path verified after endpoint repair: real `/ajuda` returned the expected help text on 2026-05-13.
 - Small reviewed 2026-04 Nubank JSONL batch validated locally on 2026-05-13: `private/abril-2026/historico-2026-04-ready-reviewed.jsonl` produced 1 valid event and 2 planned rows (`Lancamentos`, `Faturas`) with no spreadsheet write.
 - Reviewed historical write path deployed in version @58: dry-run/apply private JSONL, max 5 events, full-batch validation before writes, `historical_jsonl` idempotency.
-- Version @62 deployed: April income sources and `REC_RENDIMENTOS_FINANCEIROS` added for reviewed account income imports.
-- Historical April production import verified: 1 Nubank card event, 25 reviewed Mercado Pago card events, and 20 Mercado Pago yield revenue events applied; repeated `--apply` returned duplicates only; snapshot and 2026-04 summary updated.
+- Version @63 deployed: reusable PIX revenue/reimbursement categories added for professional income, personal reimbursements, and professional-development reimbursements.
+- Historical April production import verified: 1 Nubank card event, 25 reviewed Mercado Pago card events, 20 Mercado Pago yield events, and 7 reviewed PIX revenue/reimbursement events applied; repeated `--apply` returned duplicates only; snapshot and 2026-04 summary updated.
 
 ### Unverified
 
@@ -89,7 +89,7 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ### Phase 9: Full operational readiness
 
-1. Continue April historical import from remaining reviewed rows only; next resolve April PIX income/transfer decisions, then transfers and obligations/faturas.
+1. Continue April historical import from remaining reviewed rows only; next review transfers, obligations/faturas, and excluded/paired April rows.
 2. Ask Luana to use `/ajuda`, `/resumo`, and 2-3 real Telegram messages; adjust only if readability or wording still blocks daily use.
 
 ## Phase History (archived)

@@ -784,7 +784,7 @@ test('Apps Script ensure_april_2026_config appends reviewed config rows once', (
 
     assert.strictEqual(first.ok, true);
     assert.strictEqual(first.shouldApplyDomainMutation, false);
-    assert.strictEqual(first.appended.categories.length, 19);
+    assert.strictEqual(first.appended.categories.length, 22);
     assert.ok(first.appended.categories.includes('OPEX_DESENVOLVIMENTO_PROFISSIONAL'));
     assert.ok(first.appended.categories.includes('OPEX_ALIMENTACAO_PESSOAL_GUSTAVO'));
     assert.ok(first.appended.categories.includes('OPEX_LAZER_FAMILIAR'));
@@ -794,6 +794,9 @@ test('Apps Script ensure_april_2026_config appends reviewed config rows once', (
     assert.ok(first.appended.categories.includes('OPEX_TELEFONIA_GUSTAVO'));
     assert.ok(first.appended.categories.includes('OPEX_PET'));
     assert.ok(first.appended.categories.includes('REC_RENDIMENTOS_FINANCEIROS'));
+    assert.ok(first.appended.categories.includes('REC_REEMBOLSO_DESENVOLVIMENTO_PROFISSIONAL'));
+    assert.ok(first.appended.categories.includes('REC_REEMBOLSO_PESSOAL'));
+    assert.ok(first.appended.categories.includes('REC_RECEITA_PROFISSIONAL'));
     assert.ok(!first.appended.categories.includes('OPEX_CARREIRA_PROCESSO_SELETIVO'));
     assert.deepStrictEqual(first.deactivated.categories, ['OPEX_CARREIRA_PROCESSO_SELETIVO']);
     assert.deepStrictEqual(first.appended.sources, [
@@ -802,8 +805,8 @@ test('Apps Script ensure_april_2026_config appends reviewed config rows once', (
         'FONTE_CONTA_NUBANK_GU',
     ]);
     assert.deepStrictEqual(first.appended.cards, ['CARD_MERCADO_PAGO_GU']);
-    assert.strictEqual(first.appended_count, 23);
-    assert.strictEqual(sheets.Config_Categorias.rows.length, beforeCategories + 19);
+    assert.strictEqual(first.appended_count, 26);
+    assert.strictEqual(sheets.Config_Categorias.rows.length, beforeCategories + 22);
     assert.strictEqual(sheets.Config_Fontes.rows.length, beforeSources + 3);
     assert.strictEqual(sheets.Cartoes.rows.length, beforeCards + 1);
     assert.strictEqual(second.ok, true);
