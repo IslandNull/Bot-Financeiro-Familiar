@@ -1193,6 +1193,22 @@ var V55 = (function() {
         moeda: 'BRL',
         ativo: true,
       },
+      {
+        id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU',
+        nome: 'Conta Mercado Pago Gustavo',
+        tipo: 'conta_corrente',
+        titular: 'Gustavo',
+        moeda: 'BRL',
+        ativo: true,
+      },
+      {
+        id_fonte: 'FONTE_CONTA_NUBANK_GU',
+        nome: 'Conta Nubank Gustavo',
+        tipo: 'conta_corrente',
+        titular: 'Gustavo',
+        moeda: 'BRL',
+        ativo: true,
+      },
     ];
   }
 
@@ -1437,6 +1453,19 @@ var V55 = (function() {
       {
         id_categoria: 'REC_REEMBOLSO_PROCESSO_SELETIVO',
         nome: 'Reembolso processo seletivo',
+        grupo: 'Receitas',
+        tipo_evento_padrao: 'receita',
+        classe_dre: 'receita_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: true,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+      },
+      {
+        id_categoria: 'REC_RENDIMENTOS_FINANCEIROS',
+        nome: 'Rendimentos financeiros',
         grupo: 'Receitas',
         tipo_evento_padrao: 'receita',
         classe_dre: 'receita_operacional',
