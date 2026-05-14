@@ -25,9 +25,11 @@ Operational authority for Bot Financeiro Familiar V55.
 - Version @56 deployed with web app + Execution API manifest; `npm run selftest`, `npm run snapshot`, and `npm run check` passed on 2026-05-13.
 - `ensure_april_2026_config` ran in production and appended 13 config rows: 11 reviewed April categories, `FONTE_MERCADO_PAGO_GU`, and `CARD_MERCADO_PAGO_GU`; snapshot verifies `Config_Categorias` 36 rows, `Config_Fontes` 11 rows, and `Cartoes` 4 rows.
 - Telegram → Val Town → Apps Script path verified after endpoint repair: real `/ajuda` returned the expected help text on 2026-05-13.
-- Small reviewed 2026-04 Mercado Pago JSONL batch validated locally on 2026-05-13: `private/abril-2026/historico-2026-04-ready-reviewed.jsonl` produced 1 valid event and 2 planned rows (`Lancamentos`, `Faturas`) with no spreadsheet write.
+- Small reviewed 2026-04 Nubank JSONL batch validated locally on 2026-05-13: `private/abril-2026/historico-2026-04-ready-reviewed.jsonl` produced 1 valid event and 2 planned rows (`Lancamentos`, `Faturas`) with no spreadsheet write.
 - Reviewed historical write path deployed in version @58: `npm run historical:write -- <file>` dry-runs private JSONL through Apps Script; `--apply` writes reviewed 2026-04 batches only, max 5 events, validates the full batch before writing, and uses `historical_jsonl` idempotency.
-- First small 2026-04 Mercado Pago historical batch applied in production: 1 `compra_cartao` event written, repeat `--apply` returned 1 duplicate and 0 applied; snapshot and 2026-04 summary updated.
+- First small 2026-04 historical batch applied in production: 1 Nubank `compra_cartao` event written, repeat `--apply` returned 1 duplicate and 0 applied; snapshot and 2026-04 summary updated.
+- Local seed now includes reviewed April config already present in production (`FONTE_MERCADO_PAGO_GU`, `CARD_MERCADO_PAGO_GU`, and reviewed April categories), allowing local validation of Mercado Pago historical candidates.
+- Next Mercado Pago candidate files prepared in private storage and dry-run remotely: 12 proposed `compra_cartao` events across 3 batches, 24 planned rows, no production write.
 
 ### Unverified
 
@@ -88,7 +90,7 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ### Phase 9: Full operational readiness
 
-1. Prepare the next reviewed 2026-04 JSONL batch from high-confidence April rows only; validate, dry-run, and apply through `npm run historical:write` before scaling volume.
+1. Owner must approve or correct the 12 dry-run Mercado Pago candidate classifications before `--apply`; do not import rows that remain proposal-only.
 2. Ask Luana to use `/ajuda`, `/resumo`, and 2-3 real Telegram messages; adjust only if readability or wording still blocks daily use.
 
 ## Phase History (archived)

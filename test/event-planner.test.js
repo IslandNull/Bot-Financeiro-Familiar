@@ -80,6 +80,24 @@ test('card purchase plans Lancamentos and expected Faturas rows', () => {
     assertPlannedRowsMatchSchema(result);
 });
 
+test('card purchase plans reviewed Mercado Pago April config rows', () => {
+    const result = planParsedEvent(baseEvent({
+        tipo_evento: 'compra_cartao',
+        valor: '84.90',
+        descricao: 'historico abril revisado',
+        id_categoria: 'OPEX_ALIMENTACAO_FORA',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        afeta_caixa_familiar: false,
+    }));
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.strictEqual(result.mutationGroup.kind, 'compra_cartao');
+    assert.strictEqual(result.mutationGroup.rows[0].row.id_fatura, 'FAT_CARD_MERCADO_PAGO_GU_2026_04');
+    assert.strictEqual(result.mutationGroup.rows[1].row.valor_previsto, 84.9);
+    assertPlannedRowsMatchSchema(result);
+});
+
 test('invoice payment plans cash outflow without new DRE expense', () => {
     const result = planParsedEvent(baseEvent({
         tipo_evento: 'pagamento_fatura',
