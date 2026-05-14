@@ -784,14 +784,21 @@ test('Apps Script ensure_april_2026_config appends reviewed config rows once', (
 
     assert.strictEqual(first.ok, true);
     assert.strictEqual(first.shouldApplyDomainMutation, false);
-    assert.strictEqual(first.appended.categories.length, 11);
+    assert.strictEqual(first.appended.categories.length, 18);
     assert.ok(first.appended.categories.includes('OPEX_DESENVOLVIMENTO_PROFISSIONAL'));
+    assert.ok(first.appended.categories.includes('OPEX_ALIMENTACAO_PESSOAL_GUSTAVO'));
+    assert.ok(first.appended.categories.includes('OPEX_LAZER_FAMILIAR'));
+    assert.ok(first.appended.categories.includes('OPEX_VESTUARIO_ACESSORIOS'));
+    assert.ok(first.appended.categories.includes('OPEX_VESTUARIO_LUANA'));
+    assert.ok(first.appended.categories.includes('OPEX_TELEFONIA_INTERNET'));
+    assert.ok(first.appended.categories.includes('OPEX_TELEFONIA_GUSTAVO'));
+    assert.ok(first.appended.categories.includes('OPEX_PET'));
     assert.ok(!first.appended.categories.includes('OPEX_CARREIRA_PROCESSO_SELETIVO'));
     assert.deepStrictEqual(first.deactivated.categories, ['OPEX_CARREIRA_PROCESSO_SELETIVO']);
     assert.deepStrictEqual(first.appended.sources, ['FONTE_MERCADO_PAGO_GU']);
     assert.deepStrictEqual(first.appended.cards, ['CARD_MERCADO_PAGO_GU']);
-    assert.strictEqual(first.appended_count, 13);
-    assert.strictEqual(sheets.Config_Categorias.rows.length, beforeCategories + 11);
+    assert.strictEqual(first.appended_count, 20);
+    assert.strictEqual(sheets.Config_Categorias.rows.length, beforeCategories + 18);
     assert.strictEqual(sheets.Config_Fontes.rows.length, beforeSources + 1);
     assert.strictEqual(sheets.Cartoes.rows.length, beforeCards + 1);
     assert.strictEqual(second.ok, true);
