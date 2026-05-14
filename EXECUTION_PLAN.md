@@ -28,7 +28,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Small reviewed 2026-04 Nubank JSONL batch validated locally on 2026-05-13: `private/abril-2026/historico-2026-04-ready-reviewed.jsonl` produced 1 valid event and 2 planned rows (`Lancamentos`, `Faturas`) with no spreadsheet write.
 - Reviewed historical write path deployed in version @58: dry-run/apply private JSONL, max 5 events, full-batch validation before writes, `historical_jsonl` idempotency.
 - Version @63 deployed: reusable PIX revenue/reimbursement categories added for professional income, personal reimbursements, and professional-development reimbursements.
-- Historical April production import verified: 1 Nubank card event, 26 reviewed Mercado Pago card events, 20 Mercado Pago yield events, and 8 reviewed PIX/revenue events applied; latest transfer/obligation review applied salary + Barbeados only. Remaining blocked items: house financing obligation category id, MP full invoice payment model, and cash parking category.
+- Historical April production import verified: 1 Nubank card event, 26 reviewed Mercado Pago card events, 20 Mercado Pago yield events, 8 reviewed PIX/revenue events, and reviewed cash parking applied. Version @64 deployed: required category IDs are ensured by ID, cash parking category added, and invoice payment can aggregate duplicate fatura rows. Remaining blocked items: active house-financing debt IDs and MP invoice amount mismatch at write time.
 
 ### Unverified
 
@@ -89,7 +89,7 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ### Phase 9: Full operational readiness
 
-1. Continue April historical import from reviewed rows only; next unblock house financing obligation category, MP full invoice payment model, and cash parking category.
+1. Continue April historical import from reviewed rows only; next identify/create active house-financing debt IDs and reconcile MP invoice open amount before payment import.
 2. Ask Luana to use `/ajuda`, `/resumo`, and 2-3 real Telegram messages; adjust only if readability or wording still blocks daily use.
 
 ## Phase History (archived)

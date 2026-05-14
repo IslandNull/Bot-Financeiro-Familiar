@@ -243,6 +243,19 @@ function appendRuntimeConfigRows(sheets) {
             ativo: true,
         },
         {
+            id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_DINHEIRO',
+            nome: 'Transporte trabalho Gustavo dinheiro',
+            grupo: 'Transporte',
+            tipo_evento_padrao: 'despesa',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Gustavo',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'resumo',
+            ativo: true,
+        },
+        {
             id_categoria: 'MOV_CAIXA_FAMILIAR',
             nome: 'Movimento caixa familiar',
             grupo: 'Caixa',
@@ -269,8 +282,34 @@ function appendRuntimeConfigRows(sheets) {
             ativo: true,
         },
         {
+            id_categoria: 'REC_RECEITA_FAMILIAR',
+            nome: 'Receita familiar',
+            grupo: 'Receitas',
+            tipo_evento_padrao: 'receita',
+            classe_dre: 'receita_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'resumo',
+            ativo: true,
+        },
+        {
             id_categoria: 'INV_APORTE',
             nome: 'Aporte investimento',
+            grupo: 'Investimentos',
+            tipo_evento_padrao: 'aporte',
+            classe_dre: 'nao_dre',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: false,
+            afeta_patrimonio_padrao: true,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'resumo',
+            ativo: true,
+        },
+        {
+            id_categoria: 'INV_APORTE_FAMILIAR',
+            nome: 'Aporte familiar',
             grupo: 'Investimentos',
             tipo_evento_padrao: 'aporte',
             classe_dre: 'nao_dre',
@@ -758,6 +797,33 @@ test('Apps Script ensure_remaining_mutation_config appends missing category defa
     assert.strictEqual(sheets.Config_Categorias.rows.length, beforeCount + 1);
     assert.strictEqual(second.ok, true);
     assert.strictEqual(second.appended_count, 0);
+});
+
+test('Apps Script ensure_remaining_mutation_config appends required ids even when event type already exists', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const idIndex = configCategoriasHeaders.indexOf('id_categoria');
+    const debtRowIndex = sheets.Config_Categorias.rows.findIndex((row) => row[idIndex] === 'OBR_PAGAMENTO_DIVIDA');
+    assert.ok(debtRowIndex > 0);
+    sheets.Config_Categorias.rows.splice(debtRowIndex, 1);
+    sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => ({
+        id_categoria: 'OBR_OUTRA_CATEGORIA',
+        nome: 'Outra obrigacao',
+        grupo: 'Obrigacoes',
+        tipo_evento_padrao: 'divida_pagamento',
+        classe_dre: 'nao_dre',
+        escopo_padrao: 'Familiar',
+        afeta_dre_padrao: false,
+        afeta_patrimonio_padrao: true,
+        afeta_caixa_familiar_padrao: true,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+    })[header] ?? ''));
+
+    const result = runRemoteAction(context, 'ensure_remaining_mutation_config');
+
+    assert.strictEqual(result.ok, true);
+    assert.ok(result.appended.some((row) => row.id_categoria === 'OBR_PAGAMENTO_DIVIDA'));
+    assert.ok(sheets.Config_Categorias.rows.some((row) => row[idIndex] === 'OBR_PAGAMENTO_DIVIDA'));
 });
 
 test('Apps Script ensure_april_2026_config appends reviewed config rows once', () => {
@@ -1475,6 +1541,45 @@ test('Apps Script pilot invoice payment writes cash launch and marks invoice pai
     assert.strictEqual(invoice.status, 'paga');
 });
 
+test('Apps Script pilot invoice payment can pay a historical invoice split into duplicate rows', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'pagamento_fatura',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '120.00',
+        descricao: 'pagamento fatura historica',
+        id_categoria: '',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    appendFakeInvoice(sheets, { valor_previsto: 70 });
+    appendFakeInvoice(sheets, { valor_previsto: 50 });
+
+    const result = postPilotMessage(context, 'paguei fatura historica 120');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const firstInvoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    const secondInvoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[2][index]]));
+    assert.strictEqual(firstInvoice.valor_pago, 70);
+    assert.strictEqual(secondInvoice.valor_pago, 50);
+    assert.strictEqual(firstInvoice.status, 'paga');
+    assert.strictEqual(secondInvoice.status, 'paga');
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'pagamento_fatura');
+    assert.strictEqual(launch.valor, 120);
+});
+
 test('Apps Script pilot invoice payment requires reviewed invoice and amount', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'pagamento_fatura',
@@ -1860,7 +1965,7 @@ test('Apps Script runtime writes pilot expense with idempotency before launch ro
     assert.ok(code.includes("appendRow_(launchSheet, SHEETS.LANCAMENTOS"));
     assert.ok(code.includes("appendRow_(invoiceSheet, SHEETS.FATURAS"));
     assert.ok(code.includes("appendRow_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS"));
-    assert.ok(code.includes('updateInvoicePayment_'));
+    assert.ok(code.includes('updateInvoicePayments_'));
     assert.ok(code.includes('duplicate_completed'));
     assert.ok(code.includes('DUPLICATE_PROCESSING'));
     assert.ok(code.includes("'failed'"));

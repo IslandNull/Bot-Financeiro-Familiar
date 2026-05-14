@@ -1061,25 +1061,16 @@ var V55 = (function() {
       var categorySheet = spreadsheet.getSheetByName(SHEETS.CONFIG_CATEGORIAS);
       verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
       var rows = readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
-      var activeTypes = rows.reduce(function(result, row) {
-        if (row.ativo === true && row.tipo_evento_padrao) result[row.tipo_evento_padrao] = true;
-        return result;
-      }, {});
       var existingIds = rows.reduce(function(result, row) {
         if (row.id_categoria) result[row.id_categoria] = true;
         return result;
       }, {});
       var appended = [];
       remainingMutationCategoryDefaults_().forEach(function(row) {
-        if (activeTypes[row.tipo_evento_padrao]) return;
+        if (existingIds[row.id_categoria]) return;
         var candidate = row;
-        if (existingIds[candidate.id_categoria]) {
-          candidate = cloneObject_(row);
-          candidate.id_categoria = row.id_categoria + '_AUTO';
-        }
         appendRow_(categorySheet, SHEETS.CONFIG_CATEGORIAS, candidate);
         appended.push({ id_categoria: candidate.id_categoria, tipo_evento_padrao: candidate.tipo_evento_padrao });
-        activeTypes[candidate.tipo_evento_padrao] = true;
         existingIds[candidate.id_categoria] = true;
       });
       return { ok: true, appended: appended, appended_count: appended.length, shouldApplyDomainMutation: false };
@@ -1555,6 +1546,19 @@ var V55 = (function() {
         escopo_padrao: 'Familiar',
         afeta_dre_padrao: false,
         afeta_patrimonio_padrao: true,
+        afeta_caixa_familiar_padrao: true,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+      },
+      {
+        id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_DINHEIRO',
+        nome: 'Transporte trabalho Gustavo dinheiro',
+        grupo: 'Transporte',
+        tipo_evento_padrao: 'despesa',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
         afeta_caixa_familiar_padrao: true,
         visibilidade_padrao: 'resumo',
         ativo: true,
@@ -2581,10 +2585,10 @@ var V55 = (function() {
         return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
       }
 
-      var invoice = findInvoiceRow_(invoiceSheet, event.id_fatura);
-      if (!invoice) return fail_('PILOT_INVOICE_NOT_FOUND', 'id_fatura', GENERIC_RECORD_FAILURE);
-      if (invoice.status === 'paga') return fail_('PILOT_INVOICE_ALREADY_PAID', 'id_fatura', GENERIC_RECORD_FAILURE);
-      var expectedAmount = invoice.valor_fechado > 0 ? invoice.valor_fechado : invoice.valor_previsto;
+      var invoice = findInvoicePaymentTarget_(invoiceSheet, event.id_fatura);
+      if (!invoice.found) return fail_('PILOT_INVOICE_NOT_FOUND', 'id_fatura', GENERIC_RECORD_FAILURE);
+      if (!invoice.payableRows.length) return fail_('PILOT_INVOICE_ALREADY_PAID', 'id_fatura', GENERIC_RECORD_FAILURE);
+      var expectedAmount = invoice.expectedAmount;
       if (Math.abs(expectedAmount - event.valor) > 0.009) {
         return fail_('PILOT_INVOICE_AMOUNT_MISMATCH', 'valor', GENERIC_RECORD_FAILURE);
       }
@@ -2636,7 +2640,7 @@ var V55 = (function() {
         descricao: event.descricao,
         created_at: now,
       });
-      updateInvoicePayment_(invoiceSheet, invoice.rowNumber, event.valor, 'paga');
+      updateInvoicePayments_(invoiceSheet, invoice.payableRows, 'paga');
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
       return { ok: true, responseText: recordedEventText_(event, 'Anotado pagamento da fatura.', referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
     } catch (_err) {
@@ -2912,9 +2916,9 @@ var V55 = (function() {
     return null;
   }
 
-  function findInvoiceRow_(sheet, invoiceId) {
+  function findInvoicePaymentTarget_(sheet, invoiceId) {
     var lastRow = sheet.getLastRow();
-    if (lastRow < 2) return null;
+    if (lastRow < 2) return { found: false, payableRows: [], expectedAmount: 0 };
     var headers = HEADERS[SHEETS.FATURAS];
     var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
     var idIndex = headers.indexOf('id_fatura');
@@ -2922,18 +2926,27 @@ var V55 = (function() {
     var fechadoIndex = headers.indexOf('valor_fechado');
     var pagoIndex = headers.indexOf('valor_pago');
     var statusIndex = headers.indexOf('status');
+    var found = false;
+    var payableRows = [];
+    var expectedAmount = 0;
     for (var i = 0; i < rows.length; i += 1) {
       if (String(rows[i][idIndex]) === invoiceId) {
-        return {
+        found = true;
+        var status = String(rows[i][statusIndex] || '');
+        if (['prevista', 'fechada', 'parcialmente_paga'].indexOf(status) === -1) continue;
+        var valorFechado = numberFromSheetValue_(rows[i][fechadoIndex]);
+        var valorPrevisto = numberFromSheetValue_(rows[i][previstoIndex]);
+        var valorEsperado = valorFechado > 0 ? valorFechado : valorPrevisto;
+        expectedAmount = roundMoney_(expectedAmount + valorEsperado);
+        payableRows.push({
           rowNumber: i + 2,
-          valor_previsto: numberFromSheetValue_(rows[i][previstoIndex]),
-          valor_fechado: numberFromSheetValue_(rows[i][fechadoIndex]),
+          amount: valorEsperado,
           valor_pago: numberFromSheetValue_(rows[i][pagoIndex]),
-          status: String(rows[i][statusIndex] || ''),
-        };
+          status: status,
+        });
       }
     }
-    return null;
+    return { found: found, payableRows: payableRows, expectedAmount: expectedAmount };
   }
 
   function findFamilyClosingRow_(sheet, competencia) {
@@ -2959,10 +2972,12 @@ var V55 = (function() {
     return null;
   }
 
-  function updateInvoicePayment_(sheet, rowNumber, amount, status) {
+  function updateInvoicePayments_(sheet, rows, status) {
     var headers = HEADERS[SHEETS.FATURAS];
-    sheet.getRange(rowNumber, headers.indexOf('valor_pago') + 1).setValue(amount);
-    sheet.getRange(rowNumber, headers.indexOf('status') + 1).setValue(status);
+    rows.forEach(function(row) {
+      sheet.getRange(row.rowNumber, headers.indexOf('valor_pago') + 1).setValue(row.amount);
+      sheet.getRange(row.rowNumber, headers.indexOf('status') + 1).setValue(status);
+    });
   }
 
   function numberFromSheetValue_(value) {
