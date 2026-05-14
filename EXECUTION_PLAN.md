@@ -28,7 +28,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Small reviewed 2026-04 Nubank JSONL batch validated locally on 2026-05-13: `private/abril-2026/historico-2026-04-ready-reviewed.jsonl` produced 1 valid event and 2 planned rows (`Lancamentos`, `Faturas`) with no spreadsheet write.
 - Reviewed historical write path deployed in version @58: dry-run/apply private JSONL, max 5 events, full-batch validation before writes, `historical_jsonl` idempotency.
 - Version @59 deployed: category `OPEX_DESENVOLVIMENTO_PROFISSIONAL` added for reusable professional development/courses; legacy `OPEX_CARREIRA_PROCESSO_SELETIVO` deactivated in production config.
-- Historical April production import verified: 1 Nubank card event plus 12 reviewed Mercado Pago card events applied; repeated `--apply` returned duplicates only; snapshot and 2026-04 summary updated.
+- Historical April production import verified: 1 Nubank card event plus 19 reviewed Mercado Pago card events applied; repeated `--apply` returned duplicates only; snapshot and 2026-04 summary updated.
 
 ### Unverified
 
@@ -89,7 +89,7 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ### Phase 9: Full operational readiness
 
-1. Continue April historical import from remaining reviewed rows only; keep using small JSONL batches with validate, dry-run, apply, idempotency replay, snapshot, and summary.
+1. Continue April historical import from remaining reviewed rows only; next Mercado Pago rows need owner category decisions before writing.
 2. Ask Luana to use `/ajuda`, `/resumo`, and 2-3 real Telegram messages; adjust only if readability or wording still blocks daily use.
 
 ## Phase History (archived)
