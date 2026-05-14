@@ -2,7 +2,7 @@
 
 Operational authority for Bot Financeiro Familiar V55.
 
-## Current State (2026-05-13)
+## Current State (2026-05-14)
 
 ### Verified
 
@@ -26,10 +26,9 @@ Operational authority for Bot Financeiro Familiar V55.
 - `ensure_april_2026_config` ran in production and appended 13 config rows: 11 reviewed April categories, `FONTE_MERCADO_PAGO_GU`, and `CARD_MERCADO_PAGO_GU`; snapshot verifies `Config_Categorias` 36 rows, `Config_Fontes` 11 rows, and `Cartoes` 4 rows.
 - Telegram → Val Town → Apps Script path verified after endpoint repair: real `/ajuda` returned the expected help text on 2026-05-13.
 - Small reviewed 2026-04 Nubank JSONL batch validated locally on 2026-05-13: `private/abril-2026/historico-2026-04-ready-reviewed.jsonl` produced 1 valid event and 2 planned rows (`Lancamentos`, `Faturas`) with no spreadsheet write.
-- Reviewed historical write path deployed in version @58: `npm run historical:write -- <file>` dry-runs private JSONL through Apps Script; `--apply` writes reviewed 2026-04 batches only, max 5 events, validates the full batch before writing, and uses `historical_jsonl` idempotency.
-- First small 2026-04 historical batch applied in production: 1 Nubank `compra_cartao` event written, repeat `--apply` returned 1 duplicate and 0 applied; snapshot and 2026-04 summary updated.
-- Local seed now includes reviewed April config already present in production (`FONTE_MERCADO_PAGO_GU`, `CARD_MERCADO_PAGO_GU`, and reviewed April categories), allowing local validation of Mercado Pago historical candidates.
-- Next Mercado Pago candidate files prepared in private storage and dry-run remotely: 12 proposed `compra_cartao` events across 3 batches, 24 planned rows, no production write.
+- Reviewed historical write path deployed in version @58: dry-run/apply private JSONL, max 5 events, full-batch validation before writes, `historical_jsonl` idempotency.
+- Version @59 deployed: category `OPEX_DESENVOLVIMENTO_PROFISSIONAL` added for reusable professional development/courses; legacy `OPEX_CARREIRA_PROCESSO_SELETIVO` deactivated in production config.
+- Historical April production import verified: 1 Nubank card event plus 12 reviewed Mercado Pago card events applied; repeated `--apply` returned duplicates only; snapshot and 2026-04 summary updated.
 
 ### Unverified
 
@@ -90,7 +89,7 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ### Phase 9: Full operational readiness
 
-1. Owner must approve or correct the 12 dry-run Mercado Pago candidate classifications before `--apply`; do not import rows that remain proposal-only.
+1. Continue April historical import from remaining reviewed rows only; keep using small JSONL batches with validate, dry-run, apply, idempotency replay, snapshot, and summary.
 2. Ask Luana to use `/ajuda`, `/resumo`, and 2-3 real Telegram messages; adjust only if readability or wording still blocks daily use.
 
 ## Phase History (archived)

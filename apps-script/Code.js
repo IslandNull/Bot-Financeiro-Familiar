@@ -1120,6 +1120,12 @@ var V55 = (function() {
         april2026CardDefaults_(),
         'id_cartao'
       );
+      var deactivatedCategories = deactivateConfigRowsById_(
+        categorySheet,
+        SHEETS.CONFIG_CATEGORIAS,
+        ['OPEX_CARREIRA_PROCESSO_SELETIVO'],
+        'id_categoria'
+      );
 
       return {
         ok: true,
@@ -1127,6 +1133,9 @@ var V55 = (function() {
           categories: appendedCategories,
           sources: appendedSources,
           cards: appendedCards,
+        },
+        deactivated: {
+          categories: deactivatedCategories,
         },
         appended_count: appendedCategories.length + appendedSources.length + appendedCards.length,
         shouldApplyDomainMutation: false,
@@ -1150,6 +1159,28 @@ var V55 = (function() {
       existingIds[row[idField]] = true;
     });
     return appended;
+  }
+
+  function deactivateConfigRowsById_(sheet, sheetName, ids, idField) {
+    var headers = HEADERS[sheetName];
+    var idIndex = headers.indexOf(idField);
+    var activeIndex = headers.indexOf('ativo');
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2 || idIndex < 0 || activeIndex < 0) return [];
+    var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    var wanted = ids.reduce(function(result, id) {
+      result[id] = true;
+      return result;
+    }, {});
+    var deactivated = [];
+    for (var i = 0; i < rows.length; i += 1) {
+      var id = String(rows[i][idIndex] || '');
+      if (wanted[id] && normalizeSheetCell_(rows[i][activeIndex]) === true) {
+        sheet.getRange(i + 2, activeIndex + 1).setValue(false);
+        deactivated.push(id);
+      }
+    }
+    return deactivated;
   }
 
   function april2026SourceDefaults_() {
@@ -1196,12 +1227,12 @@ var V55 = (function() {
         ativo: true,
       },
       {
-        id_categoria: 'OPEX_CARREIRA_PROCESSO_SELETIVO',
-        nome: 'Carreira e processo seletivo',
+        id_categoria: 'OPEX_DESENVOLVIMENTO_PROFISSIONAL',
+        nome: 'Desenvolvimento profissional',
         grupo: 'Carreira',
         tipo_evento_padrao: 'compra_cartao',
         classe_dre: 'despesa_operacional',
-        escopo_padrao: 'Gustavo',
+        escopo_padrao: 'Familiar',
         afeta_dre_padrao: true,
         afeta_patrimonio_padrao: false,
         afeta_caixa_familiar_padrao: false,

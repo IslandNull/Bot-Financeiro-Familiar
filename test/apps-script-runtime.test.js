@@ -762,6 +762,19 @@ test('Apps Script ensure_remaining_mutation_config appends missing category defa
 
 test('Apps Script ensure_april_2026_config appends reviewed config rows once', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => ({
+        id_categoria: 'OPEX_CARREIRA_PROCESSO_SELETIVO',
+        nome: 'Carreira e processo seletivo',
+        grupo: 'Carreira',
+        tipo_evento_padrao: 'compra_cartao',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: false,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+    })[header] ?? ''));
     const beforeCategories = sheets.Config_Categorias.rows.length;
     const beforeSources = sheets.Config_Fontes.rows.length;
     const beforeCards = sheets.Cartoes.rows.length;
@@ -772,6 +785,9 @@ test('Apps Script ensure_april_2026_config appends reviewed config rows once', (
     assert.strictEqual(first.ok, true);
     assert.strictEqual(first.shouldApplyDomainMutation, false);
     assert.strictEqual(first.appended.categories.length, 11);
+    assert.ok(first.appended.categories.includes('OPEX_DESENVOLVIMENTO_PROFISSIONAL'));
+    assert.ok(!first.appended.categories.includes('OPEX_CARREIRA_PROCESSO_SELETIVO'));
+    assert.deepStrictEqual(first.deactivated.categories, ['OPEX_CARREIRA_PROCESSO_SELETIVO']);
     assert.deepStrictEqual(first.appended.sources, ['FONTE_MERCADO_PAGO_GU']);
     assert.deepStrictEqual(first.appended.cards, ['CARD_MERCADO_PAGO_GU']);
     assert.strictEqual(first.appended_count, 13);
@@ -780,6 +796,7 @@ test('Apps Script ensure_april_2026_config appends reviewed config rows once', (
     assert.strictEqual(sheets.Cartoes.rows.length, beforeCards + 1);
     assert.strictEqual(second.ok, true);
     assert.strictEqual(second.appended_count, 0);
+    assert.deepStrictEqual(second.deactivated.categories, []);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     assert.strictEqual(sheets.Faturas.rows.length, 1);
 });
