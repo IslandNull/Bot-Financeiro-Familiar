@@ -28,7 +28,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Small reviewed 2026-04 Nubank JSONL batch validated locally on 2026-05-13: `private/abril-2026/historico-2026-04-ready-reviewed.jsonl` produced 1 valid event and 2 planned rows (`Lancamentos`, `Faturas`) with no spreadsheet write.
 - Reviewed historical write path deployed in version @58: dry-run/apply private JSONL, max 5 events, full-batch validation before writes, `historical_jsonl` idempotency.
 - Version @63 deployed: reusable PIX revenue/reimbursement categories added for professional income, personal reimbursements, and professional-development reimbursements.
-- Historical April production import verified: 1 Nubank card event, 25 reviewed Mercado Pago card events, 20 Mercado Pago yield events, and 7 reviewed PIX revenue/reimbursement events applied; repeated `--apply` returned duplicates only; snapshot and 2026-04 summary updated. Reviewed `04-transferencias.csv` and `05-obrigacoes-faturas.csv`; no safe JSONL write yet because rows remain paired, scope/source pending, or blocked by current fatura/obligation modeling.
+- Historical April production import verified: 1 Nubank card event, 26 reviewed Mercado Pago card events, 20 Mercado Pago yield events, and 8 reviewed PIX/revenue events applied; latest transfer/obligation review applied salary + Barbeados only. Remaining blocked items: house financing obligation category id, MP full invoice payment model, and cash parking category.
 
 ### Unverified
 
@@ -89,7 +89,7 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ### Phase 9: Full operational readiness
 
-1. Continue April historical import from remaining reviewed rows only; next review excluded/paired April rows and decide transfer/fatura modeling gaps before writing them.
+1. Continue April historical import from reviewed rows only; next unblock house financing obligation category, MP full invoice payment model, and cash parking category.
 2. Ask Luana to use `/ajuda`, `/resumo`, and 2-3 real Telegram messages; adjust only if readability or wording still blocks daily use.
 
 ## Phase History (archived)
