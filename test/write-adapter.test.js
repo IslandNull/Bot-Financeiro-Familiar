@@ -279,3 +279,32 @@ test('fake append failure returns no partially mutated state', () => {
     assert.strictEqual(state.sheets[SHEETS.LANCAMENTOS].rows.length, 0);
     assert.strictEqual(state.sheets[SHEETS.FATURAS].rows.length, 0);
 });
+
+test('installment card purchase creates one launch and multiple invoice rows with split amounts', () => {
+    const result = recordEventV55({
+        state: createEmptyFakeSheetState(),
+        request: request(12),
+        event: event({
+            tipo_evento: 'compra_cartao',
+            valor: '300.00',
+            descricao: 'notebook 3x',
+            id_categoria: 'OPEX_FARMACIA',
+            id_fonte: undefined,
+            id_cartao: 'CARD_NUBANK_GU',
+            afeta_caixa_familiar: false,
+            parcelas: '3',
+        }),
+    });
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.strictEqual(result.state.sheets[SHEETS.LANCAMENTOS].rows.length, 1);
+    assert.strictEqual(result.state.sheets[SHEETS.LANCAMENTOS].rows[0].parcelas, 3);
+    assert.strictEqual(result.state.sheets[SHEETS.LANCAMENTOS].rows[0].valor, 300);
+    assert.strictEqual(result.state.sheets[SHEETS.FATURAS].rows.length, 3);
+    result.state.sheets[SHEETS.FATURAS].rows.forEach((inv) => {
+        assert.strictEqual(inv.valor_previsto, 100);
+        assert.strictEqual(inv.status, 'prevista');
+    });
+    const competencias = result.state.sheets[SHEETS.FATURAS].rows.map((inv) => inv.competencia);
+    assert.strictEqual(new Set(competencias).size > 1, true, 'invoices should span multiple competencias');
+});

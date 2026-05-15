@@ -86,10 +86,28 @@ function assignInvoiceCycle(purchaseDateValue, card) {
     };
 }
 
+function assignInstallmentCycles(purchaseDateValue, card, parcelas) {
+    validateCard(card);
+    const count = Number(parcelas) || 1;
+    if (count < 1 || count > 24) throw new Error('parcelas must be 1-24');
+    if (count === 1) return [assignInvoiceCycle(purchaseDateValue, card)];
+
+    const purchaseDate = parseIsoDate(purchaseDateValue, 'purchaseDate');
+    const cycles = [];
+    for (let i = 0; i < count; i += 1) {
+        const offsetDate = i === 0 ? purchaseDate : addMonths(purchaseDate, i);
+        const dateStr = formatIsoDate(
+            i === 0 ? purchaseDate : buildClampedDate(offsetDate.getUTCFullYear(), offsetDate.getUTCMonth(), purchaseDate.getUTCDate())
+        );
+        cycles.push(assignInvoiceCycle(dateStr, card));
+    }
+    return cycles;
+}
+
 module.exports = {
+    assignInstallmentCycles,
     assignInvoiceCycle,
     formatCompetencia,
     formatIsoDate,
     parseIsoDate,
 };
-

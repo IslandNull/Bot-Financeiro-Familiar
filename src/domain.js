@@ -1,6 +1,6 @@
 'use strict';
 
-const { assignInvoiceCycle } = require('./card-cycle');
+const { assignInstallmentCycles, assignInvoiceCycle } = require('./card-cycle');
 const { HEADERS, SHEETS } = require('./schema');
 const { validateParsedEvent } = require('./validator');
 
@@ -420,20 +420,43 @@ function planCardPurchase(event, card) {
             errors: [{ code: 'NOT_CARD_PURCHASE', field: 'tipo_evento', message: 'event is not compra_cartao' }],
         };
     }
-    const cycle = assignInvoiceCycle(validation.normalized.data, card);
+    const parcelas = validation.normalized.parcelas || 1;
+    if (parcelas === 1) {
+        const cycle = assignInvoiceCycle(validation.normalized.data, card);
+        return {
+            ok: true,
+            event: {
+                ...validation.normalized,
+                id_fatura: cycle.id_fatura,
+            },
+            invoice: {
+                ...cycle,
+                valor_previsto: validation.normalized.valor,
+                valor_fechado: '',
+                valor_pago: '',
+                status: 'prevista',
+            },
+        };
+    }
+
+    const cycles = assignInstallmentCycles(validation.normalized.data, card, parcelas);
+    const valorParcela = roundMoney(validation.normalized.valor / parcelas);
+    const invoices = cycles.map((cycle) => ({
+        ...cycle,
+        valor_previsto: valorParcela,
+        valor_fechado: '',
+        valor_pago: '',
+        status: 'prevista',
+    }));
+
     return {
         ok: true,
         event: {
             ...validation.normalized,
-            id_fatura: cycle.id_fatura,
+            id_fatura: cycles[0].id_fatura,
+            parcelas,
         },
-        invoice: {
-            ...cycle,
-            valor_previsto: validation.normalized.valor,
-            valor_fechado: '',
-            valor_pago: '',
-            status: 'prevista',
-        },
+        invoices,
     };
 }
 

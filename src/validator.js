@@ -23,6 +23,7 @@ const ALLOWED_FIELDS = [
     'direcao_caixa_familiar',
     'status',
     'parcelamento',
+    'parcelas',
 ];
 
 function error(code, field, message) {
@@ -151,6 +152,15 @@ function validateParsedEvent(entry) {
     if (!normalized.status) normalized.status = 'efetivado';
     if (!ENUMS.lancamento_status.includes(normalized.status)) {
         errors.push(error('INVALID_ENUM', 'status', 'launch status is not supported'));
+    }
+
+    if (entry.parcelas !== undefined && entry.parcelas !== null && entry.parcelas !== '' && entry.parcelas !== '1') {
+        const parcelas = Number(entry.parcelas);
+        if (!Number.isInteger(parcelas) || parcelas < 2 || parcelas > 24) {
+            errors.push(error('INVALID_PARCELAS', 'parcelas', 'parcelas must be integer 2-24'));
+        } else {
+            normalized.parcelas = parcelas;
+        }
     }
 
     validateTypeRules(normalized, errors);

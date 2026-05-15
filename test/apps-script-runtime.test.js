@@ -15,7 +15,7 @@ const root = path.resolve(__dirname, '..');
 const code = fs.readFileSync(path.join(root, 'apps-script', 'Code.js'), 'utf8');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'apps-script', 'appsscript.json'), 'utf8'));
 
-const lancamentosHeaders = ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'created_at'];
+const lancamentosHeaders = ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'parcelas', 'created_at'];
 const configCategoriasHeaders = ['id_categoria', 'nome', 'grupo', 'tipo_evento_padrao', 'classe_dre', 'escopo_padrao', 'afeta_dre_padrao', 'afeta_patrimonio_padrao', 'afeta_caixa_familiar_padrao', 'visibilidade_padrao', 'ativo'];
 const configFontesHeaders = ['id_fonte', 'nome', 'tipo', 'titular', 'moeda', 'ativo'];
 const cartoesHeaders = ['id_cartao', 'id_fonte', 'nome', 'titular', 'fechamento_dia', 'vencimento_dia', 'limite', 'ativo'];
@@ -416,6 +416,7 @@ function appendFakeLaunch(sheets, overrides = {}) {
         visibilidade: 'detalhada',
         status: 'efetivado',
         descricao: 'mercado',
+        parcelas: '',
         created_at: '2026-04-30T15:00:00Z',
         ...overrides,
     };
@@ -600,6 +601,21 @@ test('Apps Script help gives practical launch examples without mutating', () => 
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
+
+test('Apps Script balance snapshot creates a row in Saldos_Fontes', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+
+    const result = postPilotMessage(context, 'saldo nubank 1500,50');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, true);
+    assert.match(result.responseText, /Saldo atualizado: Nubank Gustavo R\$ 1.500,50/);
+    assert.strictEqual(sheets.Saldos_Fontes.rows.length, 2); // 1 header + 1 row
+    assert.strictEqual(sheets.Saldos_Fontes.rows[1][3], 'FONTE_NUBANK_GU'); // id_fonte
+    assert.strictEqual(sheets.Saldos_Fontes.rows[1][5], 1500.5); // saldo_final
+    assert.strictEqual(sheets.Saldos_Fontes.rows[1][6], 1500.5); // saldo_disponivel
+});
+
 
 test('Apps Script /resumo command is read-only and does not require pilot mutation gate', () => {
     const { context, sheets } = createAppsScriptHarness(null, {

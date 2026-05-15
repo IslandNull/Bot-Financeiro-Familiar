@@ -123,13 +123,17 @@ function planCardPurchaseRows(event, options) {
         visibilidade: planned.event.visibilidade,
         status: planned.event.status,
         descricao: planned.event.descricao,
+        parcelas: planned.event.parcelas || '',
         created_at: (options && options.created_at) || '',
     });
-    const invoiceRow = rowFor(SHEETS.FATURAS, planned.invoice);
+
+    const invoiceRows = planned.invoices
+        ? planned.invoices.map((inv) => ({ sheet: SHEETS.FATURAS, row: rowFor(SHEETS.FATURAS, inv) }))
+        : [{ sheet: SHEETS.FATURAS, row: rowFor(SHEETS.FATURAS, planned.invoice) }];
 
     return mutationGroup('compra_cartao', idLancamento, [
         { sheet: SHEETS.LANCAMENTOS, row: launchRow },
-        { sheet: SHEETS.FATURAS, row: invoiceRow },
+        ...invoiceRows,
     ]);
 }
 

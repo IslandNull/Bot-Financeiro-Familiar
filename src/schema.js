@@ -72,6 +72,7 @@ const HEADERS = {
         'visibilidade',
         'status',
         'descricao',
+        'parcelas',
         'created_at',
     ],
     [SHEETS.TRANSFERENCIAS_INTERNAS]: [

@@ -8,11 +8,13 @@ var V55 = (function() {
     '✍️ Para lancar, mande uma frase curta com valor e contexto:',
     '• mercado 42 hoje',
     '• farmacia 18 no nubank',
+    '• notebook 3000 em 3x no nubank',
     '• paguei fatura nubank 300',
     '• salario 5000',
     '• Luana mandou 200 para caixa familiar',
     '• aporte CDB 1000',
     '• paguei financiamento 500',
+    '• saldo nubank 3500',
     '',
     '📌 Comandos:',
     '📊 /resumo - ver o mes sem alterar nada',
@@ -43,14 +45,14 @@ var V55 = (function() {
     Dividas: ['id_divida', 'nome', 'credor', 'tipo', 'escopo', 'saldo_devedor', 'parcela_atual', 'parcelas_total', 'valor_parcela', 'taxa_juros', 'sistema_amortizacao', 'data_atualizacao', 'status', 'observacao'],
     Fechamento_Familiar: ['competencia', 'status', 'receitas_dre', 'despesas_dre', 'resultado_dre', 'caixa_entradas', 'caixa_saidas', 'sobra_caixa', 'faturas_60d', 'obrigacoes_60d', 'reserva_total', 'patrimonio_liquido', 'margem_pos_obrigacoes', 'capacidade_aporte_segura', 'parcela_maxima_segura', 'pode_avaliar_amortizacao', 'motivo_bloqueio_amortizacao', 'destino_reserva', 'destino_obrigacoes', 'destino_investimentos', 'destino_amortizacao', 'destino_sugerido', 'observacao', 'created_at', 'closed_at'],
     Faturas: ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'],
-    Lancamentos: ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'created_at'],
+    Lancamentos: ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'parcelas', 'created_at'],
     Patrimonio_Ativos: ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'],
     Rendas_Recorrentes: ['id_renda', 'pessoa', 'descricao', 'valor_planejado', 'tipo_renda', 'beneficio_restrito', 'ativo', 'observacao'],
     Saldos_Fontes: ['id_snapshot', 'competencia', 'data_referencia', 'id_fonte', 'saldo_inicial', 'saldo_final', 'saldo_disponivel', 'observacao', 'created_at'],
     Transferencias_Internas: ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'],
     Idempotency_Log: ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'],
   };
-  var PARSED_EVENT_FIELDS = ['tipo_evento', 'data', 'competencia', 'valor', 'descricao', 'id_categoria', 'id_fonte', 'pessoa', 'escopo', 'visibilidade', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'direcao_caixa_familiar', 'status'];
+  var PARSED_EVENT_FIELDS = ['tipo_evento', 'data', 'competencia', 'valor', 'descricao', 'id_categoria', 'id_fonte', 'pessoa', 'escopo', 'visibilidade', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'direcao_caixa_familiar', 'status', 'parcelas'];
   function doPost(e) {
     var config = readConfig_();
     var secret = headerValue_(e, 'x-telegram-bot-api-secret-token') || parameterValue_(e, 'secret');
@@ -283,6 +285,10 @@ var V55 = (function() {
 
     var referenceData = readRuntimeReferenceData_(config);
     if (!referenceData.ok) return referenceData;
+
+    if (isPilotBalanceSnapshotText_(text)) {
+      return handlePilotBalanceSnapshot_(update, message, text, config, referenceData);
+    }
 
     var parsed = parseFinancialEventWithOpenAI_(text, config, referenceData);
     if (!parsed.ok) return parsed;
@@ -1975,7 +1981,8 @@ var V55 = (function() {
       '- Use only canonical IDs listed below. Never invent ids.',
       '',
       '# REQUIRED SCHEMA',
-      'Required keys: tipo_evento, data, competencia, valor, descricao, id_categoria, id_fonte, pessoa, escopo, visibilidade, id_cartao, id_fatura, id_divida, id_ativo, afeta_dre, afeta_patrimonio, afeta_caixa_familiar, direcao_caixa_familiar, status.',
+      'Required keys: tipo_evento, data, competencia, valor, descricao, id_categoria, id_fonte, pessoa, escopo, visibilidade, id_cartao, id_fatura, id_divida, id_ativo, afeta_dre, afeta_patrimonio, afeta_caixa_familiar, direcao_caixa_familiar, status, parcelas.',
+      'parcelas is an integer (1 to 24) for installment purchases; default 1 for single payment. When the user says "em Nx" or "em N vezes", set parcelas to that N.',
       'If the user omits the date, data must default to ' + todaySaoPaulo_() + ' and competencia must default to ' + todaySaoPaulo_().slice(0, 7) + '.',
       'If the user says today or hoje, data must be exactly ' + todaySaoPaulo_() + ' and competencia must be exactly ' + todaySaoPaulo_().slice(0, 7) + '.',
       'This pilot accepts config-driven family launches, one reviewed card purchase path, one reviewed invoice payment path, and reviewed internal family cash entries after parsing; classify the user text correctly.',
@@ -1991,7 +1998,8 @@ var V55 = (function() {
       '# PILOT CANONICAL EXAMPLES',
       'Input: "mercado 10" -> valor "10", tipo_evento "despesa", id_categoria "' + stringValue_(expenseCategory.id_categoria) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", escopo "' + stringValue_(expenseCategory.escopo_padrao || 'Familiar') + '".',
       'Input: "mercado 10 hoje" -> same event with data ' + todaySaoPaulo_() + ' and competencia ' + todaySaoPaulo_().slice(0, 7) + '.',
-      'Input: "farmacia 10 no nubank" -> valor "10", tipo_evento "compra_cartao", id_categoria "' + stringValue_(cardCategory.id_categoria) + '", id_cartao "' + stringValue_(card.id_cartao) + '", id_fonte "' + stringValue_(card.id_fonte) + '", escopo "' + stringValue_(cardCategory.escopo_padrao || 'Familiar') + '".',
+      'Input: "farmacia 10 no nubank" -> valor "10", tipo_evento "compra_cartao", id_categoria "' + stringValue_(cardCategory.id_categoria) + '", id_cartao "' + stringValue_(card.id_cartao) + '", id_fonte "' + stringValue_(card.id_fonte) + '", escopo "' + stringValue_(cardCategory.escopo_padrao || 'Familiar') + '", parcelas "1".',
+      'Input: "notebook 3000 em 3x no nubank" -> valor "3000", tipo_evento "compra_cartao", id_categoria "' + stringValue_(cardCategory.id_categoria) + '", id_cartao "' + stringValue_(card.id_cartao) + '", id_fonte "' + stringValue_(card.id_fonte) + '", escopo "' + stringValue_(cardCategory.escopo_padrao || 'Familiar') + '", parcelas "3".',
       'Input: "pagar fatura nubank 42,50" -> valor "42.50", tipo_evento "pagamento_fatura", id_fatura "' + stringValue_(invoice.id_fatura) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", escopo "Familiar".',
       'Input: "Luana mandou 100 para caixa familiar" -> valor "100", tipo_evento "transferencia_interna", id_categoria "' + stringValue_(transferCategory.id_categoria) + '", pessoa "Luana", escopo "' + stringValue_(transferCategory.escopo_padrao || 'Familiar') + '", direcao_caixa_familiar "entrada".',
       'Input: "salario 5000" -> valor "5000", tipo_evento "receita", id_categoria "' + stringValue_(revenueCategory.id_categoria) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '".',
@@ -2090,6 +2098,8 @@ var V55 = (function() {
     };
     if (!isValidIsoDate_(normalized.data)) return fail_(classifyInvalidDate_(entry.data), 'data', GENERIC_RECORD_FAILURE);
     if (!/^\d{4}-\d{2}$/.test(normalized.competencia)) return fail_('INVALID_COMPETENCIA', 'competencia', GENERIC_RECORD_FAILURE);
+    var parcelas = Number(entry.parcelas) || 0;
+    if (parcelas >= 2 && parcelas <= 24) normalized.parcelas = parcelas;
     normalized = canonicalizePilotEvent_(normalized, referenceData);
     return { ok: true, shouldApplyDomainMutation: true, event: normalized };
   }
@@ -2742,6 +2752,7 @@ var V55 = (function() {
         visibilidade: event.visibilidade,
         status: event.status,
         descricao: event.descricao,
+        parcelas: '',
         created_at: now,
       });
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
@@ -2827,6 +2838,7 @@ var V55 = (function() {
         visibilidade: event.visibilidade,
         status: event.status,
         descricao: event.descricao,
+        parcelas: '',
         created_at: now,
       });
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
@@ -2870,7 +2882,9 @@ var V55 = (function() {
       if (!periodCheck.ok) return periodCheck;
 
       var now = isoNow_();
-      var invoice = assignPilotInvoiceCycle_(event.data, referenceData.cardsById[event.id_cartao]);
+      var parcelas = event.parcelas || 1;
+      var card = referenceData.cardsById[event.id_cartao];
+      var invoice = assignPilotInvoiceCycle_(event.data, card);
       event.id_fatura = invoice.id_fatura;
       var resultRef = stableId_('LAN', request.idempotency_key + '|' + event.descricao + '|' + event.valor + '|card');
       resultRefForFailure = resultRef;
@@ -2916,21 +2930,43 @@ var V55 = (function() {
         visibilidade: event.visibilidade,
         status: event.status,
         descricao: event.descricao,
+        parcelas: parcelas > 1 ? parcelas : '',
         created_at: now,
       });
-      appendRow_(invoiceSheet, SHEETS.FATURAS, {
-        id_fatura: invoice.id_fatura,
-        id_cartao: event.id_cartao,
-        competencia: invoice.competencia,
-        data_fechamento: invoice.data_fechamento,
-        data_vencimento: invoice.data_vencimento,
-        valor_previsto: event.valor,
-        valor_fechado: '',
-        valor_pago: '',
-        status: 'prevista',
-      });
+
+      if (parcelas > 1) {
+        var valorParcela = roundMoney_(event.valor / parcelas);
+        for (var pi = 0; pi < parcelas; pi += 1) {
+          var offsetDate = pi === 0 ? event.data : formatUtcDate_(addUtcMonths_(parseIsoDateUtc_(event.data), pi));
+          var installmentInvoice = assignPilotInvoiceCycle_(offsetDate, card);
+          appendRow_(invoiceSheet, SHEETS.FATURAS, {
+            id_fatura: installmentInvoice.id_fatura,
+            id_cartao: event.id_cartao,
+            competencia: installmentInvoice.competencia,
+            data_fechamento: installmentInvoice.data_fechamento,
+            data_vencimento: installmentInvoice.data_vencimento,
+            valor_previsto: valorParcela,
+            valor_fechado: '',
+            valor_pago: '',
+            status: 'prevista',
+          });
+        }
+      } else {
+        appendRow_(invoiceSheet, SHEETS.FATURAS, {
+          id_fatura: invoice.id_fatura,
+          id_cartao: event.id_cartao,
+          competencia: invoice.competencia,
+          data_fechamento: invoice.data_fechamento,
+          data_vencimento: invoice.data_vencimento,
+          valor_previsto: event.valor,
+          valor_fechado: '',
+          valor_pago: '',
+          status: 'prevista',
+        });
+      }
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-      return { ok: true, responseText: recordedEventText_(event, 'Anotada compra no cartao.', referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
+      var responseMsg = parcelas > 1 ? 'Anotada compra parcelada (' + parcelas + 'x) no cartao.' : 'Anotada compra no cartao.';
+      return { ok: true, responseText: recordedEventText_(event, responseMsg, referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
     } catch (_err) {
       if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
         updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -3022,6 +3058,7 @@ var V55 = (function() {
         visibilidade: event.visibilidade,
         status: event.status,
         descricao: event.descricao,
+        parcelas: '',
         created_at: now,
       });
       updateInvoicePayments_(invoiceSheet, invoice.payableRows, 'paga');
@@ -3657,6 +3694,79 @@ var V55 = (function() {
     }
     lines.push('');
     return { ok: true, snapshot: lines.join('\n') };
+  }
+
+  function isPilotBalanceSnapshotText_(text) {
+    var str = stringValue_(text).trim();
+    return /^saldo\s+/i.test(str);
+  }
+
+  function handlePilotBalanceSnapshot_(update, message, text, config, referenceData) {
+    var str = stringValue_(text).trim();
+    var match = str.match(/^saldo\s+(.+?)\s+([\d.,]+)\s*$/i);
+    if (!match) return fail_('INVALID_BALANCE_FORMAT', 'text', '\u26a0\ufe0f Formato: saldo <fonte> <valor>\n\ud83d\udca1 Exemplo: saldo nubank 3500');
+    var sourceName = match[1].trim();
+    var rawAmount = match[2].replace(/\./g, '').replace(',', '.');
+    var amount = Number(rawAmount);
+    if (!isFinite(amount) || amount < 0) return fail_('INVALID_BALANCE_AMOUNT', 'valor', '\u26a0\ufe0f Valor de saldo invalido.');
+
+    var source = findSourceByAlias_(sourceName, referenceData.sources);
+    if (!source) return fail_('BALANCE_SOURCE_NOT_FOUND', 'id_fonte', '\u26a0\ufe0f Fonte nao encontrada: ' + sourceName + '\n\ud83d\udca1 Fontes disponiveis: ' + referenceData.sources.filter(function(s) { return s.ativo !== false; }).map(function(s) { return s.nome; }).join(', '));
+
+    var lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var snapshotSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
+      verifySheetHeaders_(snapshotSheet, SHEETS.SALDOS_FONTES);
+      var now = isoNow_();
+      var today = todaySaoPaulo_();
+      var competencia = today.slice(0, 7);
+      var snapshotId = stableId_('SNAP', source.id_fonte + '|' + today + '|' + amount);
+      appendRow_(snapshotSheet, SHEETS.SALDOS_FONTES, {
+        id_snapshot: snapshotId,
+        competencia: competencia,
+        data_referencia: today,
+        id_fonte: source.id_fonte,
+        saldo_inicial: '',
+        saldo_final: roundMoney_(amount),
+        saldo_disponivel: roundMoney_(amount),
+        observacao: 'via Telegram',
+        created_at: now,
+      });
+      return {
+        ok: true,
+        responseText: '\ud83d\udcca Saldo atualizado: ' + stringValue_(source.nome) + ' R$ ' + formatBrazilianMoney_(amount),
+        shouldApplyDomainMutation: true,
+      };
+    } catch (_err) {
+      return fail_('BALANCE_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  function findSourceByAlias_(name, sources) {
+    var normalized = normalizeAliasText_(name);
+    if (!normalized) return null;
+    var active = (sources || []).filter(function(s) { return s.ativo !== false; });
+    for (var i = 0; i < active.length; i += 1) {
+      var sourceNormalized = normalizeAliasText_(active[i].nome || '');
+      if (sourceNormalized === normalized) return active[i];
+    }
+    for (var j = 0; j < active.length; j += 1) {
+      var srcNorm = normalizeAliasText_(active[j].nome || '');
+      if (srcNorm && srcNorm.indexOf(normalized) !== -1) return active[j];
+      if (normalized && normalized.indexOf(srcNorm) !== -1) return active[j];
+    }
+    return null;
+  }
+
+  function formatBrazilianMoney_(value) {
+    var v = roundMoney_(value);
+    var parts = v.toFixed(2).split('.');
+    var intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return intPart + ',' + parts[1];
   }
 
   return {
