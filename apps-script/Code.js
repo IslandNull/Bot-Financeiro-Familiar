@@ -103,6 +103,9 @@ var V55 = (function() {
     if (action === 'ensure_april_2026_config') {
       return json_(ensureApril2026ConfigV55());
     }
+    if (action === 'ensure_april_2026_house_debts') {
+      return json_(ensureApril2026HouseDebtConfigV55());
+    }
     if (action === 'selftest') {
       return json_(runHelpSmokeSelfTest());
     }
@@ -1150,6 +1153,36 @@ var V55 = (function() {
       existingIds[row[idField]] = true;
     });
     return appended;
+  }
+
+  function ensureApril2026HouseDebtConfigV55() {
+    var config = readConfig_();
+    var runtimeCheck = verifyReportingRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
+      verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
+
+      var appendedDebts = appendMissingRowsById_(
+        debtSheet,
+        SHEETS.DIVIDAS,
+        april2026HouseDebtDefaults_(),
+        'id_divida'
+      );
+
+      return {
+        ok: true,
+        appended: {
+          debts: appendedDebts,
+        },
+        appended_count: appendedDebts.length,
+        shouldApplyDomainMutation: false,
+      };
+    } catch (_err) {
+      return fail_('APRIL_2026_HOUSE_DEBT_ENSURE_FAILED', 'Dividas', GENERIC_REQUEST_FAILURE);
+    }
   }
 
   function deactivateConfigRowsById_(sheet, sheetName, ids, idField) {
@@ -2949,6 +2982,44 @@ var V55 = (function() {
     return { found: found, payableRows: payableRows, expectedAmount: expectedAmount };
   }
 
+  function april2026HouseDebtDefaults_() {
+    return [
+      {
+        id_divida: 'DIV_FINANCIAMENTO_CAIXA_CASA',
+        nome: 'Financiamento Caixa da casa',
+        credor: 'Caixa Economica Federal',
+        tipo: 'financiamento_imobiliario',
+        escopo: 'Familiar',
+        saldo_devedor: 0,
+        parcela_atual: 0,
+        parcelas_total: 0,
+        valor_parcela: 2120,
+        taxa_juros: '',
+        sistema_amortizacao: '',
+        data_atualizacao: '2026-04-30',
+        status: 'ativa',
+        observacao: 'Criado para classificar pagamentos historicos revisados de abril/2026; saldo real pendente de revisao.',
+      },
+      {
+        id_divida: 'DIV_CONSTRUTORA_VASCO_CASA',
+        nome: 'Financiamento entrada construtora Vasco',
+        credor: 'Construtora Vasco',
+        tipo: 'financiamento_entrada_imovel',
+        escopo: 'Familiar',
+        saldo_devedor: 0,
+        parcela_atual: 0,
+        parcelas_total: 0,
+        valor_parcela: 862.12,
+        taxa_juros: '',
+        sistema_amortizacao: '',
+        data_atualizacao: '2026-04-30',
+        status: 'ativa',
+        observacao: 'Criado para classificar pagamentos historicos revisados de abril/2026; saldo real pendente de revisao.',
+      },
+    ];
+  }
+
+
   function findFamilyClosingRow_(sheet, competencia) {
     var lastRow = sheet.getLastRow();
     if (lastRow < 2) return null;
@@ -3233,6 +3304,7 @@ var V55 = (function() {
     exportPilotFamilySummaryV55: exportPilotFamilySummaryV55,
     exportSnapshotV55: exportSnapshotV55,
     ensureApril2026ConfigV55: ensureApril2026ConfigV55,
+    ensureApril2026HouseDebtConfigV55: ensureApril2026HouseDebtConfigV55,
     runHelpSmokeSelfTest: runHelpSmokeSelfTest,
     runTelegramWebhookSetupApply: runTelegramWebhookSetupApply,
     runTelegramWebhookSetupDryRun: runTelegramWebhookSetupDryRun,
@@ -3277,6 +3349,12 @@ function exportSnapshotV55() {
 
 function ensureApril2026ConfigV55() {
   var result = V55.ensureApril2026ConfigV55();
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+function ensureApril2026HouseDebtConfigV55() {
+  var result = V55.ensureApril2026HouseDebtConfigV55();
   Logger.log(JSON.stringify(result));
   return result;
 }

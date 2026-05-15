@@ -882,6 +882,34 @@ test('Apps Script ensure_april_2026_config appends reviewed config rows once', (
     assert.strictEqual(sheets.Faturas.rows.length, 1);
 });
 
+test('Apps Script ensure_april_2026_house_debts appends separate active house debts once', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const idIndex = dividasHeaders.indexOf('id_divida');
+    const statusIndex = dividasHeaders.indexOf('status');
+    const parcelaIndex = dividasHeaders.indexOf('valor_parcela');
+    const beforeDebts = sheets.Dividas.rows.length;
+
+    const first = runRemoteAction(context, 'ensure_april_2026_house_debts');
+    const second = runRemoteAction(context, 'ensure_april_2026_house_debts');
+
+    assert.strictEqual(first.ok, true);
+    assert.strictEqual(first.shouldApplyDomainMutation, false);
+    assert.deepStrictEqual(first.appended.debts, [
+        'DIV_FINANCIAMENTO_CAIXA_CASA',
+        'DIV_CONSTRUTORA_VASCO_CASA',
+    ]);
+    assert.strictEqual(first.appended_count, 2);
+    assert.strictEqual(second.ok, true);
+    assert.strictEqual(second.appended_count, 0);
+    assert.strictEqual(sheets.Dividas.rows.length, beforeDebts + 2);
+    const caixa = sheets.Dividas.rows.find((row) => row[idIndex] === 'DIV_FINANCIAMENTO_CAIXA_CASA');
+    const vasco = sheets.Dividas.rows.find((row) => row[idIndex] === 'DIV_CONSTRUTORA_VASCO_CASA');
+    assert.strictEqual(caixa[statusIndex], 'ativa');
+    assert.strictEqual(vasco[statusIndex], 'ativa');
+    assert.strictEqual(caixa[parcelaIndex], 2120);
+    assert.strictEqual(vasco[parcelaIndex], 862.12);
+});
+
 test('Apps Script reviewed historical import dry-run validates without writing private details', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
     runRemoteAction(context, 'ensure_april_2026_config');
