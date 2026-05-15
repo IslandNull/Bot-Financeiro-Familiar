@@ -31,7 +31,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Historical April production import verified: 1 Nubank card event, 31 reviewed card events, 20 Mercado Pago yield events, 8 reviewed PIX/revenue events, reviewed cash parking, and reviewed house obligations applied.
 - Version @65 deployed: house debt config action added; production ensured active IDs `DIV_FINANCIAMENTO_CAIXA_CASA` and `DIV_CONSTRUTORA_VASCO_CASA`; applied 2 reviewed April `divida_pagamento` events totaling 2982.12. Snapshot verifies `Lancamentos` 70, `Dividas` 4, and `Idempotency_Log` 72.
 - Reviewed pending batches applied: 5 card purchases totaling 302.23 (client reimbursables and Gustavo work fuel), then version @66 configured `OPEX_SAUDE_BEM_ESTAR`, `OPEX_ELETRONICOS_E_EQUIPAMENTOS`, `OPEX_CASA_DOCUMENTACAO_SERVICOS` and applied 4 reviewed events totaling 278.97 (3 Wellhub, 1 ART/vistoria casa). Snapshot verifies `Config_Categorias` 55, `Lancamentos` 79, `Faturas` 36, and `Idempotency_Log` 81.
-- Version @68 records Mercado Pago cycle from the original statement: fatura de maio covers 2026-04-06 to 2026-05-05, closes day 5, nominal due day is 10; May/2026 due was 2026-05-11 only because 2026-05-10 was non-business. The 2026-04-07 payment of 2970.24 is only prior-invoice reference/payment and must not be imported as an April fatura baixa. Production repair moved 28 MP `Faturas` and 28 `Lancamentos` refs to `FAT_CARD_MERCADO_PAGO_GU_2026_05`; Samsung Luana parcel 6/18 imported as the current April installment only. Snapshot verifies `Lancamentos` 80, `Faturas` 37, and `Idempotency_Log` 82.
+- Version @70 records MP cycle rule and prior payment exclusion; final reviewed April batch applied 22 events for development professional, transport/lazer, alimentacao, mercado cartao, cuidados, and personal leisure. Samsung Luana parcel 6/18 is current installment only. Snapshot verifies `Config_Categorias` 60, `Lancamentos` 102, `Faturas` 57, and `Idempotency_Log` 104.
 
 ### Unverified
 
@@ -92,7 +92,7 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ### Phase 9: Full operational readiness
 
-1. Continue April historical import from reviewed rows only; keep the MP 2970.24 prior-invoice payment ignored unless a separate March reconciliation is explicitly requested.
+1. April import is complete from reviewed rows; keep MP 2970.24 ignored unless March reconciliation is requested; TODO add installment-purchase tracking for future invoice forecast beyond current monthly parcel imports.
 
 ## Phase History (archived)
 
