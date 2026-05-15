@@ -605,7 +605,7 @@ test('Apps Script help gives practical launch examples without mutating', () => 
 test('Apps Script balance snapshot creates a row in Saldos_Fontes', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
 
-    const result = postPilotMessage(context, 'saldo nubank 1500,50');
+    const result = postPilotMessage(context, '/saldo nubank 1500,50');
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, true);

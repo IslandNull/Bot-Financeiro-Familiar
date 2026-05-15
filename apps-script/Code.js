@@ -2327,7 +2327,14 @@ var V55 = (function() {
 
   function categoryForEvent_(referenceData, categoryId, eventType) {
     var category = referenceData.categoriesById[stringValue_(categoryId)];
-    if (!category || category.tipo_evento_padrao !== eventType) return null;
+    if (!category) return null;
+    
+    var expected = category.tipo_evento_padrao;
+    if ((eventType === 'despesa' || eventType === 'compra_cartao') && 
+        (expected === 'despesa' || expected === 'compra_cartao')) {
+      return category;
+    }
+    if (expected !== eventType) return null;
     return category;
   }
 
@@ -3698,13 +3705,13 @@ var V55 = (function() {
 
   function isPilotBalanceSnapshotText_(text) {
     var str = stringValue_(text).trim();
-    return /^saldo\s+/i.test(str);
+    return /^\/?saldo\s+/i.test(str);
   }
 
   function handlePilotBalanceSnapshot_(update, message, text, config, referenceData) {
     var str = stringValue_(text).trim();
-    var match = str.match(/^saldo\s+(.+?)\s+([\d.,]+)\s*$/i);
-    if (!match) return fail_('INVALID_BALANCE_FORMAT', 'text', '\u26a0\ufe0f Formato: saldo <fonte> <valor>\n\ud83d\udca1 Exemplo: saldo nubank 3500');
+    var match = str.match(/^\/?saldo\s+(.+?)\s+([\d.,]+)\s*$/i);
+    if (!match) return fail_('INVALID_BALANCE_FORMAT', 'text', '\u26a0\ufe0f Formato: saldo <fonte> <valor>\n\ud83d\udca1 Exemplo: /saldo nubank 3500');
     var sourceName = match[1].trim();
     var rawAmount = match[2].replace(/\./g, '').replace(',', '.');
     var amount = Number(rawAmount);
