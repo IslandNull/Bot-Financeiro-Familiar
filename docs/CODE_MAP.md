@@ -69,6 +69,7 @@ doGet(e)
        ├─ closing_close → closeReviewedFamilyClosingV55()
        ├─ ensure_remaining_mutation_config → ensureRemainingMutationConfigV55()
        ├─ ensure_april_2026_config → ensureApril2026ConfigV55()
+       ├─ repair_april_2026_mp_invoice_cycle → repairApril2026MercadoPagoInvoiceCycleV55()
        └─ selftest → runHelpSmokeSelfTest()
 ```
 

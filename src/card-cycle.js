@@ -73,7 +73,7 @@ function assignInvoiceCycle(purchaseDateValue, card) {
         closingDate = buildClampedDate(nextMonth.getUTCFullYear(), nextMonth.getUTCMonth(), closingDay);
     }
 
-    const dueMonth = addMonths(closingDate, 1);
+    const dueMonth = dueDay > closingDay ? closingDate : addMonths(closingDate, 1);
     const dueDate = buildClampedDate(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay);
     const competencia = formatCompetencia(closingDate);
 

@@ -31,7 +31,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Historical April production import verified: 1 Nubank card event, 31 reviewed card events, 20 Mercado Pago yield events, 8 reviewed PIX/revenue events, reviewed cash parking, and reviewed house obligations applied.
 - Version @65 deployed: house debt config action added; production ensured active IDs `DIV_FINANCIAMENTO_CAIXA_CASA` and `DIV_CONSTRUTORA_VASCO_CASA`; applied 2 reviewed April `divida_pagamento` events totaling 2982.12. Snapshot verifies `Lancamentos` 70, `Dividas` 4, and `Idempotency_Log` 72.
 - Reviewed pending batches applied: 5 card purchases totaling 302.23 (client reimbursables and Gustavo work fuel), then version @66 configured `OPEX_SAUDE_BEM_ESTAR`, `OPEX_ELETRONICOS_E_EQUIPAMENTOS`, `OPEX_CASA_DOCUMENTACAO_SERVICOS` and applied 4 reviewed events totaling 278.97 (3 Wellhub, 1 ART/vistoria casa). Snapshot verifies `Config_Categorias` 55, `Lancamentos` 79, `Faturas` 36, and `Idempotency_Log` 81.
-- MP invoice payment remains blocked: statement line `Pagamento da fatura de abril/2026` for 2970.24 does not match open rows generated from imported April purchases, which appear to belong to the next MP invoice cycle.
+- Version @67 corrected Mercado Pago cycle from the original statement: fatura de maio covers 2026-04-06 to 2026-05-05, closes 2026-05-05, due 2026-05-11; 2970.24 is prior March/April invoice information and must be ignored for April import. Production repair moved 28 MP `Faturas` and 28 `Lancamentos` refs to `FAT_CARD_MERCADO_PAGO_GU_2026_05`; Samsung Luana parcel 6/18 imported as the current April installment only. Snapshot verifies `Lancamentos` 80, `Faturas` 37, and `Idempotency_Log` 82.
 
 ### Unverified
 
@@ -92,7 +92,7 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ### Phase 9: Full operational readiness
 
-1. Continue April historical import from reviewed rows only; keep Samsung/electronics outside April unimported until period treatment is confirmed, and reconcile the prior MP invoice before any fatura baixa.
+1. Continue April historical import from reviewed rows only; keep the MP 2970.24 prior-invoice payment ignored unless a separate March reconciliation is explicitly requested.
 
 ## Phase History (archived)
 

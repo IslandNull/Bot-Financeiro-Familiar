@@ -885,6 +885,82 @@ test('Apps Script ensure_april_2026_config appends reviewed config rows once', (
     assert.strictEqual(sheets.Faturas.rows.length, 1);
 });
 
+test('Apps Script repairs Mercado Pago invoice cycle from source statement dates', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        nome: 'Mercado Pago Gustavo',
+        titular: 'Gustavo',
+        fechamento_dia: 30,
+        vencimento_dia: 7,
+        limite: '',
+        ativo: true,
+    })[header] ?? ''));
+    sheets.Faturas.appendRow(faturasHeaders.map((header) => ({
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_04',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-04',
+        data_fechamento: '2026-04-30',
+        data_vencimento: '2026-05-07',
+        valor_previsto: 84.9,
+        valor_fechado: '',
+        valor_pago: '',
+        status: 'prevista',
+    })[header] ?? ''));
+    sheets.Faturas.appendRow(faturasHeaders.map((header) => ({
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_04',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-04',
+        data_fechamento: '2026-04-30',
+        data_vencimento: '2026-05-07',
+        valor_previsto: 42.5,
+        valor_fechado: 42.5,
+        valor_pago: 42.5,
+        status: 'paga',
+    })[header] ?? ''));
+    sheets.Lancamentos.appendRow(lancamentosHeaders.map((header) => ({
+        id_lancamento: 'LAN_MP_TEST',
+        data: '2026-04-09',
+        competencia: '2026-04',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_ALIMENTACAO_FORA',
+        valor: 84.9,
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_04',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        visibilidade: 'detalhada',
+        status: 'efetivado',
+        descricao: 'historico abril revisado',
+        created_at: '2026-04-30T15:00:00Z',
+    })[header] ?? ''));
+
+    const result = runRemoteAction(context, 'repair_april_2026_mp_invoice_cycle');
+
+    assert.strictEqual(result.ok, true);
+    assert.deepStrictEqual(result.updated.cards, ['CARD_MERCADO_PAGO_GU']);
+    assert.strictEqual(result.updated.faturas, 1);
+    assert.strictEqual(result.updated.lancamentos, 1);
+    const cardRow = sheets.Cartoes.rows.find((row) => row[cartoesHeaders.indexOf('id_cartao')] === 'CARD_MERCADO_PAGO_GU');
+    const card = Object.fromEntries(cartoesHeaders.map((header, index) => [header, cardRow[index]]));
+    assert.strictEqual(card.fechamento_dia, 5);
+    assert.strictEqual(card.vencimento_dia, 11);
+    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    assert.strictEqual(invoice.id_fatura, 'FAT_CARD_MERCADO_PAGO_GU_2026_05');
+    assert.strictEqual(invoice.competencia, '2026-05');
+    assert.strictEqual(invoice.data_fechamento, '2026-05-05');
+    assert.strictEqual(invoice.data_vencimento, '2026-05-11');
+    const paidInvoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[2][index]]));
+    assert.strictEqual(paidInvoice.id_fatura, 'FAT_CARD_MERCADO_PAGO_GU_2026_04');
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_fatura, 'FAT_CARD_MERCADO_PAGO_GU_2026_05');
+});
+
 test('Apps Script ensure_april_2026_house_debts appends separate active house debts once', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
     const idIndex = dividasHeaders.indexOf('id_divida');

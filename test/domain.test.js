@@ -270,6 +270,20 @@ test('invoice cycle uses closing date on or after purchase date', () => {
     });
 });
 
+test('invoice cycle keeps due date in closing month when due day is after closing day', () => {
+    assert.deepStrictEqual(assignInvoiceCycle('2026-04-06', {
+        id_cartao: 'CARD_MP',
+        fechamento_dia: 5,
+        vencimento_dia: 11,
+    }), {
+        id_fatura: 'FAT_CARD_MP_2026_05',
+        id_cartao: 'CARD_MP',
+        competencia: '2026-05',
+        data_fechamento: '2026-05-05',
+        data_vencimento: '2026-05-11',
+    });
+});
+
 test('strict parser contract rejects loose fields and comma money', () => {
     const unknown = validateParsedEvent(baseEvent({ freestyle: true }));
     assert.strictEqual(unknown.ok, false);

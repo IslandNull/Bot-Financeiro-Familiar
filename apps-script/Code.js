@@ -103,6 +103,9 @@ var V55 = (function() {
     if (action === 'ensure_april_2026_config') {
       return json_(ensureApril2026ConfigV55());
     }
+    if (action === 'repair_april_2026_mp_invoice_cycle') {
+      return json_(repairApril2026MercadoPagoInvoiceCycleV55());
+    }
     if (action === 'ensure_april_2026_house_debts') {
       return json_(ensureApril2026HouseDebtConfigV55());
     }
@@ -1114,6 +1117,17 @@ var V55 = (function() {
         april2026CardDefaults_(),
         'id_cartao'
       );
+      var updatedCards = updateRowsById_(
+        cardSheet,
+        SHEETS.CARTOES,
+        {
+          CARD_MERCADO_PAGO_GU: {
+            fechamento_dia: 5,
+            vencimento_dia: 11,
+          },
+        },
+        'id_cartao'
+      );
       var deactivatedCategories = deactivateConfigRowsById_(
         categorySheet,
         SHEETS.CONFIG_CATEGORIAS,
@@ -1127,6 +1141,9 @@ var V55 = (function() {
           categories: appendedCategories,
           sources: appendedSources,
           cards: appendedCards,
+        },
+        updated: {
+          cards: updatedCards,
         },
         deactivated: {
           categories: deactivatedCategories,
@@ -1153,6 +1170,31 @@ var V55 = (function() {
       existingIds[row[idField]] = true;
     });
     return appended;
+  }
+
+  function updateRowsById_(sheet, sheetName, updatesById, idField) {
+    var headers = HEADERS[sheetName];
+    var idIndex = headers.indexOf(idField);
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2 || idIndex < 0) return [];
+    var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    var updated = [];
+    for (var i = 0; i < rows.length; i += 1) {
+      var id = String(rows[i][idIndex] || '');
+      var updates = updatesById[id];
+      if (!updates) continue;
+      var changed = false;
+      Object.keys(updates).forEach(function(field) {
+        var columnIndex = headers.indexOf(field);
+        if (columnIndex < 0) return;
+        var nextValue = updates[field];
+        if (String(rows[i][columnIndex]) === String(nextValue)) return;
+        sheet.getRange(i + 2, columnIndex + 1).setValue(nextValue);
+        changed = true;
+      });
+      if (changed) updated.push(id);
+    }
+    return updated;
   }
 
   function ensureApril2026HouseDebtConfigV55() {
@@ -1183,6 +1225,95 @@ var V55 = (function() {
     } catch (_err) {
       return fail_('APRIL_2026_HOUSE_DEBT_ENSURE_FAILED', 'Dividas', GENERIC_REQUEST_FAILURE);
     }
+  }
+
+  function repairApril2026MercadoPagoInvoiceCycleV55() {
+    var config = readConfig_();
+    var runtimeCheck = verifyReportingRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var cardSheet = spreadsheet.getSheetByName(SHEETS.CARTOES);
+      var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
+      var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+      verifySheetHeaders_(cardSheet, SHEETS.CARTOES);
+      verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
+      verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+
+      var updatedCards = updateRowsById_(
+        cardSheet,
+        SHEETS.CARTOES,
+        {
+          CARD_MERCADO_PAGO_GU: {
+            fechamento_dia: 5,
+            vencimento_dia: 11,
+          },
+        },
+        'id_cartao'
+      );
+
+      var oldInvoiceId = 'FAT_CARD_MERCADO_PAGO_GU_2026_04';
+      var newInvoice = {
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_05',
+        competencia: '2026-05',
+        data_fechamento: '2026-05-05',
+        data_vencimento: '2026-05-11',
+      };
+      var updatedInvoices = updateMercadoPagoInvoiceRows_(invoiceSheet, oldInvoiceId, newInvoice);
+      var updatedLaunches = updateMercadoPagoLaunchInvoiceRefs_(launchSheet, oldInvoiceId, newInvoice.id_fatura);
+
+      return {
+        ok: true,
+        updated: {
+          cards: updatedCards,
+          faturas: updatedInvoices,
+          lancamentos: updatedLaunches,
+        },
+        shouldApplyDomainMutation: updatedCards.length > 0 || updatedInvoices > 0 || updatedLaunches > 0,
+      };
+    } catch (_err) {
+      return fail_('APRIL_2026_MP_INVOICE_CYCLE_REPAIR_FAILED', 'Faturas', GENERIC_RECORD_FAILURE);
+    }
+  }
+
+  function updateMercadoPagoInvoiceRows_(sheet, oldInvoiceId, newInvoice) {
+    var headers = HEADERS[SHEETS.FATURAS];
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return 0;
+    var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    var idIndex = headers.indexOf('id_fatura');
+    var cardIndex = headers.indexOf('id_cartao');
+    var statusIndex = headers.indexOf('status');
+    var updated = 0;
+    for (var i = 0; i < rows.length; i += 1) {
+      if (String(rows[i][idIndex]) !== oldInvoiceId) continue;
+      if (String(rows[i][cardIndex]) !== 'CARD_MERCADO_PAGO_GU') continue;
+      if (String(rows[i][statusIndex]) === 'paga') continue;
+      Object.keys(newInvoice).forEach(function(field) {
+        var columnIndex = headers.indexOf(field);
+        sheet.getRange(i + 2, columnIndex + 1).setValue(newInvoice[field]);
+      });
+      updated += 1;
+    }
+    return updated;
+  }
+
+  function updateMercadoPagoLaunchInvoiceRefs_(sheet, oldInvoiceId, newInvoiceId) {
+    var headers = HEADERS[SHEETS.LANCAMENTOS];
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return 0;
+    var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    var cardIndex = headers.indexOf('id_cartao');
+    var invoiceIndex = headers.indexOf('id_fatura');
+    var updated = 0;
+    for (var i = 0; i < rows.length; i += 1) {
+      if (String(rows[i][cardIndex]) !== 'CARD_MERCADO_PAGO_GU') continue;
+      if (String(rows[i][invoiceIndex]) !== oldInvoiceId) continue;
+      sheet.getRange(i + 2, invoiceIndex + 1).setValue(newInvoiceId);
+      updated += 1;
+    }
+    return updated;
   }
 
   function deactivateConfigRowsById_(sheet, sheetName, ids, idField) {
@@ -1243,8 +1374,8 @@ var V55 = (function() {
         id_fonte: 'FONTE_MERCADO_PAGO_GU',
         nome: 'Mercado Pago Gustavo',
         titular: 'Gustavo',
-        fechamento_dia: 30,
-        vencimento_dia: 7,
+        fechamento_dia: 5,
+        vencimento_dia: 11,
         limite: '',
         ativo: true,
       },
@@ -2808,8 +2939,10 @@ var V55 = (function() {
       var nextMonth = addUtcMonths_(purchaseDate, 1);
       closingDate = buildClampedUtcDate_(nextMonth.getUTCFullYear(), nextMonth.getUTCMonth(), numberFromSheetValue_(card.fechamento_dia));
     }
-    var dueMonth = addUtcMonths_(closingDate, 1);
-    var dueDate = buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), numberFromSheetValue_(card.vencimento_dia));
+    var closingDay = numberFromSheetValue_(card.fechamento_dia);
+    var dueDay = numberFromSheetValue_(card.vencimento_dia);
+    var dueMonth = dueDay > closingDay ? closingDate : addUtcMonths_(closingDate, 1);
+    var dueDate = buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay);
     var competencia = formatUtcCompetencia_(closingDate);
     return {
       id_fatura: 'FAT_' + card.id_cartao + '_' + competencia.replace('-', '_'),
@@ -3343,6 +3476,7 @@ var V55 = (function() {
     exportPilotFamilySummaryV55: exportPilotFamilySummaryV55,
     exportSnapshotV55: exportSnapshotV55,
     ensureApril2026ConfigV55: ensureApril2026ConfigV55,
+    repairApril2026MercadoPagoInvoiceCycleV55: repairApril2026MercadoPagoInvoiceCycleV55,
     ensureApril2026HouseDebtConfigV55: ensureApril2026HouseDebtConfigV55,
     runHelpSmokeSelfTest: runHelpSmokeSelfTest,
     runTelegramWebhookSetupApply: runTelegramWebhookSetupApply,
@@ -3388,6 +3522,12 @@ function exportSnapshotV55() {
 
 function ensureApril2026ConfigV55() {
   var result = V55.ensureApril2026ConfigV55();
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+function repairApril2026MercadoPagoInvoiceCycleV55() {
+  var result = V55.repairApril2026MercadoPagoInvoiceCycleV55();
   Logger.log(JSON.stringify(result));
   return result;
 }

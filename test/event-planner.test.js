@@ -93,7 +93,7 @@ test('card purchase plans reviewed Mercado Pago April config rows', () => {
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     assert.strictEqual(result.mutationGroup.kind, 'compra_cartao');
-    assert.strictEqual(result.mutationGroup.rows[0].row.id_fatura, 'FAT_CARD_MERCADO_PAGO_GU_2026_04');
+    assert.strictEqual(result.mutationGroup.rows[0].row.id_fatura, 'FAT_CARD_MERCADO_PAGO_GU_2026_05');
     assert.strictEqual(result.mutationGroup.rows[1].row.valor_previsto, 84.9);
     assertPlannedRowsMatchSchema(result);
 });
