@@ -3789,6 +3789,22 @@ var V55 = (function() {
     runTelegramWebhookSetupDryRun: runTelegramWebhookSetupDryRun,
     runWebhookSecretNegativeSelfTest: runWebhookSecretNegativeSelfTest,
     writeDraftFamilyClosingV55: writeDraftFamilyClosingV55,
+    migrateV55Parcelas_: function() {
+      var config = readConfig_();
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var sheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+      if (!sheet) return { ok: false, error: 'NO_SHEET' };
+      var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      if (headers.indexOf('parcelas') === -1) {
+        var descIndex = headers.indexOf('descricao');
+        if (descIndex !== -1) {
+          sheet.insertColumnAfter(descIndex + 1);
+          sheet.getRange(1, descIndex + 2).setValue('parcelas');
+          return { ok: true, added: true };
+        }
+      }
+      return { ok: true, added: false };
+    }
   };
 })();
 
@@ -3852,6 +3868,12 @@ function exportPilotFamilySummaryV55() {
 
 function writeDraftFamilyClosingV55() {
   var result = V55.writeDraftFamilyClosingV55();
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+function migrateV55Parcelas() {
+  var result = V55.migrateV55Parcelas_();
   Logger.log(JSON.stringify(result));
   return result;
 }
