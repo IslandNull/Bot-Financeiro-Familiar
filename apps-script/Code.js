@@ -50,6 +50,7 @@ var V55 = (function() {
     Transferencias_Internas: ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'],
     Idempotency_Log: ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'],
   };
+  var PARSED_EVENT_FIELDS = ['tipo_evento', 'data', 'competencia', 'valor', 'descricao', 'id_categoria', 'id_fonte', 'pessoa', 'escopo', 'visibilidade', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'direcao_caixa_familiar', 'status'];
   function doPost(e) {
     var config = readConfig_();
     var secret = headerValue_(e, 'x-telegram-bot-api-secret-token') || parameterValue_(e, 'secret');
@@ -286,6 +287,9 @@ var V55 = (function() {
     var parsed = parseFinancialEventWithOpenAI_(text, config, referenceData);
     if (!parsed.ok) return parsed;
 
+    var closedPeriodCheck = validateClosedPeriodForEvent_(parsed.event, referenceData.closedCompetencias);
+    if (!closedPeriodCheck.ok) return closedPeriodCheck;
+
     if (parsed.event.tipo_evento === 'pagamento_fatura') {
       var invoicePaymentCheck = validatePilotInvoicePaymentEvent_(parsed.event, referenceData);
       if (!invoicePaymentCheck.ok) return invoicePaymentCheck;
@@ -348,7 +352,7 @@ var V55 = (function() {
     for (var i = 0; i < entries.length; i += 1) {
       var entry = entries[i] || {};
       var lineNumber = entry.lineNumber || i + 1;
-      var normalized = normalizeParsedEvent_(entry.event, stringValue_((entry.event || {}).descricao), referenceData);
+      var normalized = normalizeParsedEvent_(entry.event, '', referenceData, { allowMoneyFallback: false });
       if (!normalized.ok) {
         errors.push({ lineNumber: lineNumber, errors: normalized.errors });
         continue;
@@ -416,6 +420,8 @@ var V55 = (function() {
   }
 
   function validateReviewedHistoricalEvent_(event, referenceData) {
+    var closedPeriodCheck = validateClosedPeriodForEvent_(event, referenceData.closedCompetencias);
+    if (!closedPeriodCheck.ok) return closedPeriodCheck;
     if (event.tipo_evento === 'pagamento_fatura') return validatePilotInvoicePaymentEvent_(event, referenceData);
     if (event.tipo_evento === 'compra_cartao') return validatePilotCardPurchaseEvent_(event, referenceData);
     if (event.tipo_evento === 'transferencia_interna') return validatePilotInternalTransferEvent_(event, referenceData);
@@ -1019,12 +1025,14 @@ var V55 = (function() {
       var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
       var assetSheet = spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS);
       var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
+      var closingSheet = spreadsheet.getSheetByName(SHEETS.FECHAMENTO_FAMILIAR);
       verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
       verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
       verifySheetHeaders_(cardSheet, SHEETS.CARTOES);
       verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
       verifySheetHeaders_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
       verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
+      verifySheetHeaders_(closingSheet, SHEETS.FECHAMENTO_FAMILIAR);
 
       var categories = readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS).filter(function(row) { return row.ativo === true; });
       var sources = readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES).filter(function(row) { return row.ativo === true; });
@@ -1036,6 +1044,13 @@ var V55 = (function() {
       var debts = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS).filter(function(row) {
         return ['ativa', 'em_aberto', 'renegociada'].indexOf(row.status) !== -1;
       });
+      var closedCompetencias = readRowsAsObjects_(closingSheet, SHEETS.FECHAMENTO_FAMILIAR).filter(function(row) {
+        return row.status === 'closed' || stringValue_(row.closed_at) !== '';
+      }).map(function(row) {
+        return normalizeSheetCompetencia_(row.competencia);
+      }).filter(function(competencia) {
+        return competencia !== '';
+      });
       return {
         ok: true,
         shouldApplyDomainMutation: false,
@@ -1045,6 +1060,7 @@ var V55 = (function() {
         invoices: invoices,
         assets: assets,
         debts: debts,
+        closedCompetencias: closedCompetencias,
         categoriesById: indexBy_(categories, 'id_categoria'),
         sourcesById: indexBy_(sources, 'id_fonte'),
         cardsById: indexBy_(cards, 'id_cartao'),
@@ -1968,6 +1984,7 @@ var V55 = (function() {
       formatCategoryDictionaryPrompt_(referenceData),
       formatSourceDictionaryPrompt_(referenceData),
       formatCardDictionaryPrompt_(referenceData),
+      formatInvoiceDictionaryPrompt_(referenceData),
       formatAssetDictionaryPrompt_(referenceData),
       formatDebtDictionaryPrompt_(referenceData),
       '',
@@ -2010,6 +2027,14 @@ var V55 = (function() {
     }).join('; ') + '.';
   }
 
+  function formatInvoiceDictionaryPrompt_(referenceData) {
+    return 'Allowed payable invoice ids: ' + referenceData.invoices.map(function(row) {
+      var expected = numberFromSheetValue_(row.valor_fechado) > 0 ? numberFromSheetValue_(row.valor_fechado) : numberFromSheetValue_(row.valor_previsto);
+      var outstanding = roundMoney_(Math.max(0, expected - numberFromSheetValue_(row.valor_pago)));
+      return row.id_fatura + ' for card ' + row.id_cartao + ' (competencia ' + normalizeSheetCompetencia_(row.competencia) + ', outstanding ' + outstanding + ')';
+    }).join('; ') + '.';
+  }
+
   function formatAssetDictionaryPrompt_(referenceData) {
     return 'Allowed active asset ids: ' + referenceData.assets.map(function(row) {
       return row.id_ativo + ' for ' + row.nome + ' (destinacao ' + row.destinacao + ')';
@@ -2034,9 +2059,11 @@ var V55 = (function() {
     return '';
   }
 
-  function normalizeParsedEvent_(entry, originalText, referenceData) {
+  function normalizeParsedEvent_(entry, originalText, referenceData, options) {
     if (!entry || typeof entry !== 'object') return fail_('INVALID_PARSED_EVENT', 'event', GENERIC_RECORD_FAILURE);
-    var value = normalizeMoneyValue_(entry.valor, originalText);
+    var fieldCheck = validateParsedEventFields_(entry);
+    if (!fieldCheck.ok) return fieldCheck;
+    var value = normalizeMoneyValue_(entry.valor, originalText, options);
     if (!isFinite(value) || value <= 0) return fail_('INVALID_MONEY', 'valor', GENERIC_RECORD_FAILURE);
     var normalizedDate = normalizeDateValue_(entry.data);
     var normalized = {
@@ -2061,10 +2088,21 @@ var V55 = (function() {
       status: stringValue_(entry.status) || 'efetivado',
       raw_text: stringValue_(originalText),
     };
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized.data)) return fail_(classifyInvalidDate_(entry.data), 'data', GENERIC_RECORD_FAILURE);
+    if (!isValidIsoDate_(normalized.data)) return fail_(classifyInvalidDate_(entry.data), 'data', GENERIC_RECORD_FAILURE);
     if (!/^\d{4}-\d{2}$/.test(normalized.competencia)) return fail_('INVALID_COMPETENCIA', 'competencia', GENERIC_RECORD_FAILURE);
     normalized = canonicalizePilotEvent_(normalized, referenceData);
     return { ok: true, shouldApplyDomainMutation: true, event: normalized };
+  }
+
+  function validateParsedEventFields_(entry) {
+    var fields = Object.keys(entry);
+    for (var i = 0; i < fields.length; i += 1) {
+      var field = fields[i];
+      if (PARSED_EVENT_FIELDS.indexOf(field) === -1) {
+        return fail_('UNKNOWN_PARSED_FIELD', field, GENERIC_RECORD_FAILURE);
+      }
+    }
+    return { ok: true };
   }
 
   function canonicalizePilotEvent_(event, referenceData) {
@@ -2197,9 +2235,10 @@ var V55 = (function() {
     return text;
   }
 
-  function normalizeMoneyValue_(value, originalText) {
+  function normalizeMoneyValue_(value, originalText, options) {
     var normalized = parseMoneyText_(stringValue_(value));
     if (isFinite(normalized) && normalized > 0) return normalized;
+    if (options && options.allowMoneyFallback === false) return NaN;
     return parseMoneyText_(extractFirstMoneyText_(originalText));
   }
 
@@ -2208,7 +2247,7 @@ var V55 = (function() {
     if (!text) return NaN;
     text = text.replace(/^R\$/i, '').replace(/reais$/i, '').replace(/real$/i, '');
     text = text.replace(/[^\d,.-]/g, '');
-    if (!text || /^[-.,]+$/.test(text)) return NaN;
+    if (!text || /^[-.,]+$/.test(text) || text.indexOf('-') !== -1) return NaN;
     if (text.indexOf(',') !== -1 && text.indexOf('.') !== -1) {
       if (text.lastIndexOf(',') > text.lastIndexOf('.')) {
         text = text.replace(/\./g, '').replace(',', '.');
@@ -2216,17 +2255,37 @@ var V55 = (function() {
         text = text.replace(/,/g, '');
       }
     } else if (text.indexOf(',') !== -1) {
+      if (!/^\d+,\d{1,2}$/.test(text)) return NaN;
       text = text.replace(',', '.');
+    } else if (text.indexOf('.') !== -1 && !/^\d+\.\d{1,2}$/.test(text)) {
+      return NaN;
+    } else if (text.indexOf('.') === -1 && !/^\d+$/.test(text)) {
+      return NaN;
     }
     var amount = Number(text);
     if (!isFinite(amount) || amount <= 0) return NaN;
-    return Math.round(amount * 100) / 100;
+    return Math.round((amount + Number.EPSILON) * 100) / 100;
   }
 
   function extractFirstMoneyText_(text) {
     var source = stringValue_(text);
-    var match = source.match(/(?:R\$\s*)?\d+(?:[.,]\d{1,2})?/i);
-    return match ? match[0] : '';
+    var matches = source.match(/(?:R\$\s*)?\d{1,3}(?:[.\s]\d{3})+(?:,\d{1,2})?|(?:R\$\s*)?\d+(?:[.,]\d{1,2})?/gi) || [];
+    var valid = matches.filter(function(match) {
+      return isFinite(parseMoneyText_(match));
+    });
+    return valid.length === 1 ? valid[0] : '';
+  }
+
+  function isValidIsoDate_(value) {
+    var match = stringValue_(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return false;
+    var year = Number(match[1]);
+    var month = Number(match[2]);
+    var day = Number(match[3]);
+    var date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day;
   }
 
   function classifyInvalidDate_(value) {
@@ -2362,6 +2421,7 @@ var V55 = (function() {
     if (event.escopo !== 'Familiar') return fail_('PILOT_SCOPE_BLOCKED', 'escopo', GENERIC_RECORD_FAILURE);
     if (event.status !== 'efetivado') return fail_('PILOT_STATUS_BLOCKED', 'status', GENERIC_RECORD_FAILURE);
     if (!event.id_fatura) return fail_('PILOT_INVOICE_BLOCKED', 'id_fatura', GENERIC_RECORD_FAILURE);
+    if (!referenceData.invoicesById[stringValue_(event.id_fatura)]) return fail_('PILOT_INVOICE_NOT_FOUND', 'id_fatura', GENERIC_RECORD_FAILURE);
     var source = sourceForEvent_(referenceData, event.id_fonte);
     if (!source || source.tipo === 'cartao_credito') return fail_('CONFIG_SOURCE_BLOCKED', 'id_fonte', GENERIC_RECORD_FAILURE);
     if (event.id_cartao || event.id_divida || event.id_ativo) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
@@ -2432,6 +2492,25 @@ var V55 = (function() {
         event.afeta_patrimonio !== (category.afeta_patrimonio_padrao === true) ||
         event.afeta_caixa_familiar !== (category.afeta_caixa_familiar_padrao === true)) {
       return fail_('CONFIG_FLAGS_BLOCKED', 'flags', GENERIC_RECORD_FAILURE);
+    }
+    return { ok: true };
+  }
+
+  function validateClosedPeriodForEvent_(event, closedCompetencias) {
+    if (!event || event.tipo_evento === 'ajuste') return { ok: true };
+    var competencia = normalizeSheetCompetencia_(event.competencia);
+    if (!competencia) return { ok: true };
+    if ((closedCompetencias || []).indexOf(competencia) === -1) return { ok: true };
+    return fail_('CLOSED_PERIOD_REQUIRES_ADJUSTMENT', 'competencia', GENERIC_RECORD_FAILURE);
+  }
+
+  function validateOpenPeriodForMutation_(spreadsheet, event) {
+    if (!event || event.tipo_evento === 'ajuste') return { ok: true };
+    var closingSheet = spreadsheet.getSheetByName(SHEETS.FECHAMENTO_FAMILIAR);
+    verifySheetHeaders_(closingSheet, SHEETS.FECHAMENTO_FAMILIAR);
+    var closing = findFamilyClosingRow_(closingSheet, normalizeSheetCompetencia_(event.competencia));
+    if (closing && (closing.status === 'closed' || stringValue_(closing.row.closed_at) !== '')) {
+      return fail_('CLOSED_PERIOD_REQUIRES_ADJUSTMENT', 'competencia', GENERIC_RECORD_FAILURE);
     }
     return { ok: true };
   }
@@ -2615,6 +2694,9 @@ var V55 = (function() {
         return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
       }
 
+      var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
+      if (!periodCheck.ok) return periodCheck;
+
       var now = isoNow_();
       var resultRef = stableId_('LAN', request.idempotency_key + '|' + event.descricao + '|' + event.valor);
       resultRefForFailure = resultRef;
@@ -2696,6 +2778,9 @@ var V55 = (function() {
       if (existing && existing.status === 'processing') {
         return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
       }
+
+      var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
+      if (!periodCheck.ok) return periodCheck;
 
       var now = isoNow_();
       var resultRef = stableId_('LAN', request.idempotency_key + '|' + event.tipo_evento + '|' + event.descricao + '|' + event.valor);
@@ -2780,6 +2865,9 @@ var V55 = (function() {
       if (existing && existing.status === 'processing') {
         return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
       }
+
+      var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
+      if (!periodCheck.ok) return periodCheck;
 
       var now = isoNow_();
       var invoice = assignPilotInvoiceCycle_(event.data, referenceData.cardsById[event.id_cartao]);
@@ -2878,6 +2966,9 @@ var V55 = (function() {
         return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
       }
 
+      var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
+      if (!periodCheck.ok) return periodCheck;
+
       var invoice = findInvoicePaymentTarget_(invoiceSheet, event.id_fatura);
       if (!invoice.found) return fail_('PILOT_INVOICE_NOT_FOUND', 'id_fatura', GENERIC_RECORD_FAILURE);
       if (!invoice.payableRows.length) return fail_('PILOT_INVOICE_ALREADY_PAID', 'id_fatura', GENERIC_RECORD_FAILURE);
@@ -2969,6 +3060,9 @@ var V55 = (function() {
         return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
       }
 
+      var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
+      if (!periodCheck.ok) return periodCheck;
+
       var now = isoNow_();
       var transferSources = resolveInternalTransferSources_(event, referenceData);
       if (!transferSources.ok) return transferSources;
@@ -3045,7 +3139,9 @@ var V55 = (function() {
   function parseIsoDateUtc_(value) {
     var match = stringValue_(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (!match) throw new Error('Invalid ISO date');
-    return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    var date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    if (formatUtcDate_(date) !== match[1] + '-' + match[2] + '-' + match[3]) throw new Error('Invalid ISO date');
+    return date;
   }
 
   function addUtcMonths_(date, months) {
@@ -3231,12 +3327,15 @@ var V55 = (function() {
         if (['prevista', 'fechada', 'parcialmente_paga'].indexOf(status) === -1) continue;
         var valorFechado = numberFromSheetValue_(rows[i][fechadoIndex]);
         var valorPrevisto = numberFromSheetValue_(rows[i][previstoIndex]);
+        var valorPago = numberFromSheetValue_(rows[i][pagoIndex]);
         var valorEsperado = valorFechado > 0 ? valorFechado : valorPrevisto;
-        expectedAmount = roundMoney_(expectedAmount + valorEsperado);
+        var valorAberto = Math.max(0, valorEsperado - valorPago);
+        if (valorAberto <= 0) continue;
+        expectedAmount = roundMoney_(expectedAmount + valorAberto);
         payableRows.push({
           rowNumber: i + 2,
           amount: valorEsperado,
-          valor_pago: numberFromSheetValue_(rows[i][pagoIndex]),
+          valor_pago: valorPago,
           status: status,
         });
       }

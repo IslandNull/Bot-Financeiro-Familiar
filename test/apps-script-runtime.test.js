@@ -1121,6 +1121,97 @@ test('Apps Script reviewed historical import validates whole batch before writin
     assert.strictEqual(sheets.Faturas.rows.length, 1);
 });
 
+test('Apps Script reviewed historical import rejects money fallback and unknown invoices in dry-run', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+
+    const result = postHistoricalImport(context, [
+        {
+            lineNumber: 1,
+            event: {
+                tipo_evento: 'despesa',
+                data: '2026-04-02',
+                competencia: '2026-04',
+                valor: '',
+                descricao: 'historico privado 39,90',
+                id_categoria: 'OPEX_MERCADO_SEMANA',
+                id_fonte: 'FONTE_CONTA_FAMILIA',
+                pessoa: 'Gustavo',
+                escopo: 'Familiar',
+                visibilidade: 'detalhada',
+                id_cartao: '',
+                id_fatura: '',
+                id_divida: '',
+                id_ativo: '',
+                afeta_dre: true,
+                afeta_patrimonio: false,
+                afeta_caixa_familiar: true,
+            },
+        },
+        {
+            lineNumber: 2,
+            event: {
+                tipo_evento: 'pagamento_fatura',
+                data: '2026-04-30',
+                competencia: '2026-04',
+                valor: '42.50',
+                descricao: 'pagamento fatura inexistente',
+                id_categoria: '',
+                id_fonte: 'FONTE_CONTA_FAMILIA',
+                pessoa: 'Gustavo',
+                escopo: 'Familiar',
+                visibilidade: 'detalhada',
+                id_cartao: '',
+                id_fatura: 'FAT_INEXISTENTE_2026_04',
+                id_divida: '',
+                id_ativo: '',
+                afeta_dre: false,
+                afeta_patrimonio: false,
+                afeta_caixa_familiar: true,
+            },
+        },
+    ]);
+
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.validationErrors.map((item) => item.lineNumber), [1, 2]);
+    assert.strictEqual(result.validationErrors[0].errors[0].code, 'INVALID_MONEY');
+    assert.strictEqual(result.validationErrors[1].errors[0].code, 'PILOT_INVOICE_NOT_FOUND');
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script reviewed historical import blocks closed competencia before apply writes', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeClosing(sheets, { status: 'closed', closed_at: '2026-05-01T10:00:00Z' });
+
+    const result = postHistoricalImport(context, [{
+        lineNumber: 1,
+        event: {
+            tipo_evento: 'despesa',
+            data: '2026-04-02',
+            competencia: '2026-04',
+            valor: '20.00',
+            descricao: 'historico fechado',
+            id_categoria: 'OPEX_MERCADO_SEMANA',
+            id_fonte: 'FONTE_CONTA_FAMILIA',
+            pessoa: 'Gustavo',
+            escopo: 'Familiar',
+            visibilidade: 'detalhada',
+            id_cartao: '',
+            id_fatura: '',
+            id_divida: '',
+            id_ativo: '',
+            afeta_dre: true,
+            afeta_patrimonio: false,
+            afeta_caixa_familiar: true,
+        },
+    }], { dry_run: false });
+
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.validationErrors[0].errors[0].code, 'CLOSED_PERIOD_REQUIRES_ADJUSTMENT');
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
 test('Apps Script reviewed historical import rejects unreviewed or out-of-scope batches', () => {
     const { context } = createAppsScriptHarness(null, { failOnFetch: true });
     const unreviewed = postHistoricalImport(context, [], { reviewed: false });
@@ -1319,6 +1410,7 @@ test('Apps Script runtime uses OpenAI Responses JSON output for parser boundary'
 test('Apps Script parser prompt uses V54-learned hard output and quoted raw text', () => {
     assert.ok(code.includes('# HARD OUTPUT RULES'));
     assert.ok(code.includes('# CANONICAL DICTIONARIES'));
+    assert.ok(code.includes('Allowed payable invoice ids'));
     assert.ok(code.includes('# PILOT CANONICAL EXAMPLES'));
     assert.ok(code.includes('Never invent ids'));
     assert.ok(code.includes('Do not use comma money strings'));
@@ -1332,12 +1424,13 @@ test('Apps Script runtime normalizes pilot money before validation', () => {
     assert.ok(code.includes('function normalizeMoneyValue_'));
     assert.ok(code.includes('function parseMoneyText_'));
     assert.ok(code.includes('function extractFirstMoneyText_'));
-    assert.ok(code.includes('normalizeMoneyValue_(entry.valor, originalText)'));
+    assert.ok(code.includes('normalizeMoneyValue_(entry.valor, originalText, options)'));
     assert.ok(code.includes("text.replace(',', '.')"));
 });
 
 test('Apps Script runtime normalizes pilot parser dates before validation', () => {
     assert.ok(code.includes('function normalizeDateValue_'));
+    assert.ok(code.includes('function isValidIsoDate_'));
     assert.ok(code.includes('function normalizeCompetenciaValue_'));
     assert.ok(code.includes('function classifyInvalidDate_'));
     assert.ok(code.includes('function canonicalizePilotExpenseEvent_'));
@@ -1350,6 +1443,92 @@ test('Apps Script runtime normalizes pilot parser dates before validation', () =
     assert.ok(code.includes('INVALID_DATE_EMPTY'));
     assert.ok(code.includes('INVALID_DATE_TEXTUAL'));
     assert.ok(code.includes('INVALID_DATE_UNPADDED_ISO'));
+});
+
+test('Apps Script parser output rejects invalid calendar dates before writing', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-02-29',
+        competencia: '2026-02',
+        valor: '10.00',
+        descricao: 'data invalida',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const result = postPilotMessage(context, 'mercado 10 em 29/02/2026');
+
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.errors[0].field, 'data');
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script parser output rejects unknown fields and ambiguous money fallback', () => {
+    const unknown = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '10.00',
+        descricao: 'campo extra',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+        valor_confirmado: true,
+    });
+    const ambiguous = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '',
+        descricao: 'parcela ambigua',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const unknownResult = postPilotMessage(unknown.context, 'mercado 10');
+    const ambiguousResult = postPilotMessage(ambiguous.context, 'parcela 6/18 samsung 39,99');
+
+    assert.strictEqual(unknownResult.ok, false);
+    assert.deepStrictEqual(unknownResult.errors.map((error) => error.code), ['UNKNOWN_PARSED_FIELD']);
+    assert.strictEqual(ambiguousResult.ok, false);
+    assert.deepStrictEqual(ambiguousResult.errors.map((error) => error.code), ['INVALID_MONEY']);
+    assert.strictEqual(unknown.sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(ambiguous.sheets.Lancamentos.rows.length, 1);
 });
 
 test('Apps Script pilot expense canonicalizes fragile parser output before writing', () => {
@@ -1532,6 +1711,64 @@ test('Apps Script expense accepts config-valid category without text alias gate'
     assert.strictEqual(row.visibilidade, 'privada');
 });
 
+test('Apps Script pilot mutation blocks closed competencia unless it is an adjustment', () => {
+    const blocked = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-04-20',
+        competencia: '2026-04',
+        valor: '10.00',
+        descricao: 'mercado fechado',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    appendFakeClosing(blocked.sheets, { status: 'closed', closed_at: '2026-05-01T10:00:00Z' });
+
+    const allowed = createAppsScriptHarness({
+        tipo_evento: 'ajuste',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '10.00',
+        descricao: 'ajuste revisado fechamento abril',
+        id_categoria: 'AJUSTE_REVISAO',
+        id_fonte: '',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'resumo',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    appendFakeClosing(allowed.sheets, { status: 'closed', closed_at: '2026-05-01T10:00:00Z' });
+
+    const blockedResult = postPilotMessage(blocked.context, 'mercado 10 abril fechado');
+    const allowedResult = postPilotMessage(allowed.context, 'ajuste revisado 10 abril fechado');
+
+    assert.strictEqual(blockedResult.ok, false);
+    assert.deepStrictEqual(blockedResult.errors.map((error) => error.code), ['CLOSED_PERIOD_REQUIRES_ADJUSTMENT']);
+    assert.strictEqual(blocked.sheets.Idempotency_Log.rows.length, 1);
+    assert.strictEqual(blocked.sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(allowedResult.ok, true, JSON.stringify(allowedResult.errors));
+    assert.strictEqual(allowed.sheets.Lancamentos.rows.length, 2);
+});
+
 test('Apps Script pilot card purchase writes launch and expected invoice rows', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'compra_cartao',
@@ -1690,6 +1927,44 @@ test('Apps Script pilot invoice payment can pay a historical invoice split into 
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.tipo_evento, 'pagamento_fatura');
     assert.strictEqual(launch.valor, 120);
+});
+
+test('Apps Script pilot invoice payment charges only outstanding amount on partially paid invoice', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'pagamento_fatura',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '70.00',
+        descricao: 'pagamento restante fatura',
+        id_categoria: '',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    appendFakeInvoice(sheets, {
+        valor_previsto: 100,
+        valor_pago: 30,
+        status: 'parcialmente_paga',
+    });
+
+    const result = postPilotMessage(context, 'paguei restante fatura nubank 70');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.valor, 70);
+    assert.strictEqual(invoice.valor_pago, 100);
+    assert.strictEqual(invoice.status, 'paga');
 });
 
 test('Apps Script pilot invoice payment requires reviewed invoice and amount', () => {

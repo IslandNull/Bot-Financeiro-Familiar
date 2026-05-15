@@ -26,7 +26,7 @@ function buildParserPrompt(input) {
             'Rules: card purchases affect DRE now and cash later; invoice payments never affect DRE; internal transfers never affect DRE or net worth.',
             `Today: ${today}`,
             `Parser context JSON: ${JSON.stringify(context)}`,
-            `User text: ${text.trim()}`,
+            `User text: ${JSON.stringify(text.trim())}`,
         ].join('\n'),
     };
 }

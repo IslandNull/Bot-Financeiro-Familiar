@@ -12,29 +12,32 @@ VERIFIED in this repo:
 - Clean V55 sheet schema.
 - Local Node.js contracts for parsed events, invoice cycles, idempotency, reporting, privacy filtering, and guardrails.
 - Local decision-capacity hardening for launch status, recurring income schema, cash snapshots, obligation-first destination, and fail-fast event mapping.
-- Local Telegram handler skeleton with injected fake parser and writer dependencies.
+- Telegram handler and webhook gates with authorization, webhook-secret validation, injected local tests, and Apps Script runtime coverage.
 - Local Telegram send boundary with injected fake sender and redacted fake send logs.
-- Local Telegram webhook gate with secret validation before parser/writer.
 - Real V55 spreadsheet schema verified by redacted sheet/header evidence.
+- Deployed Apps Script runtime for pilot mutations, `/resumo`, snapshot, summary, selftest, monthly closing, and reviewed historical imports.
+- Audit hardening for strict dates, ambiguous money fallback, payable invoice validation, partial invoice payment, historical import validation, and closed-period mutation guards.
 - Local tests that do not call Google Sheets, Telegram, OpenAI, or network services.
 
 UNVERIFIED:
 
-- Real Telegram webhook.
-- Real OpenAI parsing.
-- Apps Script deployment.
+- Full production readiness beyond owner pilot usage.
+- UX readiness with Luana using real Telegram messages after prior UX passes.
 
 ## Execution Plan
 
-Read `EXECUTION_PLAN.md` before choosing the next task. Its current next safe step is Phase 7: controlled Telegram pilot, starting with negative webhook-secret and unauthorized-chat checks.
+Read `EXECUTION_PLAN.md` before choosing the next task. It is the operational authority for current state, deploy rules, remote actions, and next work.
 
 ## Commands
 
 ```powershell
-npm test
+npm run check
+npm run snapshot
+npm run summary
+npm run selftest
 ```
 
-The tests use only Node built-ins.
+Local tests use only Node built-ins. Remote commands require `.env` and configured Apps Script access.
 
 ## Architecture Rule
 

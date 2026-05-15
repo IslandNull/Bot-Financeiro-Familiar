@@ -21,13 +21,12 @@ The product is centered on family solvency, cash safety, net worth, obligations,
 - Family closing shows DRE result, cash surplus, invoice exposure, obligations, reserve, net worth, and suggested destination.
 - Guardrails prevent old settlement vocabulary or output.
 
-## Out Of Scope For The Clean Base
+## Current Operational Boundary
 
-- Real Google Sheets mutation.
-- Telegram webhook.
-- OpenAI calls.
-- Historical V53 or V54 migration.
-- Compatibility with old sheets or old reports.
+- Google Sheets mutation, Telegram webhook routing, OpenAI parsing, and reviewed historical import are now pilot-runtime features.
+- The LLM is only a parser boundary. Sheet config, schema validation, idempotency, closed-period guards, and Apps Script checks remain the source of truth for mutations.
+- Historical V53/V54 compatibility remains out of scope. V55 may use old repos only as technical reference.
+- Person-to-person settlement remains out of scope. The system must not answer who owes money to whom.
 
 ## MVP Phases
 

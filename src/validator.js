@@ -30,7 +30,12 @@ function error(code, field, message) {
 }
 
 function isIsoDate(value) {
-    return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year &&
+        date.getUTCMonth() === month - 1 &&
+        date.getUTCDate() === day;
 }
 
 function isCompetencia(value) {
@@ -40,7 +45,8 @@ function isCompetencia(value) {
 function parseMoney(value) {
     if (typeof value === 'number') {
         if (!Number.isFinite(value) || value <= 0) return null;
-        return Math.round(value * 100) / 100;
+        if (!/^\d+(\.\d{1,2})?$/.test(String(value))) return null;
+        return Math.round((value + Number.EPSILON) * 100) / 100;
     }
     if (typeof value !== 'string' || !/^\d+(\.\d{1,2})?$/.test(value)) return null;
     const parsed = Number(value);

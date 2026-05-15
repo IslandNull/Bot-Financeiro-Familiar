@@ -54,10 +54,10 @@ doPost(e)
        ├─ /help, /start → static text
        ├─ /resumo → readCurrentPilotFamilySummary_() (read-only)
        └─ Financial mutation path:
-            ├─ readRuntimeReferenceData_() → active Config_Categorias, Config_Fontes, Cartoes, Faturas
+            ├─ readRuntimeReferenceData_() → active Config_Categorias, Config_Fontes, Cartoes, Faturas, closed Fechamento_Familiar
             ├─ parseFinancialEventWithOpenAI_()
             ├─ normalizeParsedEvent_() → canonicalizePilotEvent_()
-            ├─ validatePilot*Event_()
+            ├─ validateClosedPeriodForEvent_() + validatePilot*Event_()
             └─ recordPilot*_() → idempotency + sheet append
 
 doGet(e)
@@ -69,6 +69,7 @@ doGet(e)
        ├─ closing_close → closeReviewedFamilyClosingV55()
        ├─ ensure_remaining_mutation_config → ensureRemainingMutationConfigV55()
        ├─ ensure_april_2026_config → ensureApril2026ConfigV55()
+       ├─ ensure_april_2026_house_debts → ensureApril2026HouseDebtConfigV55()
        ├─ repair_april_2026_mp_invoice_cycle → repairApril2026MercadoPagoInvoiceCycleV55()
        └─ selftest → runHelpSmokeSelfTest()
 ```
@@ -77,7 +78,7 @@ doGet(e)
 - All config from `PropertiesService.getScriptProperties()` (never hardcoded secrets)
 - Idempotency: write `Idempotency_Log` before financial rows, suppress completed duplicates
 - LockService for concurrent mutation protection
-- Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, and debts from sheets
+- Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed competencias from sheets
 
 ## Google Sheets (V55) — 13 sheets
 
