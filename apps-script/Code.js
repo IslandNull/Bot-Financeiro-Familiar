@@ -103,6 +103,9 @@ var V55 = (function() {
     if (action === 'repair_premature_current_closing') {
       return json_(repairPrematureCurrentFamilyClosingV55());
     }
+    if (action === 'repair_notebook_installment_pilot') {
+      return json_(repairNotebookInstallmentPilotV55());
+    }
     if (action === 'ensure_remaining_mutation_config') {
       return json_(ensureRemainingMutationConfigV55());
     }
@@ -639,6 +642,100 @@ var V55 = (function() {
     } finally {
       lock.releaseLock();
     }
+  }
+
+  function repairNotebookInstallmentPilotV55() {
+    var config = readConfig_();
+    var runtimeCheck = verifyReportingRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+      var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
+      verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+      verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
+
+      var canceledLaunches = cancelNotebookPilotLaunches_(launchSheet);
+      var canceledInvoices = canceledLaunches > 0 ? cancelNotebookPilotInvoices_(invoiceSheet) : 0;
+      return {
+        ok: true,
+        action: 'repair_notebook_installment_pilot',
+        canceled_launches: canceledLaunches,
+        canceled_invoices: canceledInvoices,
+        shouldApplyDomainMutation: canceledLaunches > 0 || canceledInvoices > 0,
+      };
+    } catch (_err) {
+      return fail_('NOTEBOOK_INSTALLMENT_REPAIR_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  function cancelNotebookPilotLaunches_(sheet) {
+    var headers = HEADERS[SHEETS.LANCAMENTOS];
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return 0;
+    var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    var statusIndex = headers.indexOf('status');
+    var count = 0;
+    for (var i = 0; i < rows.length; i += 1) {
+      var row = headers.reduce(function(result, header, index) {
+        result[header] = normalizeSheetCell_(rows[i][index]);
+        return result;
+      }, {});
+      if (isWrongNotebookPilotLaunch_(row)) {
+        sheet.getRange(i + 2, statusIndex + 1).setValue('cancelado_revisao');
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  function isWrongNotebookPilotLaunch_(row) {
+    return normalizeSheetCompetencia_(row.competencia) === '2026-05' &&
+      row.tipo_evento === 'compra_cartao' &&
+      row.id_categoria === 'OPEX_FARMACIA' &&
+      row.id_cartao === 'CARD_NUBANK_GU' &&
+      Math.abs(numberFromSheetValue_(row.valor) - 3000) < 0.009 &&
+      row.status === 'efetivado' &&
+      containsAliasPhrase_(normalizeAliasText_(row.descricao), 'notebook');
+  }
+
+  function cancelNotebookPilotInvoices_(sheet) {
+    var headers = HEADERS[SHEETS.FATURAS];
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return 0;
+    var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    var statusIndex = headers.indexOf('status');
+    var count = 0;
+    var remaining = { single: 1, may: 1, june: 1, july: 1 };
+    for (var i = rows.length - 1; i >= 0; i -= 1) {
+      var row = headers.reduce(function(result, header, index) {
+        result[header] = normalizeSheetCell_(rows[i][index]);
+        return result;
+      }, {});
+      var key = notebookPilotInvoiceRepairKey_(row);
+      if (key && remaining[key] > 0) {
+        sheet.getRange(i + 2, statusIndex + 1).setValue('cancelado_revisao');
+        remaining[key] -= 1;
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  function notebookPilotInvoiceRepairKey_(row) {
+    if (row.id_cartao !== 'CARD_NUBANK_GU' || row.status !== 'prevista') return '';
+    var competencia = normalizeSheetCompetencia_(row.competencia);
+    var amount = numberFromSheetValue_(row.valor_previsto);
+    if (competencia === '2026-05' && Math.abs(amount - 3000) < 0.009) return 'single';
+    if (competencia === '2026-05' && Math.abs(amount - 1000) < 0.009) return 'may';
+    if (competencia === '2026-06' && Math.abs(amount - 1000) < 0.009) return 'june';
+    if (competencia === '2026-07' && Math.abs(amount - 1000) < 0.009) return 'july';
+    return '';
   }
 
   function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
@@ -2015,6 +2112,7 @@ var V55 = (function() {
     var assetCategory = defaultCategoryForType_(referenceData, 'aporte') || {};
     var debtCategory = defaultCategoryForType_(referenceData, 'divida_pagamento') || {};
     var adjustmentCategory = defaultCategoryForType_(referenceData, 'ajuste') || {};
+    var electronicsCategory = referenceData.categoriesById.OPEX_ELETRONICOS_E_EQUIPAMENTOS || {};
     var familyCashSource = defaultFamilyCashSource_(referenceData) || {};
     var card = defaultActiveCard_(referenceData) || {};
     var invoice = defaultPayableInvoice_(referenceData) || {};
@@ -2050,7 +2148,7 @@ var V55 = (function() {
       'Input: "mercado 10" -> valor "10", tipo_evento "despesa", id_categoria "' + stringValue_(expenseCategory.id_categoria) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", escopo "' + stringValue_(expenseCategory.escopo_padrao || 'Familiar') + '".',
       'Input: "mercado 10 hoje" -> same event with data ' + todaySaoPaulo_() + ' and competencia ' + todaySaoPaulo_().slice(0, 7) + '.',
       'Input: "farmacia 10 no nubank" -> valor "10", tipo_evento "compra_cartao", id_categoria "' + stringValue_(cardCategory.id_categoria) + '", id_cartao "' + stringValue_(card.id_cartao) + '", id_fonte "' + stringValue_(card.id_fonte) + '", escopo "' + stringValue_(cardCategory.escopo_padrao || 'Familiar') + '", parcelas "1".',
-      'Input: "notebook 3000 em 3x no nubank" -> valor "3000", tipo_evento "compra_cartao", id_categoria "' + stringValue_(cardCategory.id_categoria) + '", id_cartao "' + stringValue_(card.id_cartao) + '", id_fonte "' + stringValue_(card.id_fonte) + '", escopo "' + stringValue_(cardCategory.escopo_padrao || 'Familiar') + '", parcelas "3".',
+      'Input: "notebook 3000 em 3x no nubank" -> valor "3000", tipo_evento "compra_cartao", id_categoria "' + stringValue_(electronicsCategory.id_categoria) + '", id_cartao "' + stringValue_(card.id_cartao) + '", id_fonte "' + stringValue_(card.id_fonte) + '", escopo "' + stringValue_(electronicsCategory.escopo_padrao || 'Familiar') + '", parcelas "3".',
       'Input: "pagar fatura nubank 42,50" -> valor "42.50", tipo_evento "pagamento_fatura", id_fatura "' + stringValue_(invoice.id_fatura) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", escopo "Familiar".',
       'Input: "Luana mandou 100 para caixa familiar" -> valor "100", tipo_evento "transferencia_interna", id_categoria "' + stringValue_(transferCategory.id_categoria) + '", pessoa "Luana", escopo "' + stringValue_(transferCategory.escopo_padrao || 'Familiar') + '", direcao_caixa_familiar "entrada".',
       'Input: "salario 5000" -> valor "5000", tipo_evento "receita", id_categoria "' + stringValue_(revenueCategory.id_categoria) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '".',
@@ -2060,6 +2158,7 @@ var V55 = (function() {
       'For a cash expense, use the category default escopo, visibilidade, and afeta_* flags from Config_Categorias; use an active cash source from Config_Fontes; status efetivado.',
       'For receita, aporte, divida_pagamento, and ajuste, use the matching category defaults from Config_Categorias, active references from the canonical dictionaries, and status efetivado.',
       'For a card purchase, use a category whose tipo_evento_padrao is compra_cartao, an active card from Cartoes, that card source from Config_Fontes, and the category default flags; status efetivado.',
+      'Never use an unrelated fallback category. If no category clearly matches the user text, leave id_categoria empty so the runtime can ask for confirmation.',
       'For an invoice payment, use tipo_evento pagamento_fatura, escopo Familiar, visibilidade detalhada, afeta_dre false, afeta_patrimonio false, afeta_caixa_familiar true, an active cash source, and status efetivado.',
       'For the reviewed internal transfer, accept only an entrada into family cash. Use id_fonte empty, id_cartao empty, id_fatura empty, id_divida empty, id_ativo empty, the transfer category defaults, and status efetivado.',
       'Rules: card purchases affect DRE now and cash later; invoice payments never affect DRE; internal transfers never affect DRE or net worth.',
@@ -2457,6 +2556,8 @@ var V55 = (function() {
     if (event.status !== 'efetivado') return fail_('PILOT_STATUS_BLOCKED', 'status', GENERIC_RECORD_FAILURE);
     var category = categoryForEvent_(referenceData, event.id_categoria, 'despesa');
     if (!category) return fail_('CONFIG_CATEGORY_BLOCKED', 'id_categoria', GENERIC_RECORD_FAILURE);
+    var textCategoryCheck = validateTextMatchesCategory_(event, category, referenceData, 'despesa');
+    if (!textCategoryCheck.ok) return textCategoryCheck;
     if (event.escopo !== category.escopo_padrao) return fail_('CONFIG_SCOPE_BLOCKED', 'escopo', GENERIC_RECORD_FAILURE);
     if (event.visibilidade !== category.visibilidade_padrao) return fail_('CONFIG_VISIBILITY_BLOCKED', 'visibilidade', GENERIC_RECORD_FAILURE);
     var source = sourceForEvent_(referenceData, event.id_fonte);
@@ -2472,6 +2573,8 @@ var V55 = (function() {
     if (event.status !== 'efetivado') return fail_('PILOT_STATUS_BLOCKED', 'status', GENERIC_RECORD_FAILURE);
     var category = categoryForEvent_(referenceData, event.id_categoria, 'compra_cartao');
     if (!category) return fail_('CONFIG_CATEGORY_BLOCKED', 'id_categoria', GENERIC_RECORD_FAILURE);
+    var textCategoryCheck = validateTextMatchesCategory_(event, category, referenceData, 'compra_cartao');
+    if (!textCategoryCheck.ok) return textCategoryCheck;
     if (event.escopo !== category.escopo_padrao) return fail_('CONFIG_SCOPE_BLOCKED', 'escopo', GENERIC_RECORD_FAILURE);
     if (event.visibilidade !== category.visibilidade_padrao) return fail_('CONFIG_VISIBILITY_BLOCKED', 'visibilidade', GENERIC_RECORD_FAILURE);
     var card = cardForEvent_(referenceData, event.id_cartao);
@@ -2562,6 +2665,82 @@ var V55 = (function() {
       return fail_('CONFIG_FLAGS_BLOCKED', 'flags', GENERIC_RECORD_FAILURE);
     }
     return { ok: true };
+  }
+
+  function validateTextMatchesCategory_(event, category, referenceData, eventType) {
+    var rawText = stringValue_(event.raw_text);
+    if (!rawText) return { ok: true };
+    if (categoryMatchesText_(category, rawText)) return { ok: true };
+    return fail_('CATEGORY_CONFIRMATION_REQUIRED', 'id_categoria', categoryClarificationText_(rawText, referenceData, eventType));
+  }
+
+  function categoryClarificationText_(rawText, referenceData, eventType) {
+    var suggestions = suggestCategoriesForText_(rawText, referenceData, eventType);
+    var lines = [
+      '⚠️ Nao vou anotar ainda porque a categoria nao ficou confiavel.',
+      '💡 Reenvie com a categoria no texto, por exemplo: "notebook 3000 em 3x no nubank categoria Eletronicos e equipamentos".',
+    ];
+    if (suggestions.length) {
+      lines.push('Categorias provaveis: ' + suggestions.join(', ') + '.');
+    }
+    return lines.join('\n');
+  }
+
+  function suggestCategoriesForText_(rawText, referenceData, eventType) {
+    var result = [];
+    for (var i = 0; i < referenceData.categories.length; i += 1) {
+      var category = referenceData.categories[i];
+      if (!categoryForEvent_(referenceData, category.id_categoria, eventType)) continue;
+      if (!categoryMatchesText_(category, rawText)) continue;
+      result.push(stringValue_(category.nome));
+      if (result.length >= 4) break;
+    }
+    return result;
+  }
+
+  function categoryMatchesText_(category, rawText) {
+    var normalizedText = normalizeAliasText_(rawText);
+    if (!normalizedText) return false;
+    var phrases = categoryMatchPhrases_(category);
+    for (var i = 0; i < phrases.length; i += 1) {
+      if (containsAliasPhrase_(normalizedText, phrases[i])) return true;
+    }
+    return false;
+  }
+
+  function categoryMatchPhrases_(category) {
+    var id = stringValue_(category.id_categoria);
+    var aliases = {
+      OPEX_MERCADO_SEMANA: ['mercado', 'supermercado', 'feira', 'hortifruti'],
+      OPEX_MERCADO_SEMANA_CARTAO: ['mercado', 'supermercado', 'feira', 'hortifruti'],
+      OPEX_FARMACIA: ['farmacia', 'remedio', 'medicamento'],
+      OPEX_SAUDE_BEM_ESTAR: ['saude', 'consulta', 'medico', 'exame', 'remedio', 'medicamento'],
+      OPEX_ELETRONICOS_E_EQUIPAMENTOS: ['eletronicos', 'equipamentos', 'notebook', 'computador', 'laptop', 'celular', 'tablet', 'monitor', 'teclado', 'mouse'],
+      OPEX_DESENVOLVIMENTO_PROFISSIONAL: ['desenvolvimento profissional', 'curso', 'certificacao', 'livro', 'carreira'],
+      OPEX_DESENVOLVIMENTO_PROFISSIONAL_DINHEIRO: ['desenvolvimento profissional', 'curso', 'certificacao', 'livro', 'carreira'],
+      OPEX_ALIMENTACAO_FORA: ['alimentacao', 'restaurante', 'lanche', 'ifood'],
+      OPEX_LANCHE_TRABALHO: ['lanche', 'trabalho'],
+      OPEX_TRANSPORTE_TRABALHO_GUSTAVO: ['transporte', 'uber', 'onibus', 'gasolina', 'combustivel'],
+      OPEX_TRANSPORTE_TRABALHO_GUSTAVO_DINHEIRO: ['transporte', 'uber', 'onibus', 'gasolina', 'combustivel'],
+      OPEX_TRANSPORTE_TRABALHO_LUANA: ['transporte', 'uber', 'onibus', 'gasolina', 'combustivel'],
+      OPEX_TRANSPORTE_PESSOAL: ['transporte', 'uber', 'onibus', 'gasolina', 'combustivel'],
+      OPEX_TRANSPORTE_PESSOAL_LUANA: ['transporte', 'uber', 'onibus', 'gasolina', 'combustivel'],
+      OPEX_TRANSPORTE_LAZER_FAMILIAR: ['transporte', 'uber', 'onibus', 'gasolina', 'combustivel'],
+      OPEX_LAZER_PESSOAL: ['lazer', 'cinema', 'show', 'jogo'],
+      OPEX_LAZER_PESSOAL_DINHEIRO: ['lazer', 'cinema', 'show', 'jogo'],
+      OPEX_LAZER_FAMILIAR: ['lazer', 'cinema', 'show', 'jogo'],
+      OPEX_CUIDADOS_PESSOAIS: ['cuidados pessoais', 'barbearia', 'cabelo', 'salao'],
+      OPEX_VESTUARIO_ACESSORIOS: ['vestuario', 'roupa', 'calcado', 'acessorio'],
+      OPEX_VESTUARIO_LUANA: ['vestuario', 'roupa', 'calcado', 'acessorio'],
+      OPEX_TELEFONIA_INTERNET: ['telefone', 'telefonia', 'internet', 'celular'],
+      OPEX_TELEFONIA_GUSTAVO: ['telefone', 'telefonia', 'internet', 'celular'],
+      OPEX_PET: ['pet'],
+      OPEX_CUSTO_REEMBOLSAVEL_CLIENTE: ['reembolsavel', 'cliente'],
+    };
+    var phrases = aliases[id] ? aliases[id].slice() : [];
+    var name = normalizeAliasText_(category.nome);
+    if (name) phrases.push(name);
+    return phrases;
   }
 
   function validateClosedPeriodForEvent_(event, closedCompetencias) {
@@ -3847,6 +4026,7 @@ var V55 = (function() {
     ensureApril2026ConfigV55: ensureApril2026ConfigV55,
     repairApril2026MercadoPagoInvoiceCycleV55: repairApril2026MercadoPagoInvoiceCycleV55,
     repairPrematureCurrentFamilyClosingV55: repairPrematureCurrentFamilyClosingV55,
+    repairNotebookInstallmentPilotV55: repairNotebookInstallmentPilotV55,
     ensureApril2026HouseDebtConfigV55: ensureApril2026HouseDebtConfigV55,
     runHelpSmokeSelfTest: runHelpSmokeSelfTest,
     runTelegramWebhookSetupApply: runTelegramWebhookSetupApply,
@@ -3920,6 +4100,12 @@ function repairApril2026MercadoPagoInvoiceCycleV55() {
 
 function repairPrematureCurrentFamilyClosingV55() {
   var result = V55.repairPrematureCurrentFamilyClosingV55();
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+function repairNotebookInstallmentPilotV55() {
+  var result = V55.repairNotebookInstallmentPilotV55();
   Logger.log(JSON.stringify(result));
   return result;
 }

@@ -80,6 +80,7 @@ doGet(e)
 - LockService for concurrent mutation protection
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed competencias from sheets
 - Operational repair action: `repair_premature_current_closing` reopens only a prematurely closed current competencia.
+- Operational repair action: `repair_notebook_installment_pilot` cancels the duplicated wrong notebook pilot rows without deleting history.
 
 ## Google Sheets (V55) — 13 sheets
 

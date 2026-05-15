@@ -245,6 +245,19 @@ function appendRuntimeConfigRows(sheets) {
             ativo: true,
         },
         {
+            id_categoria: 'OPEX_ELETRONICOS_E_EQUIPAMENTOS',
+            nome: 'Eletronicos e equipamentos',
+            grupo: 'Pessoal',
+            tipo_evento_padrao: 'compra_cartao',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: false,
+            visibilidade_padrao: 'resumo',
+            ativo: true,
+        },
+        {
             id_categoria: 'OPEX_LANCHE_TRABALHO',
             nome: 'Lanche trabalho',
             grupo: 'Pessoal',
@@ -566,6 +579,7 @@ test('Apps Script runtime exposes webhook and self-test functions', () => {
     assert.ok(code.includes('function writeDraftFamilyClosingV55()'));
     assert.ok(code.includes('function closeReviewedFamilyClosingV55('));
     assert.ok(code.includes('function repairPrematureCurrentFamilyClosingV55()'));
+    assert.ok(code.includes('function repairNotebookInstallmentPilotV55()'));
     assert.ok(code.includes('function runTelegramWebhookSetupDryRun()'));
     assert.ok(code.includes('function runTelegramWebhookSetupApply()'));
 });
@@ -898,7 +912,7 @@ test('Apps Script ensure_april_2026_config appends reviewed config rows once', (
 
     assert.strictEqual(first.ok, true);
     assert.strictEqual(first.shouldApplyDomainMutation, false);
-    assert.strictEqual(first.appended.categories.length, 30);
+    assert.strictEqual(first.appended.categories.length, 29);
     assert.ok(first.appended.categories.includes('OPEX_MERCADO_SEMANA_CARTAO'));
     assert.ok(first.appended.categories.includes('OPEX_DESENVOLVIMENTO_PROFISSIONAL'));
     assert.ok(first.appended.categories.includes('OPEX_DESENVOLVIMENTO_PROFISSIONAL_DINHEIRO'));
@@ -910,7 +924,7 @@ test('Apps Script ensure_april_2026_config appends reviewed config rows once', (
     assert.ok(first.appended.categories.includes('OPEX_VESTUARIO_ACESSORIOS'));
     assert.ok(first.appended.categories.includes('OPEX_VESTUARIO_LUANA'));
     assert.ok(first.appended.categories.includes('OPEX_SAUDE_BEM_ESTAR'));
-    assert.ok(first.appended.categories.includes('OPEX_ELETRONICOS_E_EQUIPAMENTOS'));
+    assert.ok(sheets.Config_Categorias.rows.some((row) => row[configCategoriasHeaders.indexOf('id_categoria')] === 'OPEX_ELETRONICOS_E_EQUIPAMENTOS'));
     assert.ok(first.appended.categories.includes('OPEX_CASA_DOCUMENTACAO_SERVICOS'));
     assert.ok(first.appended.categories.includes('OPEX_TELEFONIA_INTERNET'));
     assert.ok(first.appended.categories.includes('OPEX_TELEFONIA_GUSTAVO'));
@@ -927,8 +941,8 @@ test('Apps Script ensure_april_2026_config appends reviewed config rows once', (
         'FONTE_CONTA_NUBANK_GU',
     ]);
     assert.deepStrictEqual(first.appended.cards, ['CARD_MERCADO_PAGO_GU']);
-    assert.strictEqual(first.appended_count, 34);
-    assert.strictEqual(sheets.Config_Categorias.rows.length, beforeCategories + 30);
+    assert.strictEqual(first.appended_count, 33);
+    assert.strictEqual(sheets.Config_Categorias.rows.length, beforeCategories + 29);
     assert.strictEqual(sheets.Config_Fontes.rows.length, beforeSources + 3);
     assert.strictEqual(sheets.Cartoes.rows.length, beforeCards + 1);
     assert.strictEqual(second.ok, true);
@@ -1440,6 +1454,55 @@ test('Apps Script repair action reopens only premature current family closing', 
     assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('closed_at')], '');
 });
 
+test('Apps Script repair action cancels duplicated wrong notebook pilot rows without deleting history', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_NOTEBOOK_SINGLE',
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_FARMACIA',
+        valor: 3000,
+        id_fonte: 'FONTE_NUBANK_GU',
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_05',
+        descricao: 'Notebook 3000 em 3x no Nubank',
+        status: 'efetivado',
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_NOTEBOOK_PARCELADO',
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_FARMACIA',
+        valor: 3000,
+        id_fonte: 'FONTE_NUBANK_GU',
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_05',
+        descricao: 'Notebook 3000 em 3x no Nubank',
+        parcelas: 3,
+        status: 'efetivado',
+    });
+    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_05', competencia: '2026-05', valor_previsto: 3000 });
+    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_05', competencia: '2026-05', valor_previsto: 1000 });
+    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_06', competencia: '2026-06', valor_previsto: 1000 });
+    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_07', competencia: '2026-07', valor_previsto: 1000 });
+
+    const result = runRemoteAction(context, 'repair_notebook_installment_pilot');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.canceled_launches, 2);
+    assert.strictEqual(result.canceled_invoices, 4);
+    assert.deepStrictEqual(sheets.Lancamentos.rows.slice(1).map((row) => row[lancamentosHeaders.indexOf('status')]), ['cancelado_revisao', 'cancelado_revisao']);
+    assert.deepStrictEqual(sheets.Faturas.rows.slice(1).map((row) => row[faturasHeaders.indexOf('status')]), ['cancelado_revisao', 'cancelado_revisao', 'cancelado_revisao', 'cancelado_revisao']);
+});
+
 test('Apps Script closing_close action requires closed_at metadata', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
@@ -1510,6 +1573,8 @@ test('Apps Script parser prompt uses V54-learned hard output and quoted raw text
     assert.ok(code.includes('Do not use comma money strings'));
     assert.ok(code.includes('Use real JSON booleans true/false'));
     assert.ok(code.includes('farmacia 10 no nubank'));
+    assert.ok(code.includes('OPEX_ELETRONICOS_E_EQUIPAMENTOS'));
+    assert.ok(code.includes('Never use an unrelated fallback category'));
     assert.ok(code.includes('pagar fatura nubank 42,50'));
     assert.ok(code.includes('User text: \' + JSON.stringify(text.trim())'));
 });
@@ -1911,13 +1976,13 @@ test('Apps Script pilot card purchase writes launch and expected invoice rows', 
     assert.strictEqual(invoice.status, 'prevista');
 });
 
-test('Apps Script card purchase accepts config-valid card without text alias gate', () => {
+test('Apps Script card purchase blocks unrelated fallback category and asks for confirmation', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'compra_cartao',
         data: '2026-04-30',
         competencia: '2026-04',
-        valor: '25',
-        descricao: 'consulta no nubank',
+        valor: '3000',
+        descricao: 'Notebook 3000 em 3x no Nubank',
         id_categoria: 'OPEX_FARMACIA',
         id_fonte: '',
         pessoa: '',
@@ -1932,13 +1997,54 @@ test('Apps Script card purchase accepts config-valid card without text alias gat
         afeta_caixa_familiar: false,
         direcao_caixa_familiar: '',
         status: '',
+        parcelas: 3,
     });
 
-    const result = postPilotMessage(context, 'consulta 25 no nubank');
+    const result = postPilotMessage(context, 'Comprei notebook 3000 em 3x no nubank');
 
-    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['CATEGORY_CONFIRMATION_REQUIRED']);
+    assert.match(result.responseText, /categoria nao ficou confiavel/);
+    assert.match(result.responseText, /Eletronicos e equipamentos/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Faturas.rows.length, 1);
+});
+
+test('Apps Script card purchase accepts notebook when parser selects matching electronics category', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '3000',
+        descricao: 'Notebook 3000 em 3x no Nubank',
+        id_categoria: 'OPEX_ELETRONICOS_E_EQUIPAMENTOS',
+        id_fonte: '',
+        pessoa: '',
+        escopo: '',
+        visibilidade: '',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: '',
+        parcelas: 3,
+    });
+
+    const result = postPilotMessage(context, 'Comprei notebook 3000 em 3x no nubank categoria Eletronicos e equipamentos');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
-    assert.strictEqual(sheets.Faturas.rows.length, 2);
+    assert.strictEqual(sheets.Faturas.rows.length, 4);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_categoria, 'OPEX_ELETRONICOS_E_EQUIPAMENTOS');
+    assert.strictEqual(launch.parcelas, 3);
+    const invoices = sheets.Faturas.rows.slice(1).map((row) => Object.fromEntries(faturasHeaders.map((header, index) => [header, row[index]])));
+    assert.deepStrictEqual(invoices.map((invoice) => invoice.valor_previsto), [1000, 1000, 1000]);
+    assert.deepStrictEqual(invoices.map((invoice) => invoice.competencia), ['2026-04', '2026-05', '2026-06']);
 });
 
 test('Apps Script pilot invoice payment writes cash launch and marks invoice paid', () => {

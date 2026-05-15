@@ -16,7 +16,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed family closings from sheets.
 - Reviewed historical JSONL import is narrow: 2026-04 only, max 5 events, full validation before writes, `historical_jsonl` idempotency, no private-detail output.
 - April 2026 reviewed historical import is applied through version @70; MP 2970.24 remains ignored unless March reconciliation is requested.
-- Version @78 deployed on 2026-05-15 with audit and pilot hardening:
+- Version @79 deployed on 2026-05-15 with audit and pilot hardening:
   - strict calendar-date validation, including February/leap-year cases;
   - stricter money parsing and ambiguous-number fallback blocking;
   - no money fallback in reviewed historical import;
@@ -24,9 +24,12 @@ Operational authority for Bot Financeiro Familiar V55.
   - partial invoice payment uses only outstanding balance;
   - closed competencias block mutations unless event type is `ajuste`;
   - current/future competencias cannot be closed by `closing_close`;
-  - premature current-month closing repair action is available and was applied for 2026-05.
-- Latest validation after @78: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-15.
+  - premature current-month closing repair action is available and was applied for 2026-05;
+  - parser blocks unrelated fallback categories and asks for category confirmation;
+  - notebook pilot repair action can cancel the duplicated wrong pilot rows without deleting history.
+- Latest validation after @79: `npm run check`, `npm run snapshot`, and `npm run summary` passed on 2026-05-15.
 - Current real closing state in snapshot: 2026-04 closed; 2026-05 draft.
+- Current spreadsheet data should be treated as pilot-contaminated; next work is clean reset/import after reviewing all April launch questions.
 
 ### Unverified
 
@@ -52,6 +55,7 @@ The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>` for remot
 
 Available actions: `snapshot`, `summary`, `closing_draft`, `closing_close`,
 `repair_premature_current_closing`,
+`repair_notebook_installment_pilot`,
 `ensure_remaining_mutation_config`, `ensure_april_2026_config`,
 `ensure_april_2026_house_debts`, `repair_april_2026_mp_invoice_cycle`, and `selftest`.
 
@@ -82,4 +86,4 @@ Optional/operational keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHO
 1. Keep pilot operation conservative; use `ajuste` for any reviewed correction in a closed competencia.
 2. [x] Add installment-purchase tracking for future invoice forecasts beyond current monthly parcel imports.
 3. [x] Add real source-balance snapshots before relying on `/resumo` for final cash destination decisions.
-4. **Live Validation**: Retest `Comprei notebook 3000 em 3x no nubank` via Telegram after @78; 2026-05 is no longer closed.
+4. **Clean Rebuild**: define reviewed April JSONL from source history, clarify doubtful launches, then reset/reimport the spreadsheet in one controlled batch.
