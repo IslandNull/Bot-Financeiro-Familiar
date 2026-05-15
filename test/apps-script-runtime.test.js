@@ -850,12 +850,15 @@ test('Apps Script ensure_april_2026_config appends reviewed config rows once', (
 
     assert.strictEqual(first.ok, true);
     assert.strictEqual(first.shouldApplyDomainMutation, false);
-    assert.strictEqual(first.appended.categories.length, 22);
+    assert.strictEqual(first.appended.categories.length, 25);
     assert.ok(first.appended.categories.includes('OPEX_DESENVOLVIMENTO_PROFISSIONAL'));
     assert.ok(first.appended.categories.includes('OPEX_ALIMENTACAO_PESSOAL_GUSTAVO'));
     assert.ok(first.appended.categories.includes('OPEX_LAZER_FAMILIAR'));
     assert.ok(first.appended.categories.includes('OPEX_VESTUARIO_ACESSORIOS'));
     assert.ok(first.appended.categories.includes('OPEX_VESTUARIO_LUANA'));
+    assert.ok(first.appended.categories.includes('OPEX_SAUDE_BEM_ESTAR'));
+    assert.ok(first.appended.categories.includes('OPEX_ELETRONICOS_E_EQUIPAMENTOS'));
+    assert.ok(first.appended.categories.includes('OPEX_CASA_DOCUMENTACAO_SERVICOS'));
     assert.ok(first.appended.categories.includes('OPEX_TELEFONIA_INTERNET'));
     assert.ok(first.appended.categories.includes('OPEX_TELEFONIA_GUSTAVO'));
     assert.ok(first.appended.categories.includes('OPEX_PET'));
@@ -871,8 +874,8 @@ test('Apps Script ensure_april_2026_config appends reviewed config rows once', (
         'FONTE_CONTA_NUBANK_GU',
     ]);
     assert.deepStrictEqual(first.appended.cards, ['CARD_MERCADO_PAGO_GU']);
-    assert.strictEqual(first.appended_count, 26);
-    assert.strictEqual(sheets.Config_Categorias.rows.length, beforeCategories + 22);
+    assert.strictEqual(first.appended_count, 29);
+    assert.strictEqual(sheets.Config_Categorias.rows.length, beforeCategories + 25);
     assert.strictEqual(sheets.Config_Fontes.rows.length, beforeSources + 3);
     assert.strictEqual(sheets.Cartoes.rows.length, beforeCards + 1);
     assert.strictEqual(second.ok, true);
