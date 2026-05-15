@@ -70,6 +70,9 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
         Fechamento_Familiar: createFakeSheet(fechamentoFamiliarHeaders),
         Transferencias_Internas: createFakeSheet(transferenciasHeaders),
     };
+    Object.keys(sheets).forEach((name) => {
+        sheets[name].getName = () => name;
+    });
     appendRuntimeConfigRows(sheets);
     const properties = {
         WEBHOOK_SECRET: 'test_secret',
@@ -116,6 +119,18 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
             openById(id) {
                 assert.strictEqual(id, 'sheet_1');
                 return {
+                    getName() {
+                        return 'Bot Financeiro Familiar';
+                    },
+                    getSpreadsheetLocale() {
+                        return 'pt_BR';
+                    },
+                    getSpreadsheetTimeZone() {
+                        return 'America/Sao_Paulo';
+                    },
+                    getSheets() {
+                        return Object.values(sheets);
+                    },
                     getSheetByName(name) {
                         return sheets[name] || null;
                     },
@@ -550,6 +565,7 @@ test('Apps Script runtime exposes webhook and self-test functions', () => {
     assert.ok(code.includes('function exportPilotFamilySummaryV55()'));
     assert.ok(code.includes('function writeDraftFamilyClosingV55()'));
     assert.ok(code.includes('function closeReviewedFamilyClosingV55('));
+    assert.ok(code.includes('function repairPrematureCurrentFamilyClosingV55()'));
     assert.ok(code.includes('function runTelegramWebhookSetupDryRun()'));
     assert.ok(code.includes('function runTelegramWebhookSetupApply()'));
 });
@@ -794,6 +810,22 @@ test('Apps Script doGet summary action returns current read-only family summary'
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
+});
+
+test('Apps Script snapshot includes family closing status without financial details', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeClosing(sheets, {
+        competencia: new Date(Date.UTC(2026, 3, 1, 12, 0, 0)),
+        status: 'closed',
+        closed_at: '2026-05-01T10:00:00Z',
+    });
+
+    const result = runRemoteAction(context, 'snapshot');
+
+    assert.strictEqual(result.ok, true);
+    assert.ok(result.snapshot.includes('## Fechamento_Familiar'));
+    assert.ok(result.snapshot.includes('- 2026-04: closed / closed_at: 2026-05-01T10:00:00Z'));
+    assert.strictEqual(result.snapshot.includes('existing'), false);
 });
 
 test('Apps Script ensure_remaining_mutation_config appends missing category defaults once', () => {
@@ -1297,13 +1329,13 @@ test('Apps Script closing_close action closes an existing family closing draft',
         },
     });
     appendFakeClosing(sheets, {
-        competencia: new Date(Date.UTC(2026, 3, 1, 12, 0, 0)),
+        competencia: '2026-03',
         observacao: 'reviewed draft',
     });
 
     const result = runRemoteAction(context, 'closing_close', {
-        competencia: '2026-04',
-        closed_at: '2026-05-05T18:00:00Z',
+        competencia: '2026-03',
+        closed_at: '2026-04-05T18:00:00Z',
         observacao: 'revisado pelo owner',
     });
 
@@ -1312,14 +1344,37 @@ test('Apps Script closing_close action closes an existing family closing draft',
     assert.strictEqual(result.status, 'closed');
     assert.strictEqual(result.shouldApplyDomainMutation, true);
     assert.deepStrictEqual(Object.keys(result.closing), fechamentoFamiliarHeaders);
-    assert.strictEqual(result.closing.competencia, '2026-04');
+    assert.strictEqual(result.closing.competencia, '2026-03');
     assert.strictEqual(result.closing.status, 'closed');
-    assert.strictEqual(result.closing.closed_at, '2026-05-05T18:00:00Z');
+    assert.strictEqual(result.closing.closed_at, '2026-04-05T18:00:00Z');
     assert.strictEqual(result.closing.observacao, 'revisado pelo owner');
     assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 2);
     assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('status')], 'closed');
-    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('competencia')], '2026-04');
-    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('closed_at')], '2026-05-05T18:00:00Z');
+    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('competencia')], '2026-03');
+    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('closed_at')], '2026-04-05T18:00:00Z');
+});
+
+test('Apps Script closing_close action blocks current or future competencia', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeClosing(sheets, {
+        competencia: '2026-04',
+        observacao: 'current draft',
+    });
+
+    const result = runRemoteAction(context, 'closing_close', {
+        competencia: '2026-04',
+        closed_at: '2026-04-30T18:00:00Z',
+    });
+
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['CLOSING_CURRENT_OR_FUTURE_BLOCKED']);
+    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('status')], 'draft');
 });
 
 test('Apps Script closing_close action fails when draft is absent', () => {
@@ -1332,8 +1387,8 @@ test('Apps Script closing_close action fails when draft is absent', () => {
     });
 
     const result = runRemoteAction(context, 'closing_close', {
-        competencia: '2026-04',
-        closed_at: '2026-05-05T18:00:00Z',
+        competencia: '2026-03',
+        closed_at: '2026-04-05T18:00:00Z',
     });
 
     assert.strictEqual(result.ok, false);
@@ -1349,17 +1404,40 @@ test('Apps Script closing_close action blocks already closed rows', () => {
             OPENAI_API_KEY: '',
         },
     });
-    appendFakeClosing(sheets, { status: 'closed', closed_at: '2026-05-01T10:00:00Z' });
+    appendFakeClosing(sheets, { competencia: '2026-03', status: 'closed', closed_at: '2026-04-01T10:00:00Z' });
 
     const result = runRemoteAction(context, 'closing_close', {
-        competencia: '2026-04',
-        closed_at: '2026-05-05T18:00:00Z',
+        competencia: '2026-03',
+        closed_at: '2026-04-05T18:00:00Z',
     });
 
     assert.strictEqual(result.ok, false);
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['CLOSING_NOT_DRAFT']);
     assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('status')], 'closed');
-    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('closed_at')], '2026-05-01T10:00:00Z');
+    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('closed_at')], '2026-04-01T10:00:00Z');
+});
+
+test('Apps Script repair action reopens only premature current family closing', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeClosing(sheets, {
+        competencia: '2026-04',
+        status: 'closed',
+        closed_at: '2026-04-15T10:00:00Z',
+    });
+
+    const result = runRemoteAction(context, 'repair_premature_current_closing');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.status, 'reopened');
+    assert.strictEqual(result.competencia, '2026-04');
+    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('status')], 'draft');
+    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('closed_at')], '');
 });
 
 test('Apps Script closing_close action requires closed_at metadata', () => {

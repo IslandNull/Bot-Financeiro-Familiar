@@ -16,14 +16,17 @@ Operational authority for Bot Financeiro Familiar V55.
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed family closings from sheets.
 - Reviewed historical JSONL import is narrow: 2026-04 only, max 5 events, full validation before writes, `historical_jsonl` idempotency, no private-detail output.
 - April 2026 reviewed historical import is applied through version @70; MP 2970.24 remains ignored unless March reconciliation is requested.
-- Version @71 deployed on 2026-05-15 with audit hardening:
+- Version @78 deployed on 2026-05-15 with audit and pilot hardening:
   - strict calendar-date validation, including February/leap-year cases;
   - stricter money parsing and ambiguous-number fallback blocking;
   - no money fallback in reviewed historical import;
   - payable invoice allowlist in parser prompt and invoice-payment validation;
   - partial invoice payment uses only outstanding balance;
-  - closed competencias block mutations unless event type is `ajuste`.
-- Latest validation after @71: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-15.
+  - closed competencias block mutations unless event type is `ajuste`;
+  - current/future competencias cannot be closed by `closing_close`;
+  - premature current-month closing repair action is available and was applied for 2026-05.
+- Latest validation after @78: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-15.
+- Current real closing state in snapshot: 2026-04 closed; 2026-05 draft.
 
 ### Unverified
 
@@ -48,6 +51,7 @@ The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>` for remot
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env`.
 
 Available actions: `snapshot`, `summary`, `closing_draft`, `closing_close`,
+`repair_premature_current_closing`,
 `ensure_remaining_mutation_config`, `ensure_april_2026_config`,
 `ensure_april_2026_house_debts`, `repair_april_2026_mp_invoice_cycle`, and `selftest`.
 
@@ -78,5 +82,4 @@ Optional/operational keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHO
 1. Keep pilot operation conservative; use `ajuste` for any reviewed correction in a closed competencia.
 2. [x] Add installment-purchase tracking for future invoice forecasts beyond current monthly parcel imports.
 3. [x] Add real source-balance snapshots before relying on `/resumo` for final cash destination decisions.
-4. **Pilot Deployment**: Run `npm run push` and `clasp deploy -i $DEPLOY_ID` to ship V55 updates to Apps Script.
-5. **Live Validation**: Test a live `/saldo` and a `compra_cartao` with `parcelas` via Telegram to verify Google Sheets output.
+4. **Live Validation**: Retest `Comprei notebook 3000 em 3x no nubank` via Telegram after @78; 2026-05 is no longer closed.

@@ -100,6 +100,9 @@ var V55 = (function() {
         observacao: params.observacao,
       }));
     }
+    if (action === 'repair_premature_current_closing') {
+      return json_(repairPrematureCurrentFamilyClosingV55());
+    }
     if (action === 'ensure_remaining_mutation_config') {
       return json_(ensureRemainingMutationConfigV55());
     }
@@ -554,6 +557,9 @@ var V55 = (function() {
     if (!closedAt) {
       return fail_('MISSING_CLOSED_AT', 'closed_at', GENERIC_RECORD_FAILURE);
     }
+    if (targetCompetencia >= todaySaoPaulo_().slice(0, 7)) {
+      return fail_('CLOSING_CURRENT_OR_FUTURE_BLOCKED', 'competencia', GENERIC_RECORD_FAILURE);
+    }
 
     var lock = LockService.getScriptLock();
     lock.waitLock(30000);
@@ -585,6 +591,51 @@ var V55 = (function() {
       };
     } catch (_err) {
       return fail_('CLOSING_CLOSE_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  function repairPrematureCurrentFamilyClosingV55() {
+    var config = readConfig_();
+    var runtimeCheck = verifyReportingRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+    var targetCompetencia = todaySaoPaulo_().slice(0, 7);
+
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var closingSheet = spreadsheet.getSheetByName(SHEETS.FECHAMENTO_FAMILIAR);
+      verifySheetHeaders_(closingSheet, SHEETS.FECHAMENTO_FAMILIAR);
+
+      var existing = findFamilyClosingRow_(closingSheet, targetCompetencia);
+      if (!existing) {
+        return { ok: true, action: 'repair_premature_current_closing', status: 'not_found', competencia: targetCompetencia, shouldApplyDomainMutation: false };
+      }
+      if (existing.status !== 'closed' && stringValue_(existing.row.closed_at) === '') {
+        return { ok: true, action: 'repair_premature_current_closing', status: 'not_closed', competencia: targetCompetencia, shouldApplyDomainMutation: false };
+      }
+
+      var row = HEADERS[SHEETS.FECHAMENTO_FAMILIAR].reduce(function(result, header) {
+        result[header] = existing.row[header] === undefined ? '' : existing.row[header];
+        return result;
+      }, {});
+      row.competencia = targetCompetencia;
+      row.status = 'draft';
+      row.closed_at = '';
+      row.observacao = 'Reaberto automaticamente: fechamento prematuro do mes corrente bloqueava lancamentos do piloto.';
+      writeRow_(closingSheet, existing.rowNumber, SHEETS.FECHAMENTO_FAMILIAR, row);
+      return {
+        ok: true,
+        action: 'repair_premature_current_closing',
+        status: 'reopened',
+        competencia: targetCompetencia,
+        result_ref: 'Fechamento_Familiar:' + targetCompetencia,
+        shouldApplyDomainMutation: true,
+      };
+    } catch (_err) {
+      return fail_('CURRENT_CLOSING_REPAIR_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
     } finally {
       lock.releaseLock();
     }
@@ -3649,6 +3700,18 @@ var V55 = (function() {
       }
       lines.push('');
     }
+
+    var fechSheet = spreadsheet.getSheetByName(SHEETS.FECHAMENTO_FAMILIAR);
+    if (fechSheet && fechSheet.getLastRow() > 1) {
+      lines.push('## Fechamento_Familiar');
+      lines.push('');
+      var fechRows = readRowsAsObjects_(fechSheet, SHEETS.FECHAMENTO_FAMILIAR);
+      for (var f = 0; f < fechRows.length; f++) {
+        var closedAt = stringValue_(fechRows[f].closed_at) || '(empty)';
+        lines.push('- ' + normalizeSheetCompetencia_(fechRows[f].competencia) + ': ' + fechRows[f].status + ' / closed_at: ' + closedAt);
+      }
+      lines.push('');
+    }
     var fatSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
     if (fatSheet && fatSheet.getLastRow() > 1) {
       lines.push('## Faturas');
@@ -3783,6 +3846,7 @@ var V55 = (function() {
     exportSnapshotV55: exportSnapshotV55,
     ensureApril2026ConfigV55: ensureApril2026ConfigV55,
     repairApril2026MercadoPagoInvoiceCycleV55: repairApril2026MercadoPagoInvoiceCycleV55,
+    repairPrematureCurrentFamilyClosingV55: repairPrematureCurrentFamilyClosingV55,
     ensureApril2026HouseDebtConfigV55: ensureApril2026HouseDebtConfigV55,
     runHelpSmokeSelfTest: runHelpSmokeSelfTest,
     runTelegramWebhookSetupApply: runTelegramWebhookSetupApply,
@@ -3850,6 +3914,12 @@ function ensureApril2026ConfigV55() {
 
 function repairApril2026MercadoPagoInvoiceCycleV55() {
   var result = V55.repairApril2026MercadoPagoInvoiceCycleV55();
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+function repairPrematureCurrentFamilyClosingV55() {
+  var result = V55.repairPrematureCurrentFamilyClosingV55();
   Logger.log(JSON.stringify(result));
   return result;
 }

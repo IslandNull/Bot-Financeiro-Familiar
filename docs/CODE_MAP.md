@@ -79,6 +79,7 @@ doGet(e)
 - Idempotency: write `Idempotency_Log` before financial rows, suppress completed duplicates
 - LockService for concurrent mutation protection
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed competencias from sheets
+- Operational repair action: `repair_premature_current_closing` reopens only a prematurely closed current competencia.
 
 ## Google Sheets (V55) — 13 sheets
 

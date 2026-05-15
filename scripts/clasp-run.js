@@ -17,7 +17,7 @@ const https = require('https');
 
 const action = process.argv[2];
 if (!action) {
-  console.error('Usage: node scripts/clasp-run.js <snapshot|summary|closing_draft|closing_close|ensure_remaining_mutation_config|ensure_april_2026_config|ensure_april_2026_house_debts|selftest>');
+  console.error('Usage: node scripts/clasp-run.js <snapshot|summary|closing_draft|closing_close|repair_premature_current_closing|ensure_remaining_mutation_config|ensure_april_2026_config|ensure_april_2026_house_debts|selftest>');
   process.exit(1);
 }
 
