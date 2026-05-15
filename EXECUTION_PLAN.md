@@ -76,5 +76,7 @@ Optional/operational keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHO
 ## Next Work
 
 1. Keep pilot operation conservative; use `ajuste` for any reviewed correction in a closed competencia.
-2. Add installment-purchase tracking for future invoice forecasts beyond current monthly parcel imports.
-3. Add real source-balance snapshots before relying on `/resumo` for final cash destination decisions.
+2. [x] Add installment-purchase tracking for future invoice forecasts beyond current monthly parcel imports.
+3. [x] Add real source-balance snapshots before relying on `/resumo` for final cash destination decisions.
+4. **Pilot Deployment**: Run `npm run push` and `clasp deploy -i $DEPLOY_ID` to ship V55 updates to Apps Script.
+5. **Live Validation**: Test a live `/saldo` and a `compra_cartao` with `parcelas` via Telegram to verify Google Sheets output.
