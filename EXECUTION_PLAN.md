@@ -28,8 +28,9 @@ Operational authority for Bot Financeiro Familiar V55.
 - Small reviewed 2026-04 Nubank JSONL batch validated locally on 2026-05-13: `private/abril-2026/historico-2026-04-ready-reviewed.jsonl` produced 1 valid event and 2 planned rows (`Lancamentos`, `Faturas`) with no spreadsheet write.
 - Reviewed historical write path deployed in version @58: dry-run/apply private JSONL, max 5 events, full-batch validation before writes, `historical_jsonl` idempotency.
 - Version @63 deployed: reusable PIX revenue/reimbursement categories added for professional income, personal reimbursements, and professional-development reimbursements.
-- Historical April production import verified: 1 Nubank card event, 26 reviewed Mercado Pago card events, 20 Mercado Pago yield events, 8 reviewed PIX/revenue events, and reviewed cash parking applied.
+- Historical April production import verified: 1 Nubank card event, 31 reviewed card events, 20 Mercado Pago yield events, 8 reviewed PIX/revenue events, reviewed cash parking, and reviewed house obligations applied.
 - Version @65 deployed: house debt config action added; production ensured active IDs `DIV_FINANCIAMENTO_CAIXA_CASA` and `DIV_CONSTRUTORA_VASCO_CASA`; applied 2 reviewed April `divida_pagamento` events totaling 2982.12. Snapshot verifies `Lancamentos` 70, `Dividas` 4, and `Idempotency_Log` 72.
+- Reviewed pending batch applied 5 card purchases totaling 302.23: 3 reimbursable client costs and 2 Gustavo work-fuel events. Snapshot verifies `Lancamentos` 75, `Faturas` 33, and `Idempotency_Log` 77.
 - MP invoice payment remains blocked: statement line `Pagamento da fatura de abril/2026` for 2970.24 does not match open rows generated from imported April purchases, which appear to belong to the next MP invoice cycle.
 
 ### Unverified
@@ -91,8 +92,7 @@ All configured in Apps Script > Project Settings > Script Properties. Never comm
 
 ### Phase 9: Full operational readiness
 
-1. Continue April historical import from reviewed rows only; next reconcile the prior MP invoice behind the 2970.24 payment before any fatura baixa.
-2. Ask Luana to use `/ajuda`, `/resumo`, and 2-3 real Telegram messages; adjust only if readability or wording still blocks daily use.
+1. Continue April historical import from reviewed rows only; next configure remaining approved categories and reconcile the prior MP invoice before any fatura baixa.
 
 ## Phase History (archived)
 
