@@ -1123,7 +1123,7 @@ var V55 = (function() {
         {
           CARD_MERCADO_PAGO_GU: {
             fechamento_dia: 5,
-            vencimento_dia: 11,
+            vencimento_dia: 10,
           },
         },
         'id_cartao'
@@ -1247,7 +1247,7 @@ var V55 = (function() {
         {
           CARD_MERCADO_PAGO_GU: {
             fechamento_dia: 5,
-            vencimento_dia: 11,
+            vencimento_dia: 10,
           },
         },
         'id_cartao'
@@ -1375,7 +1375,7 @@ var V55 = (function() {
         nome: 'Mercado Pago Gustavo',
         titular: 'Gustavo',
         fechamento_dia: 5,
-        vencimento_dia: 11,
+        vencimento_dia: 10,
         limite: '',
         ativo: true,
       },

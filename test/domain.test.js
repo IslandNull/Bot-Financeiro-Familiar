@@ -274,13 +274,13 @@ test('invoice cycle keeps due date in closing month when due day is after closin
     assert.deepStrictEqual(assignInvoiceCycle('2026-04-06', {
         id_cartao: 'CARD_MP',
         fechamento_dia: 5,
-        vencimento_dia: 11,
+        vencimento_dia: 10,
     }), {
         id_fatura: 'FAT_CARD_MP_2026_05',
         id_cartao: 'CARD_MP',
         competencia: '2026-05',
         data_fechamento: '2026-05-05',
-        data_vencimento: '2026-05-11',
+        data_vencimento: '2026-05-10',
     });
 });
 

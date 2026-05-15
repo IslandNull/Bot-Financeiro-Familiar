@@ -949,7 +949,7 @@ test('Apps Script repairs Mercado Pago invoice cycle from source statement dates
     const cardRow = sheets.Cartoes.rows.find((row) => row[cartoesHeaders.indexOf('id_cartao')] === 'CARD_MERCADO_PAGO_GU');
     const card = Object.fromEntries(cartoesHeaders.map((header, index) => [header, cardRow[index]]));
     assert.strictEqual(card.fechamento_dia, 5);
-    assert.strictEqual(card.vencimento_dia, 11);
+    assert.strictEqual(card.vencimento_dia, 10);
     const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
     assert.strictEqual(invoice.id_fatura, 'FAT_CARD_MERCADO_PAGO_GU_2026_05');
     assert.strictEqual(invoice.competencia, '2026-05');

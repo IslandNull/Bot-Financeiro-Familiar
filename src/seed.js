@@ -475,7 +475,7 @@ const canonicalSeed = {
             nome: 'Mercado Pago Gustavo',
             titular: 'Gustavo',
             fechamento_dia: 5,
-            vencimento_dia: 11,
+            vencimento_dia: 10,
             limite: '',
             ativo: true,
         },
