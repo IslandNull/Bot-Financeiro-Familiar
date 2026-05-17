@@ -15,7 +15,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - `/resumo`, `summary`, `snapshot`, `selftest`, `closing_draft`, and reviewed `closing_close` are deployed and covered locally.
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed family closings from sheets.
 - Reviewed historical JSONL import is narrow: max 5 events per request, full validation before writes, `historical_jsonl` idempotency, no private-detail output. Normal launches stay in 2026-04; `fatura_prevista` may add reviewed future invoice exposure through 2027 for April rebuilds.
-- April 2026 clean rebuild was applied on @80 from final local source documents in `private/abril-2026/`: 151 reviewed events, 89 `Lancamentos`, 116 `Faturas`, and 2026-04 `Fechamento_Familiar` draft.
+- April 2026 clean rebuild was applied on @80 from final local source documents in `private/abril-2026/`: 151 reviewed events, 89 `Lancamentos`, 116 `Faturas`, and 2026-04 `Fechamento_Familiar` closed after owner aggregate review.
 - Version @80 deployed on 2026-05-17 with audit, pilot, and clean rebuild hardening:
   - strict calendar-date validation, including February/leap-year cases;
   - stricter money parsing and ambiguous-number fallback blocking;
@@ -29,8 +29,8 @@ Operational authority for Bot Financeiro Familiar V55.
   - notebook pilot repair action can cancel the duplicated wrong pilot rows without deleting history;
   - `fatura_prevista` records invoice exposure without DRE launch for inherited/future parcels;
   - `reset_april_2026_clean_rebuild` clears operational data while preserving config.
-- Latest validation after @80: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-17.
-- Current real closing state in snapshot: 2026-04 draft; 2026-05 absent after clean reset.
+- Latest validation after @80: `npm run check` passed before close; `npm run snapshot`, `npm run summary`, and `npm run selftest` passed after April close on 2026-05-17.
+- Current real closing state in snapshot: 2026-04 closed; 2026-05 absent after clean reset.
 
 ### Unverified
 
@@ -85,7 +85,7 @@ Optional/operational keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHO
 
 ## Next Work
 
-1. Review April draft aggregates; close 2026-04 only after owner accepts the clean rebuild.
+1. Register current May source balances before relying on `/resumo` for cash destination decisions.
 2. [x] Add installment-purchase tracking for future invoice forecasts beyond current monthly parcel imports.
-3. [x] Add real source-balance snapshots before relying on `/resumo` for final cash destination decisions.
+3. Start May real-time usage; April is now closed and any April correction must be an `ajuste`.
 4. Before broad production usage, remove operational dependence on `visibilidade=resumo`; keep only `detalhada` and `privada`.
