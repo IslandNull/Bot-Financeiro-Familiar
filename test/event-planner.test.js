@@ -116,6 +116,29 @@ test('invoice payment plans cash outflow without new DRE expense', () => {
     assertPlannedRowsMatchSchema(result);
 });
 
+test('invoice exposure plans Faturas only without DRE launch', () => {
+    const result = planParsedEvent(baseEvent({
+        tipo_evento: 'fatura_prevista',
+        valor: '203.64',
+        descricao: 'parcela herdada samsung 6/18',
+        id_categoria: undefined,
+        id_fonte: undefined,
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+    }));
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.strictEqual(result.mutationGroup.kind, 'fatura_prevista');
+    assert.deepStrictEqual(result.mutationGroup.rows.map((row) => row.sheet), [SHEETS.FATURAS]);
+    assert.strictEqual(result.mutationGroup.rows[0].row.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
+    assert.strictEqual(result.mutationGroup.rows[0].row.valor_previsto, 203.64);
+    assert.strictEqual(result.mutationGroup.rows[0].row.status, 'prevista');
+    assertPlannedRowsMatchSchema(result);
+});
+
 test('internal movement plans Transferencias_Internas only', () => {
     const result = planParsedEvent(baseEvent({
         tipo_evento: 'transferencia_interna',

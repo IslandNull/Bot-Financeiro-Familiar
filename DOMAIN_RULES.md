@@ -16,6 +16,7 @@ Every event answers:
 - `despesa`: expense recognized in DRE when `afeta_dre=true`.
 - `receita`: revenue recognized in DRE when `afeta_dre=true`.
 - `compra_cartao`: expense recognized at purchase time; cash changes later at invoice payment.
+- `fatura_prevista`: reviewed invoice exposure only; creates/updates card obligation forecasts without DRE, cash, or net-worth recognition.
 - `pagamento_fatura`: cash outflow only; does not create DRE expense.
 - `transferencia_interna`: internal money movement; never revenue, expense, or debt.
 - `aporte`: cash outflow into an asset; affects net worth tracking, not operational DRE.

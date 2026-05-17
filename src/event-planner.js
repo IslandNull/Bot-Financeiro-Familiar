@@ -58,6 +58,7 @@ function planParsedEvent(entry, options) {
 
     const event = validation.normalized;
     if (event.tipo_evento === 'transferencia_interna') return planInternalTransfer(event, options);
+    if (event.tipo_evento === 'fatura_prevista') return planInvoiceExposure(event, options);
     if (event.tipo_evento === 'compra_cartao') return planCardPurchaseRows(event, options);
     return planLaunch(event, options);
 }
@@ -134,6 +135,29 @@ function planCardPurchaseRows(event, options) {
     return mutationGroup('compra_cartao', idLancamento, [
         { sheet: SHEETS.LANCAMENTOS, row: launchRow },
         ...invoiceRows,
+    ]);
+}
+
+function planInvoiceExposure(event, options) {
+    const cards = (options && options.cards) || getSeedRows(SHEETS.CARTOES);
+    const card = cards.find((item) => item.id_cartao === event.id_cartao && item.ativo !== false);
+    if (!card) return fail('CARD_NOT_FOUND', 'id_cartao', 'invoice exposure needs an active known card');
+    const idFatura = event.id_fatura;
+    const competencia = event.competencia;
+    const row = rowFor(SHEETS.FATURAS, {
+        id_fatura: idFatura,
+        id_cartao: event.id_cartao,
+        competencia,
+        data_fechamento: event.data,
+        data_vencimento: event.data,
+        valor_previsto: event.valor,
+        valor_fechado: '',
+        valor_pago: '',
+        status: 'prevista',
+    });
+
+    return mutationGroup('fatura_prevista', stableId('FAT', eventIdentity(event, options)), [
+        { sheet: SHEETS.FATURAS, row },
     ]);
 }
 

@@ -185,6 +185,20 @@ function validateTypeRules(normalized, errors) {
         errors.push(error('INVOICE_PAYMENT_NOT_DRE', 'afeta_dre', 'invoice payment cannot affect DRE'));
     }
 
+    if (normalized.tipo_evento === 'fatura_prevista') {
+        if (!normalized.id_cartao) errors.push(error('REQUIRED_STRING', 'id_cartao', 'invoice exposure needs id_cartao'));
+        if (!normalized.id_fatura) errors.push(error('REQUIRED_STRING', 'id_fatura', 'invoice exposure needs id_fatura'));
+        if (normalized.afeta_dre !== false) {
+            errors.push(error('INVOICE_EXPOSURE_NOT_DRE', 'afeta_dre', 'invoice exposure cannot affect DRE'));
+        }
+        if (normalized.afeta_patrimonio !== false) {
+            errors.push(error('INVOICE_EXPOSURE_NOT_NET_WORTH', 'afeta_patrimonio', 'invoice exposure cannot affect net worth'));
+        }
+        if (normalized.afeta_caixa_familiar !== false) {
+            errors.push(error('INVOICE_EXPOSURE_NOT_CASH_NOW', 'afeta_caixa_familiar', 'invoice exposure is forecast only'));
+        }
+    }
+
     if (normalized.tipo_evento === 'compra_cartao') {
         if (!normalized.id_cartao) errors.push(error('REQUIRED_STRING', 'id_cartao', 'card purchase needs id_cartao'));
         if (normalized.afeta_caixa_familiar !== false) {

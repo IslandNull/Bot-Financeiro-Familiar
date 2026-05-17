@@ -200,6 +200,7 @@ const ENUMS = {
         'despesa',
         'receita',
         'compra_cartao',
+        'fatura_prevista',
         'pagamento_fatura',
         'transferencia_interna',
         'aporte',

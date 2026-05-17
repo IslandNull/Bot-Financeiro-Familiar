@@ -70,7 +70,8 @@ doGet(e)
        ├─ ensure_remaining_mutation_config → ensureRemainingMutationConfigV55()
        ├─ ensure_april_2026_config → ensureApril2026ConfigV55()
        ├─ ensure_april_2026_house_debts → ensureApril2026HouseDebtConfigV55()
-       ├─ repair_april_2026_mp_invoice_cycle → repairApril2026MercadoPagoInvoiceCycleV55()
+      ├─ repair_april_2026_mp_invoice_cycle → repairApril2026MercadoPagoInvoiceCycleV55()
+       ├─ reset_april_2026_clean_rebuild → resetApril2026CleanRebuildV55()
        └─ selftest → runHelpSmokeSelfTest()
 ```
 
@@ -81,6 +82,8 @@ doGet(e)
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed competencias from sheets
 - Operational repair action: `repair_premature_current_closing` reopens only a prematurely closed current competencia.
 - Operational repair action: `repair_notebook_installment_pilot` cancels the duplicated wrong notebook pilot rows without deleting history.
+- Operational rebuild action: `reset_april_2026_clean_rebuild` clears operational rows for a reviewed clean import while preserving config sheets.
+- Reviewed historical type: `fatura_prevista` writes `Faturas` exposure only, with no `Lancamentos` row and no DRE/cash effect.
 
 ## Google Sheets (V55) — 13 sheets
 

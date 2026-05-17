@@ -35,6 +35,9 @@ function createFakeSheet(headers) {
         appendRow(row) {
             rows.push(row.slice());
         },
+        deleteRows(row, rowCount) {
+            rows.splice(row - 1, rowCount);
+        },
         getLastRow() {
             return rows.length;
         },
@@ -580,6 +583,7 @@ test('Apps Script runtime exposes webhook and self-test functions', () => {
     assert.ok(code.includes('function closeReviewedFamilyClosingV55('));
     assert.ok(code.includes('function repairPrematureCurrentFamilyClosingV55()'));
     assert.ok(code.includes('function repairNotebookInstallmentPilotV55()'));
+    assert.ok(code.includes('function resetApril2026CleanRebuildV55()'));
     assert.ok(code.includes('function runTelegramWebhookSetupDryRun()'));
     assert.ok(code.includes('function runTelegramWebhookSetupApply()'));
 });
@@ -1043,17 +1047,60 @@ test('Apps Script ensure_april_2026_house_debts appends separate active house de
     assert.deepStrictEqual(first.appended.debts, [
         'DIV_FINANCIAMENTO_CAIXA_CASA',
         'DIV_CONSTRUTORA_VASCO_CASA',
+        'DIV_OBRIGACOES_CASA',
     ]);
-    assert.strictEqual(first.appended_count, 2);
+    assert.strictEqual(first.appended_count, 3);
     assert.strictEqual(second.ok, true);
     assert.strictEqual(second.appended_count, 0);
-    assert.strictEqual(sheets.Dividas.rows.length, beforeDebts + 2);
+    assert.strictEqual(sheets.Dividas.rows.length, beforeDebts + 3);
     const caixa = sheets.Dividas.rows.find((row) => row[idIndex] === 'DIV_FINANCIAMENTO_CAIXA_CASA');
     const vasco = sheets.Dividas.rows.find((row) => row[idIndex] === 'DIV_CONSTRUTORA_VASCO_CASA');
+    const obrigacoesCasa = sheets.Dividas.rows.find((row) => row[idIndex] === 'DIV_OBRIGACOES_CASA');
     assert.strictEqual(caixa[statusIndex], 'ativa');
     assert.strictEqual(vasco[statusIndex], 'ativa');
+    assert.strictEqual(obrigacoesCasa[statusIndex], 'ativa');
     assert.strictEqual(caixa[parcelaIndex], 2120);
     assert.strictEqual(vasco[parcelaIndex], 862.12);
+    assert.strictEqual(obrigacoesCasa[parcelaIndex], 0);
+});
+
+test('Apps Script reset_april_2026_clean_rebuild clears operational data but preserves config', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeLaunch(sheets);
+    appendFakeInvoice(sheets);
+    appendFakeTransfer(sheets);
+    appendFakeSourceBalance(sheets);
+    appendFakeClosing(sheets, { status: 'closed', closed_at: '2026-05-01T10:00:00Z' });
+    sheets.Idempotency_Log.appendRow(idempotencyHeaders.map((header) => ({
+        idempotency_key: 'historical:old',
+        source: 'historical_jsonl',
+        status: 'completed',
+    })[header] ?? ''));
+    const beforeCategories = sheets.Config_Categorias.rows.length;
+    const beforeSources = sheets.Config_Fontes.rows.length;
+    const beforeCards = sheets.Cartoes.rows.length;
+    const beforeDebts = sheets.Dividas.rows.length;
+
+    const result = runRemoteAction(context, 'reset_april_2026_clean_rebuild');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, true);
+    assert.strictEqual(result.cleared.Lancamentos, 1);
+    assert.strictEqual(result.cleared.Faturas, 1);
+    assert.strictEqual(result.cleared.Transferencias_Internas, 1);
+    assert.strictEqual(result.cleared.Saldos_Fontes, 1);
+    assert.strictEqual(result.cleared.Fechamento_Familiar, 1);
+    assert.strictEqual(result.cleared.Idempotency_Log, 1);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Faturas.rows.length, 1);
+    assert.strictEqual(sheets.Transferencias_Internas.rows.length, 1);
+    assert.strictEqual(sheets.Saldos_Fontes.rows.length, 1);
+    assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 1);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+    assert.strictEqual(sheets.Config_Categorias.rows.length, beforeCategories);
+    assert.strictEqual(sheets.Config_Fontes.rows.length, beforeSources);
+    assert.strictEqual(sheets.Cartoes.rows.length, beforeCards);
+    assert.strictEqual(sheets.Dividas.rows.length, beforeDebts);
 });
 
 test('Apps Script reviewed historical import dry-run validates without writing private details', () => {
@@ -1128,6 +1175,102 @@ test('Apps Script reviewed historical import applies narrowly and suppresses dup
     assert.strictEqual(sheets.Idempotency_Log.rows[1][idempotencyHeaders.indexOf('idempotency_key')], 'historical:2026-04:test-batch:7');
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     assert.strictEqual(sheets.Faturas.rows.length, 2);
+});
+
+test('Apps Script reviewed historical import records invoice exposure without DRE launch', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    runRemoteAction(context, 'ensure_april_2026_config');
+    const entries = [{
+        lineNumber: 1,
+        event: {
+            tipo_evento: 'fatura_prevista',
+            data: '2026-04-30',
+            competencia: '2026-04',
+            valor: '203.64',
+            descricao: 'parcela herdada',
+            id_categoria: '',
+            id_fonte: '',
+            pessoa: 'Gustavo',
+            escopo: 'Gustavo',
+            visibilidade: 'privada',
+            id_cartao: 'CARD_NUBANK_GU',
+            id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+            afeta_dre: false,
+            afeta_patrimonio: false,
+            afeta_caixa_familiar: false,
+        },
+    }];
+
+    const result = postHistoricalImport(context, entries, { dry_run: false });
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result));
+    assert.deepStrictEqual(result.summary.byType, { fatura_prevista: 1 });
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Faturas.rows.length, 2);
+    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    assert.strictEqual(invoice.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
+    assert.strictEqual(invoice.valor_previsto, 203.64);
+    assert.strictEqual(invoice.status, 'prevista');
+});
+
+test('Apps Script reviewed historical import allows future invoice exposure in April rebuild', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    runRemoteAction(context, 'ensure_april_2026_config');
+    const result = postHistoricalImport(context, [{
+        lineNumber: 1,
+        event: {
+            tipo_evento: 'fatura_prevista',
+            data: '2026-05-31',
+            competencia: '2026-05',
+            valor: '203.64',
+            descricao: 'parcela herdada futura',
+            id_categoria: '',
+            id_fonte: '',
+            pessoa: 'Gustavo',
+            escopo: 'Gustavo',
+            visibilidade: 'privada',
+            id_cartao: 'CARD_NUBANK_GU',
+            id_fatura: 'FAT_CARD_NUBANK_GU_2026_05',
+            afeta_dre: false,
+            afeta_patrimonio: false,
+            afeta_caixa_familiar: false,
+        },
+    }]);
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result));
+    assert.deepStrictEqual(result.summary.byType, { fatura_prevista: 1 });
+    assert.deepStrictEqual(result.summary.byCompetencia, { '2026-05': 1 });
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Faturas.rows.length, 1);
+});
+
+test('Apps Script reviewed historical import accepts reviewed private visibility override', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    runRemoteAction(context, 'ensure_april_2026_config');
+    const result = postHistoricalImport(context, [{
+        lineNumber: 1,
+        event: {
+            tipo_evento: 'compra_cartao',
+            data: '2026-04-05',
+            competencia: '2026-04',
+            valor: '348.21',
+            descricao: 'historico privado',
+            id_categoria: 'OPEX_DESENVOLVIMENTO_PROFISSIONAL',
+            id_fonte: 'FONTE_MERCADO_PAGO_GU',
+            pessoa: 'Gustavo',
+            escopo: 'Gustavo',
+            visibilidade: 'privada',
+            id_cartao: 'CARD_MERCADO_PAGO_GU',
+            afeta_dre: true,
+            afeta_patrimonio: false,
+            afeta_caixa_familiar: false,
+        },
+    }]);
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result));
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Faturas.rows.length, 1);
 });
 
 test('Apps Script reviewed historical import validates whole batch before writing', () => {
