@@ -14,11 +14,11 @@ Every event answers:
 ## Event Types
 
 - `despesa`: expense recognized in DRE when `afeta_dre=true`.
-- `receita`: revenue recognized in DRE when `afeta_dre=true`.
+- `receita`: cash inflow; recognized in DRE only when `afeta_dre=true`. Benefit conversion and reviewed reimbursements may enter cash without creating new DRE revenue.
 - `compra_cartao`: expense recognized at purchase time; cash changes later at invoice payment.
 - `fatura_prevista`: reviewed invoice exposure only; creates/updates card obligation forecasts without DRE, cash, or net-worth recognition.
 - `pagamento_fatura`: cash outflow only; does not create DRE expense.
-- `transferencia_interna`: internal money movement; never revenue, expense, or debt.
+- `transferencia_interna`: internal money movement; never revenue, expense, or debt. Source-to-source moves inside the same ownership affect neither DRE nor family cash.
 - `aporte`: cash outflow into an asset; affects net worth tracking, not operational DRE.
 - `divida_pagamento`: cash obligation; not operational DRE in the clean base.
 - `ajuste`: explicit correction with stated reason.

@@ -16,7 +16,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed family closings from sheets.
 - Reviewed historical JSONL import is narrow: max 5 events per request, full validation before writes, `historical_jsonl` idempotency, no private-detail output. Normal launches stay in 2026-04; `fatura_prevista` may add reviewed future invoice exposure through 2027 for April rebuilds.
 - April 2026 clean rebuild was applied on @80 from final local source documents in `private/abril-2026/`: 151 reviewed events, 89 `Lancamentos`, 116 `Faturas`, and 2026-04 `Fechamento_Familiar` closed after owner aggregate review.
-- Version @80 deployed on 2026-05-17 with audit, pilot, and clean rebuild hardening:
+- Version @81 deployed on 2026-05-17 with audit, pilot, clean rebuild, and May launch hardening:
   - strict calendar-date validation, including February/leap-year cases;
   - stricter money parsing and ambiguous-number fallback blocking;
   - no money fallback in reviewed historical import;
@@ -28,8 +28,10 @@ Operational authority for Bot Financeiro Familiar V55.
   - parser blocks unrelated fallback categories and asks for category confirmation;
   - notebook pilot repair action can cancel the duplicated wrong pilot rows without deleting history;
   - `fatura_prevista` records invoice exposure without DRE launch for inherited/future parcels;
-  - `reset_april_2026_clean_rebuild` clears operational data while preserving config.
-- Latest validation after @80: `npm run check` passed before close; `npm run snapshot`, `npm run summary`, and `npm run selftest` passed after April close on 2026-05-17.
+  - `reset_april_2026_clean_rebuild` clears operational data while preserving config;
+  - benefit conversion can enter cash without creating DRE revenue;
+  - own-source transfers such as Nubank -> Mercado Pago are internal movements with no DRE or family-cash effect.
+- Latest validation after @81: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-17.
 - Current real closing state in snapshot: 2026-04 closed; 2026-05 absent after clean reset.
 
 ### Unverified

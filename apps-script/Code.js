@@ -2042,6 +2042,19 @@ var V55 = (function() {
         ativo: true,
       },
       {
+        id_categoria: 'REC_CONVERSAO_BENEFICIO_CAIXA',
+        nome: 'Conversao beneficio em caixa',
+        grupo: 'Receitas',
+        tipo_evento_padrao: 'receita',
+        classe_dre: 'nao_dre',
+        escopo_padrao: 'Familiar',
+        afeta_dre_padrao: false,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: true,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+      },
+      {
         id_categoria: 'INV_APORTE_FAMILIAR',
         nome: 'Aporte familiar',
         grupo: 'Investimentos',
@@ -2166,6 +2179,7 @@ var V55 = (function() {
     var assetCategory = defaultCategoryForType_(referenceData, 'aporte') || {};
     var debtCategory = defaultCategoryForType_(referenceData, 'divida_pagamento') || {};
     var adjustmentCategory = defaultCategoryForType_(referenceData, 'ajuste') || {};
+    var benefitConversionCategory = referenceData.categoriesById.REC_CONVERSAO_BENEFICIO_CAIXA || {};
     var electronicsCategory = referenceData.categoriesById.OPEX_ELETRONICOS_E_EQUIPAMENTOS || {};
     var familyCashSource = defaultFamilyCashSource_(referenceData) || {};
     var card = defaultActiveCard_(referenceData) || {};
@@ -2205,6 +2219,8 @@ var V55 = (function() {
       'Input: "notebook 3000 em 3x no nubank" -> valor "3000", tipo_evento "compra_cartao", id_categoria "' + stringValue_(electronicsCategory.id_categoria) + '", id_cartao "' + stringValue_(card.id_cartao) + '", id_fonte "' + stringValue_(card.id_fonte) + '", escopo "' + stringValue_(electronicsCategory.escopo_padrao || 'Familiar') + '", parcelas "3".',
       'Input: "pagar fatura nubank 42,50" -> valor "42.50", tipo_evento "pagamento_fatura", id_fatura "' + stringValue_(invoice.id_fatura) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", escopo "Familiar".',
       'Input: "Luana mandou 100 para caixa familiar" -> valor "100", tipo_evento "transferencia_interna", id_categoria "' + stringValue_(transferCategory.id_categoria) + '", pessoa "Luana", escopo "' + stringValue_(transferCategory.escopo_padrao || 'Familiar') + '", direcao_caixa_familiar "entrada".',
+      'Input: "transferi 100 do Nubank Gustavo para Mercado Pago Gustavo" -> valor "100", tipo_evento "transferencia_interna", id_categoria "' + stringValue_(transferCategory.id_categoria) + '", pessoa "Gustavo", escopo "Familiar", direcao_caixa_familiar "interna", afeta_dre false, afeta_patrimonio false, afeta_caixa_familiar false.',
+      'Input: "recebi 750 no Nubank via boleto venda do vale alimentacao, nao e receita DRE" -> valor "750", tipo_evento "receita", id_categoria "' + stringValue_(benefitConversionCategory.id_categoria) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", escopo "' + stringValue_(benefitConversionCategory.escopo_padrao || 'Familiar') + '", afeta_dre false, afeta_caixa_familiar true.',
       'Input: "salario 5000" -> valor "5000", tipo_evento "receita", id_categoria "' + stringValue_(revenueCategory.id_categoria) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '".',
       'Input: "aporte CDB 1000" -> valor "1000", tipo_evento "aporte", id_categoria "' + stringValue_(assetCategory.id_categoria) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", id_ativo "' + stringValue_(asset.id_ativo) + '".',
       'Input: "paguei financiamento 500" -> valor "500", tipo_evento "divida_pagamento", id_categoria "' + stringValue_(debtCategory.id_categoria) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", id_divida "' + stringValue_(debt.id_divida) + '".',
@@ -2214,7 +2230,7 @@ var V55 = (function() {
       'For a card purchase, use a category whose tipo_evento_padrao is compra_cartao, an active card from Cartoes, that card source from Config_Fontes, and the category default flags; status efetivado.',
       'Never use an unrelated fallback category. If no category clearly matches the user text, leave id_categoria empty so the runtime can ask for confirmation.',
       'For an invoice payment, use tipo_evento pagamento_fatura, escopo Familiar, visibilidade detalhada, afeta_dre false, afeta_patrimonio false, afeta_caixa_familiar true, an active cash source, and status efetivado.',
-      'For the reviewed internal transfer, accept only an entrada into family cash. Use id_fonte empty, id_cartao empty, id_fatura empty, id_divida empty, id_ativo empty, the transfer category defaults, and status efetivado.',
+      'For a reviewed internal transfer into family cash, use direcao_caixa_familiar entrada and the transfer category defaults. For movement between active own cash sources, use direcao_caixa_familiar interna and afeta_dre/afeta_patrimonio/afeta_caixa_familiar all false. Use id_fonte empty, id_cartao empty, id_fatura empty, id_divida empty, id_ativo empty, and status efetivado.',
       'Rules: card purchases affect DRE now and cash later; invoice payments never affect DRE; internal transfers never affect DRE or net worth.',
       'Today: ' + todaySaoPaulo_(),
       'User text: ' + JSON.stringify(text.trim()),
@@ -2356,16 +2372,22 @@ var V55 = (function() {
     if (event.id_fonte) return event;
     if (event.escopo && event.escopo !== category.escopo_padrao) return event;
     if (event.status && event.status !== 'efetivado') return event;
-    if (event.visibilidade && event.visibilidade !== category.visibilidade_padrao) return event;
     if (event.id_cartao || event.id_fatura || event.id_divida || event.id_ativo) return event;
-    if (event.direcao_caixa_familiar && event.direcao_caixa_familiar !== 'entrada') return event;
+    var direction = event.direcao_caixa_familiar || inferInternalTransferDirection_(event.raw_text || event.descricao);
+    if (direction && direction !== 'entrada' && direction !== 'interna') return event;
     event.id_categoria = category.id_categoria;
     event.pessoa = event.pessoa || inferPilotTransferPerson_(event.raw_text || event.descricao);
     event.escopo = category.escopo_padrao;
     event.visibilidade = category.visibilidade_padrao;
     event.status = 'efetivado';
-    event.direcao_caixa_familiar = 'entrada';
-    applyCategoryDefaults_(event, category);
+    event.direcao_caixa_familiar = direction || 'entrada';
+    if (event.direcao_caixa_familiar === 'interna') {
+      event.afeta_dre = false;
+      event.afeta_patrimonio = false;
+      event.afeta_caixa_familiar = false;
+    } else {
+      applyCategoryDefaults_(event, category);
+    }
     return event;
   }
 
@@ -2430,12 +2452,12 @@ var V55 = (function() {
     if (!isGenericLaunchEventType_(event.tipo_evento)) return event;
     var category = categoryForEvent_(referenceData, event.id_categoria, event.tipo_evento);
     if (!category) return event;
-    var source = event.id_fonte ? sourceForEvent_(referenceData, event.id_fonte) : defaultCashSourceForScope_(referenceData, category.escopo_padrao);
+    var source = event.id_fonte
+      ? sourceForEvent_(referenceData, event.id_fonte)
+      : (inferCashSourceFromText_(event.raw_text || event.descricao, referenceData) || defaultCashSourceForScope_(referenceData, category.escopo_padrao));
     if (category.afeta_caixa_familiar_padrao === true && (!source || source.tipo === 'cartao_credito')) return event;
     if (source && source.tipo === 'cartao_credito') return event;
-    if (event.escopo && event.escopo !== category.escopo_padrao) return event;
     if (event.status && event.status !== 'efetivado') return event;
-    if (event.visibilidade && event.visibilidade !== category.visibilidade_padrao) return event;
     if (event.id_cartao || event.id_fatura) return event;
     if (event.tipo_evento === 'receita' && (event.id_divida || event.id_ativo)) return event;
     if (event.tipo_evento === 'aporte') {
@@ -2697,10 +2719,16 @@ var V55 = (function() {
     if (event.id_fonte) return fail_('PILOT_SOURCE_BLOCKED', 'id_fonte', GENERIC_RECORD_FAILURE);
     if (!resolveInternalTransferSources_(event, referenceData).ok) return fail_('PILOT_TRANSFER_PERSON_BLOCKED', 'pessoa', GENERIC_RECORD_FAILURE);
     if (inferPilotTransferPerson_(event.raw_text || event.descricao) !== event.pessoa) return fail_('PILOT_TRANSFER_PERSON_MISMATCH', 'pessoa', GENERIC_RECORD_FAILURE);
-    if (event.direcao_caixa_familiar !== 'entrada') return fail_('PILOT_TRANSFER_DIRECTION_BLOCKED', 'direcao_caixa_familiar', GENERIC_RECORD_FAILURE);
+    if (event.direcao_caixa_familiar !== 'entrada' && event.direcao_caixa_familiar !== 'interna') return fail_('PILOT_TRANSFER_DIRECTION_BLOCKED', 'direcao_caixa_familiar', GENERIC_RECORD_FAILURE);
     if (event.id_cartao || event.id_fatura || event.id_divida || event.id_ativo) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
-    var flagCheck = validateCategoryFlags_(event, category);
-    if (!flagCheck.ok) return flagCheck;
+    if (event.direcao_caixa_familiar === 'interna') {
+      if (event.afeta_dre !== false || event.afeta_patrimonio !== false || event.afeta_caixa_familiar !== false) {
+        return fail_('PILOT_FLAGS_BLOCKED', 'flags', GENERIC_RECORD_FAILURE);
+      }
+    } else {
+      var flagCheck = validateCategoryFlags_(event, category);
+      if (!flagCheck.ok) return flagCheck;
+    }
     return { ok: true };
   }
 
@@ -2891,6 +2919,7 @@ var V55 = (function() {
     var hasMovement = containsAliasPhrase_(normalized, 'pix') ||
       containsAliasPhrase_(normalized, 'mandou') ||
       containsAliasPhrase_(normalized, 'manda') ||
+      containsAliasPhrase_(normalized, 'transferi') ||
       containsAliasPhrase_(normalized, 'transferiu') ||
       containsAliasPhrase_(normalized, 'transfere') ||
       containsAliasPhrase_(normalized, 'depositou') ||
@@ -2900,7 +2929,16 @@ var V55 = (function() {
       containsAliasPhrase_(normalized, 'conta familia') ||
       containsAliasPhrase_(normalized, 'conta familiar') ||
       containsAliasPhrase_(normalized, 'caixa da familia');
-    return hasPerson && hasMovement && hasFamilyCash;
+    return hasPerson && hasMovement && (hasFamilyCash || isPilotOwnSourceTransferText_(normalized));
+  }
+
+  function isPilotOwnSourceTransferText_(normalizedText) {
+    var hasNubank = containsAliasPhrase_(normalizedText, 'nubank') ||
+      containsAliasPhrase_(normalizedText, 'nu') ||
+      containsAliasPhrase_(normalizedText, 'conta nu');
+    var hasMercadoPago = containsAliasPhrase_(normalizedText, 'mercado pago') ||
+      containsAliasPhrase_(normalizedText, 'mp');
+    return hasNubank && hasMercadoPago && containsAliasPhrase_(normalizedText, 'para');
   }
 
   function inferPilotTransferPerson_(text) {
@@ -2910,7 +2948,22 @@ var V55 = (function() {
     return '';
   }
 
+  function inferInternalTransferDirection_(text) {
+    var normalized = normalizeAliasText_(text);
+    if (isPilotOwnSourceTransferText_(normalized)) return 'interna';
+    if (containsAliasPhrase_(normalized, 'caixa familiar') ||
+        containsAliasPhrase_(normalized, 'conta familia') ||
+        containsAliasPhrase_(normalized, 'conta familiar') ||
+        containsAliasPhrase_(normalized, 'caixa da familia')) return 'entrada';
+    return '';
+  }
+
   function resolveInternalTransferSources_(event, referenceData) {
+    if (event.direcao_caixa_familiar === 'interna') {
+      var pair = inferOwnSourceTransferPair_(event.raw_text || event.descricao, referenceData);
+      if (!pair.ok) return pair;
+      return pair;
+    }
     var origin = null;
     for (var i = 0; i < referenceData.sources.length; i += 1) {
       if (referenceData.sources[i].titular === event.pessoa && referenceData.sources[i].tipo !== 'cartao_credito') {
@@ -2927,6 +2980,51 @@ var V55 = (function() {
       fonte_origem: origin.id_fonte,
       fonte_destino: destination.id_fonte,
     };
+  }
+
+  function inferOwnSourceTransferPair_(text, referenceData) {
+    var normalized = normalizeAliasText_(text);
+    var nubank = sourceById_(referenceData, 'FONTE_CONTA_NUBANK_GU');
+    var mercadoPago = sourceById_(referenceData, 'FONTE_CONTA_MERCADO_PAGO_GU');
+    if (!nubank || !mercadoPago) return fail_('CONFIG_TRANSFER_SOURCE_NOT_FOUND', 'id_fonte', GENERIC_RECORD_FAILURE);
+    var toMercadoPago = containsAliasPhrase_(normalized, 'para mercado pago') ||
+      containsAliasPhrase_(normalized, 'pro mercado pago') ||
+      containsAliasPhrase_(normalized, 'para mp') ||
+      containsAliasPhrase_(normalized, 'pro mp');
+    var fromNubank = containsAliasPhrase_(normalized, 'do nubank') ||
+      containsAliasPhrase_(normalized, 'da nubank') ||
+      containsAliasPhrase_(normalized, 'de nubank') ||
+      containsAliasPhrase_(normalized, 'do nu') ||
+      containsAliasPhrase_(normalized, 'da conta nu') ||
+      containsAliasPhrase_(normalized, 'da conta nubank');
+    var toNubank = containsAliasPhrase_(normalized, 'para nubank') ||
+      containsAliasPhrase_(normalized, 'pro nubank') ||
+      containsAliasPhrase_(normalized, 'para nu');
+    var fromMercadoPago = containsAliasPhrase_(normalized, 'do mercado pago') ||
+      containsAliasPhrase_(normalized, 'de mercado pago') ||
+      containsAliasPhrase_(normalized, 'do mp') ||
+      containsAliasPhrase_(normalized, 'da conta mercado pago');
+    if (fromNubank && toMercadoPago) {
+      return { ok: true, fonte_origem: nubank.id_fonte, fonte_destino: mercadoPago.id_fonte, pessoa_origem: 'Gustavo', pessoa_destino: 'Gustavo' };
+    }
+    if (fromMercadoPago && toNubank) {
+      return { ok: true, fonte_origem: mercadoPago.id_fonte, fonte_destino: nubank.id_fonte, pessoa_origem: 'Gustavo', pessoa_destino: 'Gustavo' };
+    }
+    return fail_('PILOT_TRANSFER_SOURCE_PAIR_BLOCKED', 'text', GENERIC_RECORD_FAILURE);
+  }
+
+  function sourceById_(referenceData, sourceId) {
+    return referenceData.sourcesById[stringValue_(sourceId)] || null;
+  }
+
+  function inferCashSourceFromText_(text, referenceData) {
+    var normalized = normalizeAliasText_(text);
+    if (!normalized) return null;
+    var nubank = sourceById_(referenceData, 'FONTE_CONTA_NUBANK_GU');
+    if (nubank && (containsAliasPhrase_(normalized, 'nubank') || containsAliasPhrase_(normalized, 'conta nu'))) return nubank;
+    var mercadoPago = sourceById_(referenceData, 'FONTE_CONTA_MERCADO_PAGO_GU');
+    if (mercadoPago && (containsAliasPhrase_(normalized, 'mercado pago') || containsAliasPhrase_(normalized, 'conta mp'))) return mercadoPago;
+    return null;
   }
 
   function normalizeAliasText_(text) {
@@ -3535,15 +3633,16 @@ var V55 = (function() {
         valor: event.valor,
         fonte_origem: transferSources.fonte_origem,
         fonte_destino: transferSources.fonte_destino,
-        pessoa_origem: event.pessoa,
-        pessoa_destino: 'Familiar',
+        pessoa_origem: transferSources.pessoa_origem || event.pessoa,
+        pessoa_destino: transferSources.pessoa_destino || 'Familiar',
         escopo: event.escopo,
         direcao_caixa_familiar: event.direcao_caixa_familiar,
         descricao: event.descricao,
         created_at: now,
       });
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-      return { ok: true, responseText: recordedEventText_(event, 'Anotada transferencia para a familia.', referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
+      var actionLabel = event.direcao_caixa_familiar === 'interna' ? 'Anotada movimentacao interna.' : 'Anotada transferencia para a familia.';
+      return { ok: true, responseText: recordedEventText_(event, actionLabel, referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
     } catch (_err) {
       if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
         updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');

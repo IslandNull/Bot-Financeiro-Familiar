@@ -326,6 +326,19 @@ function appendRuntimeConfigRows(sheets) {
             ativo: true,
         },
         {
+            id_categoria: 'REC_CONVERSAO_BENEFICIO_CAIXA',
+            nome: 'Conversao beneficio em caixa',
+            grupo: 'Receitas',
+            tipo_evento_padrao: 'receita',
+            classe_dre: 'nao_dre',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: false,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'resumo',
+            ativo: true,
+        },
+        {
             id_categoria: 'INV_APORTE',
             nome: 'Aporte investimento',
             grupo: 'Investimentos',
@@ -2386,6 +2399,107 @@ test('Apps Script pilot internal transfer writes family cash entry only', () => 
     assert.strictEqual(transfer.pessoa_destino, 'Familiar');
     assert.strictEqual(transfer.escopo, 'Familiar');
     assert.strictEqual(transfer.direcao_caixa_familiar, 'entrada');
+});
+
+test('Apps Script pilot internal transfer moves money between own active sources', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'transferencia_interna',
+        data: '2026-05-08',
+        competencia: '2026-05',
+        valor: '1675',
+        descricao: '',
+        id_categoria: 'MOV_CAIXA_FAMILIAR',
+        id_fonte: '',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: 'interna',
+        status: 'efetivado',
+    });
+    [
+        { id_fonte: 'FONTE_CONTA_NUBANK_GU', nome: 'Conta Nubank Gustavo', tipo: 'conta_corrente', titular: 'Gustavo', moeda: 'BRL', ativo: true },
+        { id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU', nome: 'Conta Mercado Pago Gustavo', tipo: 'conta_corrente', titular: 'Gustavo', moeda: 'BRL', ativo: true },
+    ].forEach((row) => sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => row[header] === undefined ? '' : row[header])));
+
+    const result = postPilotMessage(context, 'Transferi 1675 do Nubank Gustavo para Mercado Pago Gustavo em 08/05.');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result));
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
+    const transfer = Object.fromEntries(transferenciasHeaders.map((header, index) => [header, sheets.Transferencias_Internas.rows[1][index]]));
+    assert.strictEqual(transfer.data, '2026-05-08');
+    assert.strictEqual(transfer.competencia, '2026-05');
+    assert.strictEqual(transfer.valor, 1675);
+    assert.strictEqual(transfer.fonte_origem, 'FONTE_CONTA_NUBANK_GU');
+    assert.strictEqual(transfer.fonte_destino, 'FONTE_CONTA_MERCADO_PAGO_GU');
+    assert.strictEqual(transfer.pessoa_origem, 'Gustavo');
+    assert.strictEqual(transfer.pessoa_destino, 'Gustavo');
+    assert.strictEqual(transfer.direcao_caixa_familiar, 'interna');
+});
+
+test('Apps Script pilot benefit conversion records cash entry without DRE', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'receita',
+        data: '2026-05-08',
+        competencia: '2026-05',
+        valor: '750',
+        descricao: '',
+        id_categoria: 'REC_CONVERSAO_BENEFICIO_CAIXA',
+        id_fonte: 'FONTE_CONTA_NUBANK_GU',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    [
+        {
+            id_categoria: 'REC_CONVERSAO_BENEFICIO_CAIXA',
+            nome: 'Conversao beneficio em caixa',
+            grupo: 'Receitas',
+            tipo_evento_padrao: 'receita',
+            classe_dre: 'nao_dre',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: false,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'resumo',
+            ativo: true,
+        },
+    ].forEach((row) => sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => row[header] === undefined ? '' : row[header])));
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_CONTA_NUBANK_GU',
+        nome: 'Conta Nubank Gustavo',
+        tipo: 'conta_corrente',
+        titular: 'Gustavo',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+
+    const result = postPilotMessage(context, 'Recebi 750 no Nubank Gustavo em 08/05 via boleto, venda do vale alimentacao. Nao e receita DRE, e conversao de beneficio em caixa familiar.');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result));
+    assert.strictEqual(sheets.Transferencias_Internas.rows.length, 1);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'receita');
+    assert.strictEqual(launch.id_categoria, 'REC_CONVERSAO_BENEFICIO_CAIXA');
+    assert.strictEqual(launch.afeta_dre, false);
+    assert.strictEqual(launch.afeta_caixa_familiar, true);
 });
 
 test('Apps Script pilot internal transfer blocks person-to-person and unrelated transfers', () => {
