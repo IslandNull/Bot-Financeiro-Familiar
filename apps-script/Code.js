@@ -2539,6 +2539,8 @@ var V55 = (function() {
 
   function canonicalizePilotExpenseEvent_(event, referenceData) {
     if (event.tipo_evento !== 'despesa') return event;
+    var explicitCategory = inferExplicitCategoryFromText_(event.raw_text || event.descricao, referenceData, 'despesa');
+    if (explicitCategory) event.id_categoria = explicitCategory.id_categoria;
     var category = categoryForEvent_(referenceData, event.id_categoria, 'despesa');
     if (!category) return event;
     var source = event.id_fonte ? sourceForEvent_(referenceData, event.id_fonte) : defaultCashSourceForScope_(referenceData, category.escopo_padrao);
@@ -2722,9 +2724,11 @@ var V55 = (function() {
 
   function canonicalizePilotCardPurchaseEvent_(event, referenceData) {
     if (event.tipo_evento !== 'compra_cartao') return event;
+    var explicitCategory = inferExplicitCategoryFromText_(event.raw_text || event.descricao, referenceData, 'compra_cartao');
+    if (explicitCategory) event.id_categoria = explicitCategory.id_categoria;
     var category = categoryForEvent_(referenceData, event.id_categoria, 'compra_cartao');
     if (!category) return event;
-    var card = event.id_cartao ? cardForEvent_(referenceData, event.id_cartao) : defaultActiveCard_(referenceData);
+    var card = event.id_cartao ? cardForEvent_(referenceData, event.id_cartao) : (inferActiveCardFromText_(event.raw_text || event.descricao, referenceData) || defaultActiveCard_(referenceData));
     if (!card) return event;
     if (event.id_fonte && event.id_fonte !== card.id_fonte) return event;
     if (event.escopo && event.escopo !== category.escopo_padrao) return event;
@@ -3226,6 +3230,22 @@ var V55 = (function() {
       lines.push('Categorias provaveis: ' + suggestions.join(', ') + '.');
     }
     return lines.join('\n');
+  }
+
+  function inferExplicitCategoryFromText_(rawText, referenceData, eventType) {
+    var normalizedText = normalizeAliasText_(rawText);
+    if (!normalizedText || !containsAliasPhrase_(normalizedText, 'categoria')) return null;
+    var matches = [];
+    for (var i = 0; i < referenceData.categories.length; i += 1) {
+      var category = referenceData.categories[i];
+      if (!categoryForEvent_(referenceData, category.id_categoria, eventType)) continue;
+      var name = normalizeAliasText_(category.nome);
+      if (!name) continue;
+      if (containsAliasPhrase_(normalizedText, 'categoria ' + name) || containsAliasPhrase_(normalizedText, name)) {
+        matches.push(category);
+      }
+    }
+    return matches.length === 1 ? matches[0] : null;
   }
 
   function suggestCategoriesForText_(rawText, referenceData, eventType) {
