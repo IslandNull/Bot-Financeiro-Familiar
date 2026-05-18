@@ -117,6 +117,9 @@ var V55 = (function() {
     if (action === 'repair_may_2026_cash_account_misclassified_card') {
       return json_(repairMay2026CashAccountMisclassifiedCardV55());
     }
+    if (action === 'repair_may_2026_current_invoice_totals') {
+      return json_(repairMay2026CurrentInvoiceTotalsV55());
+    }
     if (action === 'reset_april_2026_clean_rebuild') {
       return json_(resetApril2026CleanRebuildV55());
     }
@@ -833,6 +836,108 @@ var V55 = (function() {
     }
   }
 
+  function repairMay2026CurrentInvoiceTotalsV55() {
+    var config = readConfig_();
+    var runtimeCheck = verifyReportingRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
+      verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
+      var repairs = [
+        {
+          id_fatura: 'FAT_CARD_NUBANK_GU_2026_05',
+          id_cartao: 'CARD_NUBANK_GU',
+          competencia: '2026-05',
+          data_fechamento: '2026-05-30',
+          data_vencimento: '2026-06-07',
+          valor_fechado: 1260.47,
+        },
+        {
+          id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_06',
+          id_cartao: 'CARD_MERCADO_PAGO_GU',
+          competencia: '2026-06',
+          data_fechamento: '2026-05-31',
+          data_vencimento: '2026-06-10',
+          valor_fechado: 2100.97,
+        },
+      ];
+      var appended = 0;
+      var updated = 0;
+      for (var i = 0; i < repairs.length; i += 1) {
+        var result = upsertAuthoritativeInvoiceTotal_(invoiceSheet, repairs[i]);
+        appended += result.appended;
+        updated += result.updated;
+      }
+      return {
+        ok: true,
+        action: 'repair_may_2026_current_invoice_totals',
+        appended_invoices: appended,
+        updated_invoices: updated,
+        shouldApplyDomainMutation: appended > 0 || updated > 0,
+      };
+    } catch (_err) {
+      return fail_('MAY_CURRENT_INVOICE_TOTALS_REPAIR_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  function upsertAuthoritativeInvoiceTotal_(sheet, repair) {
+    var rows = readRowsAsObjects_(sheet, SHEETS.FATURAS);
+    for (var i = 0; i < rows.length; i += 1) {
+      var row = rows[i];
+      if (row.id_fatura !== repair.id_fatura) continue;
+      if (row.id_cartao !== repair.id_cartao) continue;
+      if (normalizeSheetCompetencia_(row.competencia) !== repair.competencia) continue;
+      if (formatSheetDate_(row.data_vencimento) !== repair.data_vencimento) continue;
+      if (row.status !== 'fechada') continue;
+      var next = {
+        id_fatura: repair.id_fatura,
+        id_cartao: repair.id_cartao,
+        competencia: repair.competencia,
+        data_fechamento: repair.data_fechamento,
+        data_vencimento: repair.data_vencimento,
+        valor_previsto: 0,
+        valor_fechado: repair.valor_fechado,
+        valor_pago: row.valor_pago || '',
+        status: 'fechada',
+      };
+      var changed = JSON.stringify(normalizeInvoiceRepairRow_(row)) !== JSON.stringify(normalizeInvoiceRepairRow_(next));
+      if (changed) writeRow_(sheet, i + 2, SHEETS.FATURAS, next);
+      return { appended: 0, updated: changed ? 1 : 0 };
+    }
+    appendRow_(sheet, SHEETS.FATURAS, {
+      id_fatura: repair.id_fatura,
+      id_cartao: repair.id_cartao,
+      competencia: repair.competencia,
+      data_fechamento: repair.data_fechamento,
+      data_vencimento: repair.data_vencimento,
+      valor_previsto: 0,
+      valor_fechado: repair.valor_fechado,
+      valor_pago: '',
+      status: 'fechada',
+    });
+    return { appended: 1, updated: 0 };
+  }
+
+  function normalizeInvoiceRepairRow_(row) {
+    return {
+      id_fatura: stringValue_(row.id_fatura),
+      id_cartao: stringValue_(row.id_cartao),
+      competencia: normalizeSheetCompetencia_(row.competencia),
+      data_fechamento: formatSheetDate_(row.data_fechamento),
+      data_vencimento: formatSheetDate_(row.data_vencimento),
+      valor_previsto: numberFromSheetValue_(row.valor_previsto),
+      valor_fechado: numberFromSheetValue_(row.valor_fechado),
+      valor_pago: numberFromSheetValue_(row.valor_pago),
+      status: stringValue_(row.status),
+    };
+  }
+
   function may2026CashAccountMisclassificationRepairs_() {
     return [
       {
@@ -1196,6 +1301,7 @@ var V55 = (function() {
 
     var invoiceExposure = summarizePilotInvoiceExposure_(invoices, todaySaoPaulo_(), cardsById || {}, buildPilotInvoicePaymentCoverage_(launches, invoices, cardsById || {}));
     var faturas60d = invoiceExposure.total;
+    var currentInvoiceExposure = summarizeCurrentInvoiceExposure_(invoiceExposure.items, todaySaoPaulo_());
     var obrigacoes60d = debts.reduce(function(sum, row) {
       return row.status === 'ativa' ? roundMoney_(sum + numberFromSheetValue_(row.valor_parcela)) : sum;
     }, 0);
@@ -1228,6 +1334,8 @@ var V55 = (function() {
       sobra_caixa: cash.sobra_caixa,
       faturas_60d: faturas60d,
       faturas_60d_detalhe: invoiceExposure.items,
+      faturas_atuais: currentInvoiceExposure.total,
+      faturas_atuais_detalhe: currentInvoiceExposure.items,
       obrigacoes_60d: obrigacoes60d,
       reserva_total: reservaTotal,
       patrimonio_liquido: roundMoney_(ativosTotal - dividasTotal),
@@ -1417,6 +1525,7 @@ var V55 = (function() {
   function summarizePilotInvoiceExposure_(invoices, referenceDate, cardsById, invoicePaymentCoverage) {
     var windowEndDate = addDaysIsoDate_(referenceDate, 60);
     var grouped = {};
+    var authoritativeClosed = authoritativeClosedInvoiceGroups_(invoices, cardsById || {});
     var remainingCoverage = (invoicePaymentCoverage || []).map(function(item) {
       return {
         card_key: item.card_key,
@@ -1433,6 +1542,10 @@ var V55 = (function() {
       var outstanding = roundMoney_(Math.max(0, expected - paid));
       var cardId = stringValue_(row.id_cartao);
       var card = cardsById[cardId] || {};
+      var cardName = stringValue_(card.nome) || friendlyIdentifier_(cardId);
+      var competencia = normalizeSheetCompetencia_(row.competencia) || stringValue_(row.competencia);
+      var key = invoiceExposureGroupKey_(cardName, competencia, dueDate);
+      if (authoritativeClosed[key] && row.status !== 'fechada') return sum;
       var rowCardKey = invoiceCoverageCardKey_(cardId, card);
       for (var paymentIndex = 0; paymentIndex < remainingCoverage.length && outstanding > 0; paymentIndex += 1) {
         var coverage = remainingCoverage[paymentIndex];
@@ -1444,9 +1557,6 @@ var V55 = (function() {
         coverage.remaining = roundMoney_(coverage.remaining - coveragePaid);
       }
       if (outstanding <= 0) return sum;
-      var cardName = stringValue_(card.nome) || friendlyIdentifier_(cardId);
-      var competencia = normalizeSheetCompetencia_(row.competencia) || stringValue_(row.competencia);
-      var key = cardName + '|' + competencia + '|' + dueDate;
       if (!grouped[key]) {
         grouped[key] = {
           cartao: cardName,
@@ -1466,8 +1576,44 @@ var V55 = (function() {
     return { total: total, items: items };
   }
 
+  function authoritativeClosedInvoiceGroups_(invoices, cardsById) {
+    return (invoices || []).reduce(function(result, row) {
+      if (row.status !== 'fechada') return result;
+      if (numberFromSheetValue_(row.valor_fechado) <= 0) return result;
+      var cardId = stringValue_(row.id_cartao);
+      var card = cardsById[cardId] || {};
+      var cardName = stringValue_(card.nome) || friendlyIdentifier_(cardId);
+      var competencia = normalizeSheetCompetencia_(row.competencia) || stringValue_(row.competencia);
+      var dueDate = formatSheetDate_(row.data_vencimento);
+      result[invoiceExposureGroupKey_(cardName, competencia, dueDate)] = true;
+      return result;
+    }, {});
+  }
+
+  function invoiceExposureGroupKey_(cardName, competencia, dueDate) {
+    return stringValue_(cardName) + '|' + stringValue_(competencia) + '|' + stringValue_(dueDate);
+  }
+
   function sumPilotInvoiceExposure_(invoices, referenceDate) {
     return summarizePilotInvoiceExposure_(invoices, referenceDate, {}, {}).total;
+  }
+
+  function summarizeCurrentInvoiceExposure_(items, referenceDate) {
+    var selectedByCard = {};
+    (items || []).forEach(function(item) {
+      if (item.data_vencimento && item.data_vencimento < referenceDate) return;
+      var card = stringValue_(item.cartao);
+      var current = selectedByCard[card];
+      if (!current || item.data_vencimento < current.data_vencimento) selectedByCard[card] = item;
+    });
+    var selected = Object.keys(selectedByCard).map(function(card) { return selectedByCard[card]; }).sort(function(a, b) {
+      if (a.data_vencimento !== b.data_vencimento) return a.data_vencimento < b.data_vencimento ? -1 : 1;
+      return a.cartao < b.cartao ? -1 : (a.cartao > b.cartao ? 1 : 0);
+    });
+    return {
+      total: selected.reduce(function(sum, item) { return roundMoney_(sum + numberFromSheetValue_(item.valor)); }, 0),
+      items: selected,
+    };
   }
 
   function addDaysIsoDate_(isoDate, days) {
@@ -1521,50 +1667,55 @@ var V55 = (function() {
     var obligations = roundMoney_(summary.faturas_60d + summary.obrigacoes_60d);
     var guidance = buildPilotGuidance_(summary, obligations);
     var liquidezTotal = roundMoney_(summary.saldos_fontes_disponivel + summary.reserva_total);
+    var currentInvoices = numberFromSheetValue_(summary.faturas_atuais);
+    var currentAfterLiquidity = roundMoney_(liquidezTotal - currentInvoices);
+    var futureCardExposure = roundMoney_(Math.max(0, summary.faturas_60d - currentInvoices));
     var lines = [
       '📊 Resumo de ' + friendlyCompetencia_(summary.competencia),
       '',
-      '🧭 Situacao: ' + buildPilotSituationText_(summary, obligations),
+      '✅ ' + buildPilotSituationText_(summary, obligations),
       '',
-      '💵 Dinheiro informado agora',
-      'Saldo informado: ' + formatMoney_(summary.saldos_fontes_disponivel),
-      'Reserva/liquidez: ' + formatMoney_(summary.reserva_total),
-      'Total disponivel + reserva: ' + formatMoney_(liquidezTotal),
+      '💰 Foto de hoje',
+      'Contas: ' + formatMoney_(summary.saldos_fontes_disponivel),
+      'Reserva: ' + formatMoney_(summary.reserva_total),
+      'Depois das faturas atuais: ' + formatMoney_(currentAfterLiquidity),
       '',
-      '🧾 Pagamentos registrados',
-      'Faturas abertas registradas: ' + formatMoney_(summary.faturas_60d),
+      '💳 Faturas atuais',
     ];
-    var invoiceItems = summary.faturas_60d_detalhe || [];
-    invoiceItems.slice(0, 6).forEach(function(item) {
-      lines.push('- ' + item.cartao + ' ' + item.competencia + ': ' + formatMoney_(item.valor));
+    var currentInvoiceItems = summary.faturas_atuais_detalhe || [];
+    if (currentInvoiceItems.length === 0) lines.push('Nenhuma fatura atual aberta registrada.');
+    currentInvoiceItems.forEach(function(item) {
+      lines.push('• ' + shortCardName_(item.cartao) + ': ' + formatMoney_(item.valor) + ' vence ' + formatShortDate_(item.data_vencimento));
     });
-    if (invoiceItems.length > 6) lines.push('- Mais ' + String(invoiceItems.length - 6) + ' faturas abertas no periodo.');
-    lines.push('Obrigacoes mensais cadastradas: ' + formatMoney_(summary.obrigacoes_60d));
-    lines.push('Total registrado para pagar ate 60 dias: ' + formatMoney_(obligations));
+    lines.push('Total: ' + formatMoney_(currentInvoices));
+    lines.push('');
+    lines.push('🏠 Próximos 60 dias');
+    lines.push('Obrigações cadastradas: ' + formatMoney_(summary.obrigacoes_60d));
+    lines.push('Parcelas futuras no cartão: ' + formatMoney_(futureCardExposure));
+    lines.push('Não é tudo vencendo agora.');
     if (summary.margem_pos_obrigacoes < 0 && numberFromSheetValue_(summary.saldos_fontes_count) === 0) {
-      lines.push('⚠️ Falta saldo informado para avaliar cobertura: ' + formatMoney_(Math.abs(summary.margem_pos_obrigacoes)));
+      lines.push('⚠️ Falta saldo informado para avaliar tudo.');
     } else if (summary.margem_pos_obrigacoes < 0) {
-      lines.push('⚠️ Faltaria hoje, comparando com saldo + reserva informados: ' + formatMoney_(Math.abs(summary.margem_pos_obrigacoes)));
+      lines.push('⚠️ Cobertura total abaixo das contas registradas: ' + formatMoney_(Math.abs(summary.margem_pos_obrigacoes)));
     } else {
-      lines.push('✅ Depois desses pagamentos: ' + formatMoney_(summary.margem_pos_obrigacoes));
+      lines.push('Sobra após tudo registrado: ' + formatMoney_(summary.margem_pos_obrigacoes));
     }
     lines = lines.concat([
       '',
-      '📈 Mes registrado',
-      'Entradas de caixa registradas: ' + formatMoney_(summary.caixa_entradas),
-      'Saidas de caixa registradas: ' + formatMoney_(summary.caixa_saidas),
-      'Sobra do mes registrada: ' + formatMoney_(summary.sobra_caixa),
-      '🛒 Gastos registrados: ' + formatMoney_(summary.despesas_dre),
-      'Rendas recorrentes cadastradas: ' + formatMoney_(summary.rendas_recorrentes_planejadas),
+      '📈 Maio até agora',
+      'Gastos do mês: ' + formatMoney_(summary.despesas_dre),
+      'Caixa do mês: ' + formatMoney_(summary.sobra_caixa),
+      'Renda prevista: ' + formatMoney_(summary.rendas_recorrentes_planejadas),
       '',
-      '🧭 Orientacao: ' + guidance.action,
-      '🔎 Motivo: ' + guidance.reason,
+      '🧭 Próximo passo',
+      guidance.action,
+      guidance.reason,
     ]);
     if (guidance.caveat) lines.push(guidance.caveat);
     if (summary.eventos_detalhados_preview && summary.eventos_detalhados_preview.length > 0) {
       lines.push('');
-      lines.push('🧾 Ultimos gastos:');
-      summary.eventos_detalhados_preview.forEach(function(event) {
+      lines.push('🧾 Últimos gastos');
+      summary.eventos_detalhados_preview.slice(0, 3).forEach(function(event) {
         lines.push('- ' + formatShortDate_(event.data) + ' ' + event.categoria + ' - ' + formatMoney_(event.valor));
       });
     }
@@ -1572,8 +1723,9 @@ var V55 = (function() {
   }
 
   function buildPilotSituationText_(summary, obligations) {
-    if (summary.margem_pos_obrigacoes < 0) return 'atencao: pagamentos registrados superam saldo + reserva informados.';
-    if (obligations > 0) return 'pagamentos registrados cabem no saldo + reserva informados.';
+    if (summary.margem_pos_obrigacoes < 0) return 'Atenção: falta cobertura para tudo que está registrado.';
+    if (numberFromSheetValue_(summary.faturas_atuais) > 0) return 'Faturas atuais cobertas pela liquidez registrada.';
+    if (obligations > 0) return 'Contas registradas cabem na liquidez registrada.';
     if (summary.sobra_caixa > 0) return 'ha sobra registrada no mes.';
     return 'ainda nao ha sobra registrada no mes.';
   }
@@ -1599,8 +1751,8 @@ var V55 = (function() {
     }
     if (summary.reserva_total < 15000) {
       return {
-        action: 'Manter liquidez e reforcar reserva quando entrar dinheiro novo.',
-        reason: 'Os pagamentos registrados cabem nos saldos e reservas informados. Isso nao quer dizer que voce vai precisar usar toda a reserva; salario futuro ainda nao registrado nao foi somado.',
+        action: 'Pagar as faturas atuais e preservar a reserva.',
+        reason: 'O saldo de conta está baixo, mas a reserva cobre as faturas atuais. Quando entrar salário, ele deve aliviar essa pressão sem transformar a reserva em gasto do mês.',
         caveat: '',
       };
     }
@@ -1656,6 +1808,13 @@ var V55 = (function() {
       'Base: faturas abertas e obrigacoes ativas registradas. Nao soma salario futuro ainda nao lancado.',
     ]);
     return lines.join('\n');
+  }
+
+  function shortCardName_(value) {
+    var text = stringValue_(value);
+    if (normalizeAliasText_(text).indexOf('mercado pago') !== -1) return 'Mercado Pago';
+    if (normalizeAliasText_(text).indexOf('nubank') !== -1) return 'Nubank';
+    return text;
   }
 
   function formatReserveAnswer_(summary) {
@@ -5368,6 +5527,7 @@ var V55 = (function() {
     repairNotebookInstallmentPilotV55: repairNotebookInstallmentPilotV55,
     repairMay2026BenefitConversionSourceV55: repairMay2026BenefitConversionSourceV55,
     repairMay2026CashAccountMisclassifiedCardV55: repairMay2026CashAccountMisclassifiedCardV55,
+    repairMay2026CurrentInvoiceTotalsV55: repairMay2026CurrentInvoiceTotalsV55,
     resetApril2026CleanRebuildV55: resetApril2026CleanRebuildV55,
     ensureApril2026HouseDebtConfigV55: ensureApril2026HouseDebtConfigV55,
     runHelpSmokeSelfTest: runHelpSmokeSelfTest,
@@ -5460,6 +5620,12 @@ function repairMay2026BenefitConversionSourceV55() {
 
 function repairMay2026CashAccountMisclassifiedCardV55() {
   var result = V55.repairMay2026CashAccountMisclassifiedCardV55();
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+function repairMay2026CurrentInvoiceTotalsV55() {
+  var result = V55.repairMay2026CurrentInvoiceTotalsV55();
   Logger.log(JSON.stringify(result));
   return result;
 }

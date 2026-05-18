@@ -84,6 +84,7 @@ doGet(e)
 - Operational repair action: `repair_premature_current_closing` reopens only a prematurely closed current competencia.
 - Operational repair action: `repair_notebook_installment_pilot` cancels the duplicated wrong notebook pilot rows without deleting history.
 - Operational repair action: `repair_may_2026_cash_account_misclassified_card` cancels reviewed May account-paid rows that were accidentally recorded as Mercado Pago card purchases and appends corrected cash rows.
+- Operational repair action: `repair_may_2026_current_invoice_totals` records owner-confirmed current invoice totals as closed invoice authority rows.
 - Operational rebuild action: `reset_april_2026_clean_rebuild` clears operational rows for a reviewed clean import while preserving config sheets.
 - Reviewed historical type: `fatura_prevista` writes `Faturas` exposure only, with no `Lancamentos` row and no DRE/cash effect.
 
@@ -101,6 +102,6 @@ Full headers in `SHEET_SCHEMA.md`.
 | Command | Mutation | Description |
 |---------|----------|-------------|
 | `/help`, `/start` | No | Bot info |
-| `/resumo` | No | Read-only family summary (DRE, cash, exposure, reserve, net worth, destination) |
+| `/resumo` | No | Read-only family summary focused on current liquidity, current invoices, obligations, month flow, and next step |
 | Safe finance question | No | Deterministic read-only answers for cost of life, upcoming invoices/obligations, and reserve/liquidity |
 | Natural text | Yes | Parsed by OpenAI → validated → written to sheets |

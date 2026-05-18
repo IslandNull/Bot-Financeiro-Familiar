@@ -823,20 +823,19 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /📊 Resumo de abril/);
-    assert.match(result.responseText, /Situacao: pagamentos registrados cabem no saldo \+ reserva informados\./);
-    assert.match(result.responseText, /Saldo informado: R\$ 330,00/);
-    assert.match(result.responseText, /Reserva\/liquidez: R\$ 1000,00/);
-    assert.match(result.responseText, /Faturas abertas registradas: R\$ 42,50/);
-    assert.match(result.responseText, /Nubank Gustavo 2026-04: R\$ 42,50/);
-    assert.match(result.responseText, /Obrigacoes mensais cadastradas: R\$ 500,00/);
-    assert.match(result.responseText, /Total registrado para pagar ate 60 dias: R\$ 542,50/);
-    assert.match(result.responseText, /Depois desses pagamentos: R\$ 787,50/);
-    assert.match(result.responseText, /Sobra do mes registrada: R\$ 36,10/);
-    assert.match(result.responseText, /🛒 Gastos registrados: R\$ 106,40/);
-    assert.match(result.responseText, /Orientacao: Manter liquidez e reforcar reserva quando entrar dinheiro novo\./);
-    assert.match(result.responseText, /salario futuro ainda nao registrado nao foi somado/);
+    assert.match(result.responseText, /Faturas atuais cobertas pela liquidez registrada\./);
+    assert.match(result.responseText, /Contas: R\$ 330,00/);
+    assert.match(result.responseText, /Reserva: R\$ 1000,00/);
+    assert.match(result.responseText, /Nubank: R\$ 42,50 vence 07\/05/);
+    assert.match(result.responseText, /Total: R\$ 42,50/);
+    assert.match(result.responseText, /Obrigações cadastradas: R\$ 500,00/);
+    assert.match(result.responseText, /Não é tudo vencendo agora\./);
+    assert.match(result.responseText, /Sobra após tudo registrado: R\$ 787,50/);
+    assert.match(result.responseText, /Caixa do mês: R\$ 36,10/);
+    assert.match(result.responseText, /Gastos do mês: R\$ 106,40/);
+    assert.match(result.responseText, /Pagar as faturas atuais e preservar a reserva\./);
     assert.doesNotMatch(result.responseText, /Nota: ainda falta saldo real das contas/);
-    assert.match(result.responseText, /🧾 Ultimos gastos:/);
+    assert.match(result.responseText, /🧾 Últimos gastos/);
     assert.match(result.responseText, /30\/04 Mercado da semana - R\$ 43,90/);
     assert.doesNotMatch(result.responseText, /OPEX_MERCADO_SEMANA/);
     assert.match(result.responseText, /Mercado da semana/);
@@ -863,8 +862,8 @@ test('Apps Script /resumo normalizes sheet date cells used as competencia', () =
     const result = postPilotMessage(context, '/resumo_familiar');
 
     assert.strictEqual(result.ok, true);
-    assert.match(result.responseText, /Gastos registrados: R\$ 43,90/);
-    assert.match(result.responseText, /Sobra do mes registrada: R\$ 56,10/);
+    assert.match(result.responseText, /Gastos do mês: R\$ 43,90/);
+    assert.match(result.responseText, /Caixa do mês: R\$ 56,10/);
     assert.match(result.responseText, /Ainda nao vou sugerir investimento, reserva ou amortizacao/);
     assert.match(result.responseText, /ainda falta o saldo real das contas/);
 });
@@ -883,9 +882,9 @@ test('Apps Script /resumo labels uncovered obligations clearly when source balan
     const result = runRemoteAction(context, 'summary');
 
     assert.strictEqual(result.ok, true);
-    assert.match(result.responseText, /Faturas abertas registradas: R\$ 300,00/);
-    assert.match(result.responseText, /Total registrado para pagar ate 60 dias: R\$ 300,00/);
-    assert.match(result.responseText, /Falta saldo informado para avaliar cobertura: R\$ 200,00/);
+    assert.match(result.responseText, /Faturas atuais/);
+    assert.match(result.responseText, /Total: R\$ 300,00/);
+    assert.match(result.responseText, /Falta saldo informado para avaliar tudo\./);
     assert.doesNotMatch(result.responseText, /Falta para cobrir tudo/);
     assert.match(result.responseText, /ainda falta saldo real das contas/);
 });
@@ -920,7 +919,7 @@ test('Apps Script /resumo uses informed liquidity and reserve to evaluate obliga
     assert.strictEqual(result.summary.reserva_total, 9482.99);
     assert.strictEqual(result.summary.margem_pos_obrigacoes, 9507.9);
     assert.strictEqual(result.summary.destino_sugerido, 'reforcar_reserva');
-    assert.match(result.responseText, /Depois desses pagamentos: R\$ 9507,90/);
+    assert.match(result.responseText, /Sobra após tudo registrado: R\$ 9507,90/);
     assert.doesNotMatch(result.responseText, /Falta para cobrir tudo/);
 });
 
@@ -962,13 +961,11 @@ test('Apps Script /resumo separates current liquidity from 60-day exposure and s
     const result = runRemoteAction(context, 'summary');
 
     assert.strictEqual(result.ok, true);
-    assert.match(result.responseText, /Saldo informado: R\$ 324,91/);
-    assert.match(result.responseText, /Reserva\/liquidez: R\$ 9482,99/);
-    assert.match(result.responseText, /Faturas abertas registradas: R\$ 3361,44/);
-    assert.match(result.responseText, /Nubank Gustavo 2026-04: R\$ 1260,47/);
-    assert.match(result.responseText, /Nubank Gustavo 2026-05: R\$ 2100,97/);
-    assert.match(result.responseText, /Obrigacoes mensais cadastradas: R\$ 878,41/);
-    assert.match(result.responseText, /Total registrado para pagar ate 60 dias: R\$ 4239,85/);
+    assert.match(result.responseText, /Contas: R\$ 324,91/);
+    assert.match(result.responseText, /Reserva: R\$ 9482,99/);
+    assert.match(result.responseText, /Nubank: R\$ 1260,47 vence 07\/05/);
+    assert.match(result.responseText, /Total: R\$ 1260,47/);
+    assert.match(result.responseText, /Obrigações cadastradas: R\$ 878,41/);
     assert.doesNotMatch(result.responseText, /Contas proximas: R\$ 4239,85/);
     assert.ok(result.responseText.indexOf('30/04 Mercado da semana - R$ 30,00') < result.responseText.indexOf('29/04 Farmacia - R$ 20,00'));
 });
@@ -1038,8 +1035,61 @@ test('Apps Script /resumo subtracts effective invoice payments when invoice rows
         data_vencimento: '2026-05-10',
         valor: 25,
     });
-    assert.match(result.responseText, /Faturas abertas registradas: R\$ 25,00/);
-    assert.match(result.responseText, /Mercado Pago Gustavo 2026-05: R\$ 25,00/);
+    assert.match(result.responseText, /Total: R\$ 25,00/);
+    assert.match(result.responseText, /Mercado Pago: R\$ 25,00 vence 10\/05/);
+});
+
+test('Apps Script /resumo uses closed invoice total as authority over planned card rows', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fonte: 'FONTE_MP_GU',
+        nome: 'Mercado Pago Gustavo',
+        titular: 'Gustavo',
+        fechamento_dia: 31,
+        vencimento_dia: 10,
+        limite: 5000,
+        ativo: true,
+    })[header] ?? ''));
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_06',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-06',
+        data_vencimento: '2026-06-10',
+        valor_previsto: 2157.52,
+        valor_fechado: '',
+        valor_pago: '',
+        status: 'prevista',
+    });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_06',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-06',
+        data_vencimento: '2026-06-10',
+        valor_previsto: 0,
+        valor_fechado: 2100.97,
+        valor_pago: '',
+        status: 'fechada',
+    });
+
+    const result = runRemoteAction(context, 'summary');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.summary.faturas_60d, 2100.97);
+    assert.deepStrictEqual(result.summary.faturas_60d_detalhe, [{
+        cartao: 'Mercado Pago Gustavo',
+        competencia: '2026-06',
+        data_vencimento: '2026-06-10',
+        valor: 2100.97,
+    }]);
+    assert.match(result.responseText, /Total: R\$ 2100,97/);
+    assert.doesNotMatch(result.responseText, /R\$ 2157,52/);
 });
 
 test('Apps Script answers cost-of-life question without calling the parser', () => {
