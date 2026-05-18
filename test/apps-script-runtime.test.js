@@ -823,16 +823,18 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /📊 Resumo de abril/);
-    assert.match(result.responseText, /🧭 Situacao: contas proximas cobertas pelos dados registrados\./);
-    assert.match(result.responseText, /💵 Sobra do mes: R\$ 36,10/);
-    assert.match(result.responseText, /🧾 Contas proximas: R\$ 542,50/);
-    assert.match(result.responseText, /Faturas ate 60 dias: R\$ 42,50/);
-    assert.match(result.responseText, /Obrigacoes cadastradas: R\$ 500,00/);
-    assert.match(result.responseText, /✅ Depois das contas: R\$ 787,50/);
+    assert.match(result.responseText, /Situacao: pagamentos registrados cabem no saldo \+ reserva informados\./);
+    assert.match(result.responseText, /Saldo informado: R\$ 330,00/);
+    assert.match(result.responseText, /Reserva\/liquidez: R\$ 1000,00/);
+    assert.match(result.responseText, /Faturas abertas registradas: R\$ 42,50/);
+    assert.match(result.responseText, /Nubank Gustavo 2026-04: R\$ 42,50/);
+    assert.match(result.responseText, /Obrigacoes mensais cadastradas: R\$ 500,00/);
+    assert.match(result.responseText, /Total registrado para pagar ate 60 dias: R\$ 542,50/);
+    assert.match(result.responseText, /Depois desses pagamentos: R\$ 787,50/);
+    assert.match(result.responseText, /Sobra do mes registrada: R\$ 36,10/);
     assert.match(result.responseText, /🛒 Gastos registrados: R\$ 106,40/);
-    assert.match(result.responseText, /🏦 Reserva\/liquidez: R\$ 1000,00/);
-    assert.match(result.responseText, /🧭 Orientacao: Priorizar reforco da reserva\./);
-    assert.match(result.responseText, /🔎 Motivo: As contas proximas parecem cobertas/);
+    assert.match(result.responseText, /Orientacao: Manter liquidez e reforcar reserva quando entrar dinheiro novo\./);
+    assert.match(result.responseText, /salario futuro ainda nao registrado nao foi somado/);
     assert.doesNotMatch(result.responseText, /Nota: ainda falta saldo real das contas/);
     assert.match(result.responseText, /🧾 Ultimos gastos:/);
     assert.match(result.responseText, /30\/04 Mercado da semana - R\$ 43,90/);
@@ -862,12 +864,12 @@ test('Apps Script /resumo normalizes sheet date cells used as competencia', () =
 
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Gastos registrados: R\$ 43,90/);
-    assert.match(result.responseText, /Sobra do mes: R\$ 56,10/);
+    assert.match(result.responseText, /Sobra do mes registrada: R\$ 56,10/);
     assert.match(result.responseText, /Ainda nao vou sugerir investimento, reserva ou amortizacao/);
     assert.match(result.responseText, /ainda falta o saldo real das contas/);
 });
 
-test('Apps Script /resumo labels uncovered obligations as exposure when source balances are missing', () => {
+test('Apps Script /resumo labels uncovered obligations clearly when source balances are missing', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
         properties: {
@@ -881,9 +883,9 @@ test('Apps Script /resumo labels uncovered obligations as exposure when source b
     const result = runRemoteAction(context, 'summary');
 
     assert.strictEqual(result.ok, true);
-    assert.match(result.responseText, /Contas proximas: R\$ 300,00/);
-    assert.match(result.responseText, /Faturas ate 60 dias: R\$ 300,00/);
-    assert.match(result.responseText, /Exposicao sem saldo informado: R\$ 200,00/);
+    assert.match(result.responseText, /Faturas abertas registradas: R\$ 300,00/);
+    assert.match(result.responseText, /Total registrado para pagar ate 60 dias: R\$ 300,00/);
+    assert.match(result.responseText, /Falta saldo informado para avaliar cobertura: R\$ 200,00/);
     assert.doesNotMatch(result.responseText, /Falta para cobrir tudo/);
     assert.match(result.responseText, /ainda falta saldo real das contas/);
 });
@@ -918,8 +920,126 @@ test('Apps Script /resumo uses informed liquidity and reserve to evaluate obliga
     assert.strictEqual(result.summary.reserva_total, 9482.99);
     assert.strictEqual(result.summary.margem_pos_obrigacoes, 9507.9);
     assert.strictEqual(result.summary.destino_sugerido, 'reforcar_reserva');
-    assert.match(result.responseText, /Depois das contas: R\$ 9507,90/);
+    assert.match(result.responseText, /Depois desses pagamentos: R\$ 9507,90/);
     assert.doesNotMatch(result.responseText, /Falta para cobrir tudo/);
+});
+
+test('Apps Script /resumo separates current liquidity from 60-day exposure and shows latest expenses first', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeLaunch(sheets, { data: '2026-04-01', valor: 10, id_categoria: 'OPEX_MERCADO_SEMANA' });
+    appendFakeLaunch(sheets, { data: '2026-04-29', valor: 20, id_categoria: 'OPEX_FARMACIA', tipo_evento: 'compra_cartao', afeta_caixa_familiar: false });
+    appendFakeLaunch(sheets, { data: '2026-04-30', valor: 30, id_categoria: 'OPEX_MERCADO_SEMANA' });
+    appendFakeSourceBalance(sheets, { id_fonte: 'FONTE_CONTA_FAMILIA', saldo_final: 324.91, saldo_disponivel: 324.91 });
+    appendFakeAsset(sheets, {
+        nome: 'Cofrinho Mercado Pago Gustavo',
+        saldo_atual: 9482.99,
+        conta_reserva_emergencia: true,
+    });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        id_cartao: 'CARD_NUBANK_GU',
+        competencia: '2026-04',
+        data_vencimento: '2026-05-07',
+        valor_previsto: 1260.47,
+        status: 'prevista',
+    });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_05',
+        id_cartao: 'CARD_NUBANK_GU',
+        competencia: '2026-05',
+        data_vencimento: '2026-06-07',
+        valor_previsto: 2100.97,
+        status: 'prevista',
+    });
+    appendFakeDebt(sheets, { valor_parcela: 878.41 });
+
+    const result = runRemoteAction(context, 'summary');
+
+    assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /Saldo informado: R\$ 324,91/);
+    assert.match(result.responseText, /Reserva\/liquidez: R\$ 9482,99/);
+    assert.match(result.responseText, /Faturas abertas registradas: R\$ 3361,44/);
+    assert.match(result.responseText, /Nubank Gustavo 2026-04: R\$ 1260,47/);
+    assert.match(result.responseText, /Nubank Gustavo 2026-05: R\$ 2100,97/);
+    assert.match(result.responseText, /Obrigacoes mensais cadastradas: R\$ 878,41/);
+    assert.match(result.responseText, /Total registrado para pagar ate 60 dias: R\$ 4239,85/);
+    assert.doesNotMatch(result.responseText, /Contas proximas: R\$ 4239,85/);
+    assert.ok(result.responseText.indexOf('30/04 Mercado da semana - R$ 30,00') < result.responseText.indexOf('29/04 Farmacia - R$ 20,00'));
+});
+
+test('Apps Script /resumo subtracts effective invoice payments when invoice rows still look open', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MP_2026_05',
+        id_cartao: 'CARD_MP_GU',
+        competencia: '2026-05',
+        data_vencimento: '2026-05-10',
+        valor_previsto: 300,
+        valor_pago: '',
+        status: 'prevista',
+    });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MP_2026_05',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-05',
+        data_vencimento: '2026-05-10',
+        valor_previsto: 125,
+        valor_pago: '',
+        status: 'prevista',
+    });
+    sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
+        id_cartao: 'CARD_MP_GU',
+        id_fonte: 'FONTE_MP_GU',
+        nome: 'Mercado Pago Gustavo',
+        titular: 'Gustavo',
+        fechamento_dia: 30,
+        vencimento_dia: 10,
+        limite: 5000,
+        ativo: true,
+    })[header] ?? ''));
+    sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fonte: 'FONTE_MP_GU',
+        nome: 'Mercado Pago Gustavo',
+        titular: 'Gustavo',
+        fechamento_dia: 30,
+        vencimento_dia: 10,
+        limite: 5000,
+        ativo: true,
+    })[header] ?? ''));
+    appendFakeLaunch(sheets, {
+        tipo_evento: 'pagamento_fatura',
+        id_fatura: 'FAT_CARD_MP_2026_05',
+        valor: 400,
+        afeta_dre: false,
+        afeta_caixa_familiar: true,
+    });
+
+    const result = runRemoteAction(context, 'summary');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.summary.faturas_60d, 25);
+    assert.strictEqual(result.summary.faturas_60d_detalhe.length, 1);
+    assert.deepStrictEqual(result.summary.faturas_60d_detalhe[0], {
+        cartao: 'Mercado Pago Gustavo',
+        competencia: '2026-05',
+        data_vencimento: '2026-05-10',
+        valor: 25,
+    });
+    assert.match(result.responseText, /Faturas abertas registradas: R\$ 25,00/);
+    assert.match(result.responseText, /Mercado Pago Gustavo 2026-05: R\$ 25,00/);
 });
 
 test('Apps Script answers cost-of-life question without calling the parser', () => {
@@ -964,7 +1084,7 @@ test('Apps Script answers singular open-invoice question without mutating', () =
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Contas proximas/);
-    assert.match(result.responseText, /Faturas: R\$ 421,93/);
+    assert.match(result.responseText, /Faturas abertas registradas: R\$ 421,93/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
 });

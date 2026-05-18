@@ -16,12 +16,9 @@ Operational authority for Bot Financeiro Familiar V55.
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed family closings from sheets.
 - Reviewed historical JSONL import is narrow: max 5 events per request, full validation before writes, `historical_jsonl` idempotency, no private-detail output. Normal launches stay in 2026-04; `fatura_prevista` may add reviewed future invoice exposure through 2027 for April rebuilds.
 - April 2026 clean rebuild was applied on @80 from final local source documents in `private/abril-2026/`: 151 reviewed events, 89 `Lancamentos`, 116 `Faturas`, and 2026-04 `Fechamento_Familiar` closed after owner aggregate review.
-- Version @100 deployed on 2026-05-18 with audit, pilot, clean rebuild, May launch hardening, `/resumo` exposure hardening, caixinha/cofrinho patrimonio updates, and Telegram UX hardening:
-  - strict calendar-date validation, including February/leap-year cases;
-  - stricter money parsing and ambiguous-number fallback blocking;
-  - no money fallback in reviewed historical import;
-  - payable invoice allowlist in parser prompt and invoice-payment validation;
-  - partial invoice payment uses only outstanding balance;
+- Version @103 deployed on 2026-05-18 with audit, pilot, clean rebuild, May launch hardening, `/resumo` exposure hardening, caixinha/cofrinho patrimonio updates, and Telegram UX hardening:
+  - strict calendar-date and money parsing; no money fallback in reviewed historical import;
+  - payable invoice allowlist; partial invoice payment uses only outstanding balance;
   - closed competencias block mutations unless event type is `ajuste`;
   - current/future competencias cannot be closed by `closing_close`;
   - premature current-month closing repair action is available and was applied for 2026-05;
@@ -32,14 +29,14 @@ Operational authority for Bot Financeiro Familiar V55.
   - benefit conversion can enter cash without creating DRE revenue;
   - own-source transfers such as Nubank -> Mercado Pago are internal movements with no DRE or family-cash effect;
   - deterministic overrides correct LLM category/source guesses for benefit conversion, own-source transfers, reimbursable client card costs, and explicit invoice payments by card/competencia;
-  - explicit reviewed invoice payment can reconcile a small overage in known invoice exposure without creating retroactive DRE;
-  - invoice payment competence is forced to the payment date month, not the paid invoice month.
-  - explicit `categoria <nome>` plus card text overrides parser category guesses and parser expense/card-purchase type mistakes, preferring the most specific matching card category name.
-  - `pela Conta ...` with explicit category is treated as cash expense, not card purchase; singular fatura questions are read-only; May MP cash-account misclassified card rows were repaired.
-- `/resumo` counts open invoice exposure only through the next 60 days, shows invoice/obligation breakdown, and avoids saying "Falta para cobrir tudo" when no real source-balance snapshot exists.
+  - explicit reviewed invoice payment can reconcile a small overage in known invoice exposure without creating retroactive DRE, using payment-date competence;
+  - explicit `categoria <nome>` plus card text overrides parser category guesses and parser expense/card-purchase type mistakes;
+  - `pela Conta ...` with explicit category is treated as cash expense, not card purchase; singular fatura questions are read-only; May MP cash-account misclassified card rows were repaired;
+  - `/resumo` shows saldo informado, reserve/liquidity, invoice detail by card/cycle, monthly obligations, registered cash flow, latest expenses newest-first, and nets effective invoice-payment launches against invoice rows that still look open.
+- `/resumo` counts open invoice exposure only through the next 60 days, separates it from current liquidity, shows invoice/obligation breakdown, and avoids saying "Falta para cobrir tudo" when no real source-balance snapshot exists.
 - `/resumo` uses informed source balances plus reserve/liquidity assets to evaluate obligation coverage; caixinha/cofrinho Telegram text updates `Patrimonio_Ativos` without DRE/category effects.
 - UX hardening is deployed: Telegram replies are shorter with light emoji markers, safe read-only questions such as "qual meu custo de vida mensal?" use deterministic summary calculations instead of LLM, Mercado Pago invoice payments and house-financing payments have deterministic overrides, and active category defaults were migrated from legacy `resumo` visibility to `detalhada`/`privada`.
-- Latest validation after @100: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-18.
+- Latest validation after @103: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-18.
 - Current real closing state in snapshot: 2026-04 closed; 2026-05 open with initial May launches in progress.
 
 ### Unverified
@@ -91,14 +88,10 @@ Telegram -> Val Town proxy -> Apps Script doPost -> OpenAI parser -> Google Shee
 
 Script Properties only; never commit values.
 
-Required keys: `WEBHOOK_SECRET`, `AUTHORIZED_USER_IDS`, `AUTHORIZED_CHAT_IDS`,
-`SPREADSHEET_ID`, `OPENAI_API_KEY`, `PILOT_FINANCIAL_MUTATION_ENABLED`.
+Required keys: `WEBHOOK_SECRET`, `AUTHORIZED_USER_IDS`, `AUTHORIZED_CHAT_IDS`, `SPREADSHEET_ID`, `OPENAI_API_KEY`, `PILOT_FINANCIAL_MUTATION_ENABLED`.
 
 Optional/operational keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`.
 
 ## Next Work
 
-1. [x] Register current May source balances and reserve/liquidity assets before relying on `/resumo` for cash destination decisions.
-2. [x] Add installment-purchase tracking for future invoice forecasts beyond current monthly parcel imports.
-3. Continue May real-time usage; April is now closed and any April correction must be an `ajuste`.
-4. [x] Before broad production usage, remove operational dependence on `visibilidade=resumo`; keep only `detalhada` and `privada` for active category defaults.
+1. Continue May real-time usage; April is closed and any April correction must be an `ajuste`.
