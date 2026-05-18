@@ -15,7 +15,7 @@ VERIFIED in this repo:
 - Telegram handler and webhook gates with authorization, webhook-secret validation, injected local tests, and Apps Script runtime coverage.
 - Local Telegram send boundary with injected fake sender and redacted fake send logs.
 - Real V55 spreadsheet schema verified by redacted sheet/header evidence.
-- Deployed Apps Script runtime for pilot mutations, `/resumo`, snapshot, summary, selftest, monthly closing, and reviewed historical imports.
+- Deployed Apps Script runtime for pilot mutations, `/resumo`, `/agenda`, `/revisar_mes`, deterministic safe questions, snapshot, summary, selftest, monthly closing, and reviewed historical imports.
 - Audit hardening for strict dates, ambiguous money fallback, payable invoice validation, partial invoice payment, historical import validation, and closed-period mutation guards.
 - Local tests that do not call Google Sheets, Telegram, OpenAI, or network services.
 
@@ -23,6 +23,7 @@ UNVERIFIED:
 
 - Full production readiness beyond owner pilot usage.
 - UX readiness with Luana using real Telegram messages after prior UX passes.
+- Budget/envelope limits by category; this still needs an explicit config/schema decision before active use.
 
 ## Execution Plan
 
@@ -38,6 +39,8 @@ npm run selftest
 ```
 
 Local tests use only Node built-ins. Remote commands require `.env` and configured Apps Script access.
+
+Useful Telegram reads now include `/resumo`, `/agenda`, `/revisar_mes`, "para onde foi meu dinheiro?" and "posso comprar 900 em 3x?". These answers are deterministic and read-only; the LLM is not trusted for final calculations.
 
 ## Architecture Rule
 

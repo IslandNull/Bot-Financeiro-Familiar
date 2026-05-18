@@ -16,7 +16,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed family closings from sheets.
 - Reviewed historical JSONL import is narrow: max 5 events per request, full validation before writes, `historical_jsonl` idempotency, no private-detail output. Normal launches stay in 2026-04; `fatura_prevista` may add reviewed future invoice exposure through 2027 for April rebuilds.
 - April 2026 clean rebuild was applied on @80 from final local source documents in `private/abril-2026/`: 151 reviewed events, 89 `Lancamentos`, 116 `Faturas`, and 2026-04 `Fechamento_Familiar` closed after owner aggregate review.
-- Version @108 deployed on 2026-05-18 with audit, pilot, clean rebuild, May launch hardening, `/resumo` exposure hardening, caixinha/cofrinho patrimonio updates, and Telegram UX hardening:
+- Version @109 deployed on 2026-05-18 with audit, pilot, clean rebuild, May launch hardening, `/resumo` exposure hardening, caixinha/cofrinho patrimonio updates, and Telegram decision-UX hardening:
   - strict calendar-date and money parsing; no money fallback in reviewed historical import;
   - payable invoice allowlist; partial invoice payment uses only outstanding balance;
   - closed competencias block mutations unless event type is `ajuste`;
@@ -38,7 +38,8 @@ Operational authority for Bot Financeiro Familiar V55.
 - Legacy duplicated house-debt rows were repaired by `repair_duplicate_house_debts`; the action keeps canonical house obligations, preserves legacy debt balance, and inactivates duplicate legacy rows.
 - `/resumo` uses informed source balances plus reserve/liquidity assets to evaluate obligation coverage; caixinha/cofrinho Telegram text updates `Patrimonio_Ativos` without DRE/category effects.
 - UX hardening is deployed: Telegram replies are shorter with light emoji markers, safe read-only questions such as "qual meu custo de vida mensal?" and "para onde foi meu dinheiro?" use deterministic summary calculations instead of LLM; category forecast uses installment amount for monthly predictability while DRE keeps the full assumed purchase.
-- Latest validation after @108: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-18.
+- Decision-UX @109 adds read-only `/agenda`, `/revisar_mes`, and deterministic "posso comprar ... em Nx?" simulations. Calculations remain local/summary-driven; the LLM is not used for final advice.
+- Latest validation after @109: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-18.
 - Current real closing state in snapshot: 2026-04 closed; 2026-05 open with initial May launches in progress.
 
 ### Unverified
@@ -97,3 +98,4 @@ Optional/operational keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHO
 ## Next Work
 
 1. Continue May real-time usage; April is closed and any April correction must be an `ajuste`.
+2. Design budget/envelope config before implementing category limits; do not infer limits from category names.

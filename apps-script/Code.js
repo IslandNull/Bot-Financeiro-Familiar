@@ -20,10 +20,13 @@ var V55 = (function() {
     '- qual meu custo de vida mensal?',
     '- para onde foi meu dinheiro este mes?',
     '- quais faturas tenho proximas?',
+    '- posso comprar notebook 900 em 3x?',
     '- como esta minha reserva?',
     '',
     '📌 Comandos:',
     '- /resumo: visao do mes sem alterar a planilha',
+    '- /agenda: faturas e compromissos por data',
+    '- /revisar_mes: checklist antes de fechamento',
     '- /ajuda: exemplos'
   ].join('\n');
   var SUCCESS_TEXT = '✅ OK, anotei.';
@@ -306,6 +309,14 @@ var V55 = (function() {
       return buildPilotFamilySummaryResponse_(config);
     }
 
+    if (isAgendaCommand_(text)) {
+      return buildAgendaResponse_(config);
+    }
+
+    if (isMonthlyReviewCommand_(text)) {
+      return buildMonthlyReviewResponse_(config);
+    }
+
     if (isSafeFinanceQuestion_(text)) {
       return buildSafeFinanceQuestionResponse_(text, config);
     }
@@ -519,6 +530,14 @@ var V55 = (function() {
     return text === '/resumo' || text === '/resumo_familiar';
   }
 
+  function isAgendaCommand_(text) {
+    return text === '/agenda' || text === '/faturas' || text === '/proximas_contas';
+  }
+
+  function isMonthlyReviewCommand_(text) {
+    return text === '/revisar_mes' || text === '/revisao_mes';
+  }
+
   function isSafeFinanceQuestion_(text) {
     var normalized = normalizeAliasText_(text);
     if (!normalized) return false;
@@ -528,6 +547,7 @@ var V55 = (function() {
       containsAliasPhrase_(normalized, 'quais') ||
       containsAliasPhrase_(normalized, 'onde') ||
       containsAliasPhrase_(normalized, 'para onde') ||
+      containsAliasPhrase_(normalized, 'posso') ||
       normalized.indexOf('?') !== -1;
     if (!asks) return false;
     return containsAliasPhrase_(normalized, 'custo de vida') ||
@@ -540,6 +560,11 @@ var V55 = (function() {
       containsAliasPhrase_(normalized, 'fatura') ||
       containsAliasPhrase_(normalized, 'faturas') ||
       containsAliasPhrase_(normalized, 'contas proximas') ||
+      containsAliasPhrase_(normalized, 'vence') ||
+      containsAliasPhrase_(normalized, 'agenda') ||
+      containsAliasPhrase_(normalized, 'posso comprar') ||
+      containsAliasPhrase_(normalized, 'posso gastar') ||
+      containsAliasPhrase_(normalized, 'assumir parcela') ||
       containsAliasPhrase_(normalized, 'reserva') ||
       containsAliasPhrase_(normalized, 'liquidez');
   }
@@ -548,6 +573,15 @@ var V55 = (function() {
     var result = readCurrentPilotFamilySummary_(config, '');
     if (!result.ok) return result;
     var normalized = normalizeAliasText_(text);
+    if (containsAliasPhrase_(normalized, 'posso comprar') ||
+        containsAliasPhrase_(normalized, 'posso gastar') ||
+        containsAliasPhrase_(normalized, 'assumir parcela')) {
+      return {
+        ok: true,
+        responseText: formatCanSpendAnswer_(result.summary, text),
+        shouldApplyDomainMutation: false,
+      };
+    }
     if (containsAliasPhrase_(normalized, 'custo de vida') ||
         containsAliasPhrase_(normalized, 'gasto mensal') ||
         containsAliasPhrase_(normalized, 'gastos do mes')) {
@@ -574,6 +608,13 @@ var V55 = (function() {
         shouldApplyDomainMutation: false,
       };
     }
+    if (containsAliasPhrase_(normalized, 'vence') || containsAliasPhrase_(normalized, 'agenda')) {
+      return {
+        ok: true,
+        responseText: formatAgendaAnswer_(result.summary),
+        shouldApplyDomainMutation: false,
+      };
+    }
     return {
       ok: true,
       responseText: formatReserveAnswer_(result.summary),
@@ -593,6 +634,26 @@ var V55 = (function() {
     return {
       ok: true,
       responseText: result.responseText,
+      shouldApplyDomainMutation: false,
+    };
+  }
+
+  function buildAgendaResponse_(config) {
+    var result = readCurrentPilotFamilySummary_(config, '');
+    if (!result.ok) return result;
+    return {
+      ok: true,
+      responseText: formatAgendaAnswer_(result.summary),
+      shouldApplyDomainMutation: false,
+    };
+  }
+
+  function buildMonthlyReviewResponse_(config) {
+    var result = readCurrentPilotFamilySummary_(config, '');
+    if (!result.ok) return result;
+    return {
+      ok: true,
+      responseText: formatMonthlyReviewAnswer_(result.summary),
       shouldApplyDomainMutation: false,
     };
   }
@@ -1836,6 +1897,8 @@ var V55 = (function() {
         lines.push('- ' + formatShortDate_(event.data) + ' ' + event.categoria + ' - ' + formatMoney_(event.valor));
       });
     }
+    lines.push('');
+    lines.push('Ver tambem: /agenda, /revisar_mes ou "posso comprar 900 em 3x?"');
     return lines.join('\n');
   }
 
@@ -1959,6 +2022,121 @@ var V55 = (function() {
       '',
       'Base: faturas abertas e obrigacoes ativas registradas. Nao soma salario futuro ainda nao lancado.',
     ]);
+    return lines.join('\n');
+  }
+
+  function formatAgendaAnswer_(summary) {
+    var lines = [
+      'Agenda financeira de ' + friendlyCompetencia_(summary.competencia),
+      '',
+      'Faturas',
+    ];
+    var invoiceItems = (summary.faturas_60d_detalhe || []).slice().sort(function(a, b) {
+      var aDate = stringValue_(a.data_vencimento);
+      var bDate = stringValue_(b.data_vencimento);
+      if (aDate !== bDate) return aDate < bDate ? -1 : 1;
+      return stringValue_(a.cartao) < stringValue_(b.cartao) ? -1 : 1;
+    });
+    if (invoiceItems.length === 0) {
+      lines.push('- Nenhuma fatura aberta registrada.');
+    } else {
+      invoiceItems.slice(0, 8).forEach(function(item) {
+        lines.push('- ' + formatShortDate_(item.data_vencimento) + ' ' + shortCardName_(item.cartao) + ': ' + formatMoney_(item.valor));
+      });
+    }
+    lines.push('');
+    lines.push('Compromissos');
+    var obligationItems = summary.obrigacoes_60d_detalhe || [];
+    if (obligationItems.length === 0) {
+      lines.push('- Nenhum compromisso mensal cadastrado.');
+    } else {
+      obligationItems.slice(0, 6).forEach(function(item) {
+        lines.push('- Sem data fixa: ' + item.nome + ' ' + formatMoney_(item.valor));
+      });
+    }
+    lines.push('');
+    lines.push('Nao e tudo vencendo hoje. Use esta agenda para separar dinheiro antes de assumir gasto novo.');
+    return lines.join('\n');
+  }
+
+  function formatCanSpendAnswer_(summary, text) {
+    var simulation = parseSpendingSimulation_(text);
+    if (!simulation.ok) {
+      return [
+        'Simulacao conservadora',
+        '',
+        'Nao consegui identificar valor e parcelas com seguranca.',
+        'Exemplo: posso comprar notebook 900 em 3x?',
+      ].join('\n');
+    }
+    var liquidezTotal = roundMoney_(summary.saldos_fontes_disponivel + summary.reserva_total);
+    var currentObligations = roundMoney_(summary.faturas_atuais + summary.obrigacoes_60d);
+    var installment = roundMoney_(simulation.valor / simulation.parcelas);
+    var afterPurchase = roundMoney_(liquidezTotal - currentObligations - installment);
+    var status = afterPurchase >= 0 ? 'Cabe nos dados registrados.' : 'Nao cabe com seguranca nos dados registrados.';
+    var caution = summary.saldos_fontes_count > 0
+      ? 'A conta usa saldos e reserva cadastrados; salario futuro ainda nao registrado fica fora.'
+      : 'Falta saldo real das contas, entao trate esta simulacao como incompleta.';
+    return [
+      'Simulacao conservadora',
+      '',
+      'Compra: ' + formatMoney_(simulation.valor) + ' em ' + simulation.parcelas + 'x',
+      'Parcela estimada: ' + formatMoney_(installment),
+      'Folga depois da compra: ' + formatMoney_(afterPurchase),
+      '',
+      status,
+      caution,
+    ].join('\n');
+  }
+
+  function parseSpendingSimulation_(text) {
+    var amountText = stringValue_(text).replace(/\b\d{1,2}\s*x\b/ig, '');
+    var amount = parseMoneyText_(extractFirstMoneyText_(amountText));
+    if (!isFinite(amount) || amount <= 0) return { ok: false };
+    var normalized = normalizeAliasText_(text);
+    var installments = 1;
+    var match = normalized.match(/(\d{1,2})\s*x/);
+    if (match) installments = Number(match[1]) || 1;
+    if (installments < 1) installments = 1;
+    if (installments > 24) installments = 24;
+    return {
+      ok: true,
+      valor: roundMoney_(amount),
+      parcelas: installments,
+    };
+  }
+
+  function formatMonthlyReviewAnswer_(summary) {
+    var lines = [
+      'Revisao de ' + friendlyCompetencia_(summary.competencia),
+      '',
+      'Status',
+    ];
+    if (summary.competencia >= todaySaoPaulo_().slice(0, 7)) {
+      lines.push('- Mes atual ainda aberto.');
+      lines.push('- Nao vou fechar este mes agora.');
+    } else {
+      lines.push('- Mes anterior pode ser revisado para fechamento.');
+    }
+    lines = lines.concat([
+      '',
+      'Conferencia',
+      '- Faturas atuais: ' + formatMoney_(summary.faturas_atuais),
+      '- Compromissos 60d: ' + formatMoney_(summary.obrigacoes_60d),
+      '- Caixa registrado: ' + formatMoney_(summary.sobra_caixa),
+      '',
+      'Maiores impactos previstos',
+    ]);
+    var categories = summary.categorias_previsao || [];
+    if (categories.length === 0) {
+      lines.push('- Ainda nao ha categorias de gasto registradas.');
+    } else {
+      categories.slice(0, 5).forEach(function(item) {
+        lines.push('- ' + item.categoria + ': ' + formatMoney_(item.valor));
+      });
+    }
+    lines.push('');
+    lines.push('Proximo passo: conferir faturas reais, saldos e reembolsaveis antes de fechar.');
     return lines.join('\n');
   }
 

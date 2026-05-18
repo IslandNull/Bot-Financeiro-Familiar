@@ -1194,6 +1194,95 @@ test('Apps Script category forecast uses installment amount for monthly predicta
     assert.match(result.responseText, /Compra parcelada aparece pelo valor da parcela nesta leitura/);
 });
 
+test('Apps Script answers agenda command with dated invoices and obligations', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+    appendFakeAsset(sheets, { saldo_atual: 1000, conta_reserva_emergencia: true });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        id_cartao: 'CARD_NUBANK_GU',
+        competencia: '2026-04',
+        data_vencimento: '2026-05-07',
+        valor_previsto: 300,
+        status: 'prevista',
+    });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_05',
+        id_cartao: 'CARD_NUBANK_GU',
+        competencia: '2026-05',
+        data_vencimento: '2026-06-07',
+        valor_previsto: 200,
+        status: 'prevista',
+    });
+    appendFakeDebt(sheets, { nome: 'Financiamento casa', valor_parcela: 878.41 });
+
+    const result = postPilotMessage(context, '/agenda');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Agenda financeira de abril/);
+    assert.match(result.responseText, /07\/05 .*Nubank.*R\$ 300,00/);
+    assert.match(result.responseText, /07\/06 .*Nubank.*R\$ 200,00/);
+    assert.match(result.responseText, /Financiamento casa.*R\$ 878,41/);
+    assert.match(result.responseText, /Nao e tudo vencendo hoje/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script simulates whether a new installment purchase fits safely', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+    appendFakeAsset(sheets, { saldo_atual: 2000, conta_reserva_emergencia: true });
+    appendFakeInvoice(sheets, { valor_previsto: 300, status: 'prevista' });
+    appendFakeDebt(sheets, { valor_parcela: 400 });
+
+    const result = postPilotMessage(context, 'posso comprar notebook 900 em 3x?');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Simulacao conservadora/);
+    assert.match(result.responseText, /Compra: R\$ 900,00 em 3x/);
+    assert.match(result.responseText, /Parcela estimada: R\$ 300,00/);
+    assert.match(result.responseText, /Folga depois da compra: R\$ 1500,00/);
+    assert.match(result.responseText, /Cabe nos dados registrados/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script monthly review explains current month is not closable', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeLaunch(sheets, { valor: 120, id_categoria: 'OPEX_MERCADO_SEMANA' });
+    appendFakeInvoice(sheets, { valor_previsto: 300, status: 'prevista' });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+
+    const result = postPilotMessage(context, '/revisar_mes');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Revisao de abril/);
+    assert.match(result.responseText, /Mes atual ainda aberto/);
+    assert.match(result.responseText, /Nao vou fechar este mes agora/);
+    assert.match(result.responseText, /Mercado da semana: R\$ 120,00/);
+    assert.match(result.responseText, /Faturas atuais: R\$ 300,00/);
+    assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 1);
+});
+
 test('Apps Script answers singular open-invoice question without mutating', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
     appendFakeInvoice(sheets, {

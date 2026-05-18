@@ -104,5 +104,7 @@ Full headers in `SHEET_SCHEMA.md`.
 |---------|----------|-------------|
 | `/help`, `/start` | No | Bot info |
 | `/resumo` | No | Read-only family summary focused on current liquidity, current invoices, commitments, cash-flow explanation, installment-adjusted category forecast, and next step |
-| Safe finance question | No | Deterministic read-only answers for cost of life, installment-adjusted spending categories, upcoming invoices/commitments, and reserve/liquidity |
+| `/agenda`, `/faturas`, `/proximas_contas` | No | Dated read-only view of open invoices and registered obligations |
+| `/revisar_mes` | No | Month-review checklist before closing; current/future months remain non-closable |
+| Safe finance question | No | Deterministic read-only answers for cost of life, installment-adjusted spending categories, upcoming invoices/commitments, reserve/liquidity, and conservative "posso comprar ... em Nx?" simulations |
 | Natural text | Yes | Parsed by OpenAI → validated → written to sheets |
