@@ -3658,7 +3658,8 @@ var V55 = (function() {
       if (!invoice.found) return fail_('PILOT_INVOICE_NOT_FOUND', 'id_fatura', GENERIC_RECORD_FAILURE);
       if (!invoice.payableRows.length) return fail_('PILOT_INVOICE_ALREADY_PAID', 'id_fatura', GENERIC_RECORD_FAILURE);
       var expectedAmount = invoice.expectedAmount;
-      if (Math.abs(expectedAmount - event.valor) > 0.009) {
+      var reconciliationAmount = invoicePaymentReconciliationAmount_(event, expectedAmount);
+      if (reconciliationAmount < 0) {
         return fail_('PILOT_INVOICE_AMOUNT_MISMATCH', 'valor', GENERIC_RECORD_FAILURE);
       }
 
@@ -3710,6 +3711,9 @@ var V55 = (function() {
         parcelas: '',
         created_at: now,
       });
+      if (reconciliationAmount > 0) {
+        appendInvoicePaymentReconciliation_(invoiceSheet, invoice, reconciliationAmount);
+      }
       updateInvoicePayments_(invoiceSheet, invoice.payableRows, 'paga');
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
       return { ok: true, responseText: recordedEventText_(event, 'Anotado pagamento da fatura.', referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
@@ -4088,10 +4092,14 @@ var V55 = (function() {
 
   function findInvoicePaymentTarget_(sheet, invoiceId) {
     var lastRow = sheet.getLastRow();
-    if (lastRow < 2) return { found: false, payableRows: [], expectedAmount: 0 };
+    if (lastRow < 2) return { found: false, payableRows: [], expectedAmount: 0, meta: null };
     var headers = HEADERS[SHEETS.FATURAS];
     var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
     var idIndex = headers.indexOf('id_fatura');
+    var cardIndex = headers.indexOf('id_cartao');
+    var competenciaIndex = headers.indexOf('competencia');
+    var closingIndex = headers.indexOf('data_fechamento');
+    var dueIndex = headers.indexOf('data_vencimento');
     var previstoIndex = headers.indexOf('valor_previsto');
     var fechadoIndex = headers.indexOf('valor_fechado');
     var pagoIndex = headers.indexOf('valor_pago');
@@ -4099,9 +4107,19 @@ var V55 = (function() {
     var found = false;
     var payableRows = [];
     var expectedAmount = 0;
+    var meta = null;
     for (var i = 0; i < rows.length; i += 1) {
       if (String(rows[i][idIndex]) === invoiceId) {
         found = true;
+        if (!meta) {
+          meta = {
+            id_fatura: String(rows[i][idIndex] || ''),
+            id_cartao: String(rows[i][cardIndex] || ''),
+            competencia: normalizeSheetCompetencia_(rows[i][competenciaIndex]),
+            data_fechamento: formatSheetDate_(rows[i][closingIndex]),
+            data_vencimento: formatSheetDate_(rows[i][dueIndex]),
+          };
+        }
         var status = String(rows[i][statusIndex] || '');
         if (['prevista', 'fechada', 'parcialmente_paga'].indexOf(status) === -1) continue;
         var valorFechado = numberFromSheetValue_(rows[i][fechadoIndex]);
@@ -4119,7 +4137,36 @@ var V55 = (function() {
         });
       }
     }
-    return { found: found, payableRows: payableRows, expectedAmount: expectedAmount };
+    return { found: found, payableRows: payableRows, expectedAmount: expectedAmount, meta: meta };
+  }
+
+  function invoicePaymentReconciliationAmount_(event, expectedAmount) {
+    var difference = roundMoney_(event.valor - expectedAmount);
+    if (Math.abs(difference) <= 0.009) return 0;
+    if (difference > 0 && difference <= 50 && isReviewedInvoicePaymentReconciliationText_(event.raw_text || event.descricao)) return difference;
+    return -1;
+  }
+
+  function isReviewedInvoicePaymentReconciliationText_(text) {
+    var normalized = normalizeAliasText_(text);
+    return containsAliasPhrase_(normalized, 'valor de') &&
+      containsAliasPhrase_(normalized, 'nao e despesa nova') &&
+      containsAliasPhrase_(normalized, 'pagamento de fatura');
+  }
+
+  function appendInvoicePaymentReconciliation_(sheet, invoice, amount) {
+    var meta = invoice.meta || {};
+    appendRow_(sheet, SHEETS.FATURAS, {
+      id_fatura: meta.id_fatura,
+      id_cartao: meta.id_cartao,
+      competencia: meta.competencia,
+      data_fechamento: meta.data_fechamento,
+      data_vencimento: meta.data_vencimento,
+      valor_previsto: amount,
+      valor_fechado: '',
+      valor_pago: amount,
+      status: 'paga',
+    });
   }
 
   function april2026HouseDebtDefaults_() {

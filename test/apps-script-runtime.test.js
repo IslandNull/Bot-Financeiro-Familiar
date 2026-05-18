@@ -2378,6 +2378,58 @@ test('Apps Script pilot invoice payment infers Nubank April invoice and cash sou
     assert.strictEqual(invoice.status, 'paga');
 });
 
+test('Apps Script pilot invoice payment reconciles small reviewed invoice overage without DRE', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'pagamento_fatura',
+        data: '2026-05-07',
+        competencia: '2026-05',
+        valor: '1997.73',
+        descricao: 'Paguei a fatura Nubank Gustavo de abril',
+        id_categoria: '',
+        id_fonte: '',
+        pessoa: '',
+        escopo: '',
+        visibilidade: '',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: true,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_CONTA_NUBANK_GU',
+        nome: 'Conta Nubank Gustavo',
+        tipo: 'conta_corrente',
+        titular: 'Gustavo',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+    appendFakeInvoice(sheets, { valor_previsto: 1773.11 });
+    appendFakeInvoice(sheets, { valor_previsto: 203.64 });
+
+    const result = postPilotMessage(context, 'Paguei a fatura Nubank Gustavo de abril no valor de 1997,73 em 07/05 pela Conta Nubank Gustavo. Não é despesa nova, é pagamento de fatura.');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'pagamento_fatura');
+    assert.strictEqual(launch.valor, 1997.73);
+    assert.strictEqual(launch.afeta_dre, false);
+    assert.strictEqual(sheets.Faturas.rows.length, 4);
+    const originalFirst = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    const originalSecond = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[2][index]]));
+    const reconciliation = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[3][index]]));
+    assert.strictEqual(originalFirst.status, 'paga');
+    assert.strictEqual(originalSecond.status, 'paga');
+    assert.strictEqual(reconciliation.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
+    assert.strictEqual(reconciliation.valor_previsto, 20.98);
+    assert.strictEqual(reconciliation.valor_pago, 20.98);
+    assert.strictEqual(reconciliation.status, 'paga');
+});
+
 test('Apps Script pilot invoice payment can pay a historical invoice split into duplicate rows', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'pagamento_fatura',
