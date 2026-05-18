@@ -731,6 +731,14 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     });
     appendFakeTransfer(sheets, { valor: 100 });
     appendFakeInvoice(sheets, { valor_previsto: 42.5, valor_pago: '', status: 'prevista' });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_08',
+        competencia: '2026-08',
+        data_vencimento: '2026-08-07',
+        valor_previsto: 900,
+        valor_pago: '',
+        status: 'prevista',
+    });
     sheets.Patrimonio_Ativos.appendRow(patrimonioAtivosHeaders.map((header) => ({
         id_ativo: 'ATIVO_RESERVA',
         nome: 'Reserva',
@@ -770,6 +778,8 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.match(result.responseText, /Hoje a situacao e de atencao\./);
     assert.match(result.responseText, /Sobrou no mes: R\$ 36,10/);
     assert.match(result.responseText, /Contas proximas: R\$ 542,50/);
+    assert.match(result.responseText, /Faturas ate 60 dias: R\$ 42,50/);
+    assert.match(result.responseText, /Obrigacoes cadastradas: R\$ 500,00/);
     assert.match(result.responseText, /Falta para cobrir tudo: R\$ 506,40/);
     assert.match(result.responseText, /Gastos registrados: R\$ 106,40/);
     assert.match(result.responseText, /Reserva: R\$ 1000,00/);
@@ -784,7 +794,7 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.doesNotMatch(result.responseText, /agregado/);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 5);
-    assert.strictEqual(sheets.Faturas.rows.length, 2);
+    assert.strictEqual(sheets.Faturas.rows.length, 3);
     assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
 });
 
@@ -807,6 +817,27 @@ test('Apps Script /resumo normalizes sheet date cells used as competencia', () =
     assert.match(result.responseText, /Sobrou no mes: R\$ 56,10/);
     assert.match(result.responseText, /Ainda nao vou sugerir investimento, reserva ou amortizacao/);
     assert.match(result.responseText, /ainda falta o saldo real das contas/);
+});
+
+test('Apps Script /resumo labels uncovered obligations as exposure when source balances are missing', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeTransfer(sheets, { valor: 100 });
+    appendFakeInvoice(sheets, { valor_previsto: 300, valor_pago: '', status: 'prevista' });
+
+    const result = postPilotMessage(context, '/resumo');
+
+    assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /Contas proximas: R\$ 300,00/);
+    assert.match(result.responseText, /Faturas ate 60 dias: R\$ 300,00/);
+    assert.match(result.responseText, /Exposicao sem saldo informado: R\$ 200,00/);
+    assert.doesNotMatch(result.responseText, /Falta para cobrir tudo/);
+    assert.match(result.responseText, /ainda falta saldo real das contas/);
 });
 
 test('Apps Script doGet summary action returns current read-only family summary', () => {

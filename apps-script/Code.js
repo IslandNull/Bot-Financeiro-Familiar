@@ -913,7 +913,7 @@ var V55 = (function() {
       return summary;
     }, cash);
 
-    var faturas60d = sumPilotInvoiceExposure_(invoices);
+    var faturas60d = sumPilotInvoiceExposure_(invoices, todaySaoPaulo_());
     var obrigacoes60d = debts.reduce(function(sum, row) {
       return row.status === 'ativa' ? roundMoney_(sum + numberFromSheetValue_(row.valor_parcela)) : sum;
     }, 0);
@@ -1089,13 +1089,23 @@ var V55 = (function() {
     return row;
   }
 
-  function sumPilotInvoiceExposure_(invoices) {
+  function sumPilotInvoiceExposure_(invoices, referenceDate) {
+    var windowEndDate = addDaysIsoDate_(referenceDate, 60);
     return invoices.reduce(function(sum, row) {
       if (['prevista', 'fechada', 'parcialmente_paga'].indexOf(row.status) === -1) return sum;
+      var dueDate = formatSheetDate_(row.data_vencimento);
+      if (dueDate && dueDate > windowEndDate) return sum;
       var expected = numberFromSheetValue_(row.valor_fechado) > 0 ? numberFromSheetValue_(row.valor_fechado) : numberFromSheetValue_(row.valor_previsto);
       var paid = numberFromSheetValue_(row.valor_pago);
       return roundMoney_(sum + Math.max(0, expected - paid));
     }, 0);
+  }
+
+  function addDaysIsoDate_(isoDate, days) {
+    var parts = String(isoDate || '').split('-');
+    if (parts.length !== 3) return isoDate;
+    var date = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]) + Number(days || 0), 12, 0, 0));
+    return date.toISOString().slice(0, 10);
   }
 
   function countSharedDetailedEvents_(launches) {
@@ -1141,7 +1151,11 @@ var V55 = (function() {
       '💵 Sobrou no mes: ' + formatMoney_(summary.sobra_caixa),
       '🧾 Contas proximas: ' + formatMoney_(obligations),
     ];
-    if (summary.margem_pos_obrigacoes < 0) {
+    lines.push('   Faturas ate 60 dias: ' + formatMoney_(summary.faturas_60d));
+    lines.push('   Obrigacoes cadastradas: ' + formatMoney_(summary.obrigacoes_60d));
+    if (summary.margem_pos_obrigacoes < 0 && numberFromSheetValue_(summary.saldos_fontes_count) === 0) {
+      lines.push('⚠️ Exposicao sem saldo informado: ' + formatMoney_(Math.abs(summary.margem_pos_obrigacoes)));
+    } else if (summary.margem_pos_obrigacoes < 0) {
       lines.push('⚠️ Falta para cobrir tudo: ' + formatMoney_(Math.abs(summary.margem_pos_obrigacoes)));
     } else {
       lines.push('✅ Depois das contas: ' + formatMoney_(summary.margem_pos_obrigacoes));
