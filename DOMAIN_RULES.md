@@ -32,8 +32,8 @@ Every event answers:
 ## Visibility
 
 - `detalhada`: can appear in detailed shared views.
-- `resumo`: can appear only in aggregate shared views.
 - `privada`: hidden from shared detailed views.
+- `resumo`: legacy value only. New active category defaults must be migrated to `detalhada` when `escopo_padrao=Familiar` or `privada` when the scope is personal.
 
 ## Mandatory Rules
 

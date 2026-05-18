@@ -16,7 +16,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed family closings from sheets.
 - Reviewed historical JSONL import is narrow: max 5 events per request, full validation before writes, `historical_jsonl` idempotency, no private-detail output. Normal launches stay in 2026-04; `fatura_prevista` may add reviewed future invoice exposure through 2027 for April rebuilds.
 - April 2026 clean rebuild was applied on @80 from final local source documents in `private/abril-2026/`: 151 reviewed events, 89 `Lancamentos`, 116 `Faturas`, and 2026-04 `Fechamento_Familiar` closed after owner aggregate review.
-- Version @90 deployed on 2026-05-18 with audit, pilot, clean rebuild, May launch hardening, `/resumo` exposure hardening, and caixinha/cofrinho patrimonio updates:
+- Version @93 deployed on 2026-05-18 with audit, pilot, clean rebuild, May launch hardening, `/resumo` exposure hardening, caixinha/cofrinho patrimonio updates, and Telegram UX hardening:
   - strict calendar-date validation, including February/leap-year cases;
   - stricter money parsing and ambiguous-number fallback blocking;
   - no money fallback in reviewed historical import;
@@ -36,7 +36,8 @@ Operational authority for Bot Financeiro Familiar V55.
   - invoice payment competence is forced to the payment date month, not the paid invoice month.
 - `/resumo` counts open invoice exposure only through the next 60 days, shows invoice/obligation breakdown, and avoids saying "Falta para cobrir tudo" when no real source-balance snapshot exists.
 - `/resumo` uses informed source balances plus reserve/liquidity assets to evaluate obligation coverage; caixinha/cofrinho Telegram text updates `Patrimonio_Ativos` without DRE/category effects.
-- Latest validation after @90: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-18.
+- UX hardening is deployed: Telegram replies are shorter and emoji-free, safe read-only questions such as "qual meu custo de vida mensal?" use deterministic summary calculations instead of LLM, Mercado Pago invoice payments and house-financing payments have deterministic overrides, and active category defaults were migrated from legacy `resumo` visibility to `detalhada`/`privada`.
+- Latest validation after @93: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-18.
 - Current real closing state in snapshot: 2026-04 closed; 2026-05 open with initial May launches in progress.
 
 ### Unverified
@@ -67,7 +68,8 @@ Available actions: `snapshot`, `summary`, `closing_draft`, `closing_close`,
 `repair_may_2026_benefit_conversion_source`,
 `reset_april_2026_clean_rebuild`,
 `ensure_remaining_mutation_config`, `ensure_april_2026_config`,
-`ensure_april_2026_house_debts`, `repair_april_2026_mp_invoice_cycle`, and `selftest`.
+`ensure_april_2026_house_debts`, `repair_april_2026_mp_invoice_cycle`,
+`migrate_config_visibility`, and `selftest`.
 
 Reviewed historical imports use POST action `historical_import_reviewed` via
 `npm run historical:write`; dry-run is default, `--apply` writes after local validation.
@@ -93,7 +95,7 @@ Optional/operational keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHO
 
 ## Next Work
 
-1. Register current May source balances before relying on `/resumo` for cash destination decisions.
+1. [x] Register current May source balances and reserve/liquidity assets before relying on `/resumo` for cash destination decisions.
 2. [x] Add installment-purchase tracking for future invoice forecasts beyond current monthly parcel imports.
-3. Start May real-time usage; April is now closed and any April correction must be an `ajuste`.
-4. Before broad production usage, remove operational dependence on `visibilidade=resumo`; keep only `detalhada` and `privada`.
+3. Continue May real-time usage; April is now closed and any April correction must be an `ajuste`.
+4. [x] Before broad production usage, remove operational dependence on `visibilidade=resumo`; keep only `detalhada` and `privada` for active category defaults.

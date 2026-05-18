@@ -72,6 +72,7 @@ doGet(e)
        ├─ ensure_april_2026_house_debts → ensureApril2026HouseDebtConfigV55()
       ├─ repair_april_2026_mp_invoice_cycle → repairApril2026MercadoPagoInvoiceCycleV55()
        ├─ reset_april_2026_clean_rebuild → resetApril2026CleanRebuildV55()
+       +- migrate_config_visibility -> migrateConfigVisibilityV55()
        └─ selftest → runHelpSmokeSelfTest()
 ```
 
@@ -100,4 +101,5 @@ Full headers in `SHEET_SCHEMA.md`.
 |---------|----------|-------------|
 | `/help`, `/start` | No | Bot info |
 | `/resumo` | No | Read-only family summary (DRE, cash, exposure, reserve, net worth, destination) |
+| Safe finance question | No | Deterministic read-only answers for cost of life, upcoming invoices/obligations, and reserve/liquidity |
 | Natural text | Yes | Parsed by OpenAI → validated → written to sheets |
