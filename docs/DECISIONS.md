@@ -321,7 +321,7 @@ Status: Accepted
 Date: 2026-05-18
 
 Decision:
-Use short, emoji-free Telegram replies with explicit outcome, financial impact, and next step. Safe financial questions are answered by deterministic V55 summary calculations, not by free-form LLM output. Active category defaults must use only `detalhada` or `privada`; legacy `resumo` is normalized or migrated out of active config.
+Use short Telegram replies with light emoji markers, explicit outcome, financial impact, and next step. Safe financial questions are answered by deterministic V55 summary calculations, not by free-form LLM output. Active category defaults must use only `detalhada` or `privada`; legacy `resumo` is normalized or migrated out of active config.
 
 Reason:
 The bot is used for real family financial decisions. Clear wording and deterministic read-only answers reduce panic, ambiguity, and LLM hallucination risk while preserving privacy for personal details.

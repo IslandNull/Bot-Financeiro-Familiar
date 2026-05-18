@@ -1,11 +1,11 @@
 var V55 = (function() {
   var GENERIC_REQUEST_FAILURE = 'Nao foi possivel processar esta requisicao.';
   var GENERIC_MESSAGE_FAILURE = 'Nao foi possivel processar esta mensagem.';
-  var GENERIC_RECORD_FAILURE = 'Nao anotei com seguranca.\nInclua valor, data, fonte ou cartao, e categoria quando houver duvida.\nExemplo: mercado 42 em 18/05 categoria Mercado da semana.';
+  var GENERIC_RECORD_FAILURE = '⚠️ Nao anotei com seguranca.\nInclua valor, data, fonte ou cartao, e categoria quando houver duvida.\nExemplo: mercado 42 em 18/05 categoria Mercado da semana.';
   var HELP_TEXT = [
-    'Bot financeiro familiar',
+    '💰 Bot financeiro familiar',
     '',
-    'Lancamentos:',
+    '✍️ Lancamentos:',
     '- mercado 42 hoje',
     '- farmacia 18 no nubank',
     '- notebook 3000 em 3x no nubank categoria Eletronicos e equipamentos',
@@ -16,17 +16,17 @@ var V55 = (function() {
     '- saldo nubank 3500',
     '- cofrinho Mercado Pago Gustavo saldo 9482,99',
     '',
-    'Perguntas seguras:',
+    '❓ Perguntas seguras:',
     '- qual meu custo de vida mensal?',
     '- quais faturas tenho proximas?',
     '- como esta minha reserva?',
     '',
-    'Comandos:',
+    '📌 Comandos:',
     '- /resumo: visao do mes sem alterar a planilha',
     '- /ajuda: exemplos'
   ].join('\n');
-  var SUCCESS_TEXT = 'OK, anotei.';
-  var FAMILY_SUMMARY_HELP_TEXT = 'Regra de seguranca: se eu nao tiver certeza, eu nao chuto. Eu peco categoria, fonte ou contexto.';
+  var SUCCESS_TEXT = '✅ OK, anotei.';
+  var FAMILY_SUMMARY_HELP_TEXT = '🛡️ Regra de seguranca: se eu nao tiver certeza, eu nao chuto. Eu peco categoria, fonte ou contexto.';
   var DEFAULT_OPENAI_MODEL = 'gpt-5-nano';
   var OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
   var SHEETS = {
@@ -1208,34 +1208,34 @@ var V55 = (function() {
     var obligations = roundMoney_(summary.faturas_60d + summary.obrigacoes_60d);
     var guidance = buildPilotGuidance_(summary, obligations);
     var lines = [
-      'Resumo de ' + friendlyCompetencia_(summary.competencia),
+      '📊 Resumo de ' + friendlyCompetencia_(summary.competencia),
       '',
-      'Situacao: ' + buildPilotSituationText_(summary, obligations),
+      '🧭 Situacao: ' + buildPilotSituationText_(summary, obligations),
       '',
-      'Sobra do mes: ' + formatMoney_(summary.sobra_caixa),
-      'Contas proximas: ' + formatMoney_(obligations),
+      '💵 Sobra do mes: ' + formatMoney_(summary.sobra_caixa),
+      '🧾 Contas proximas: ' + formatMoney_(obligations),
     ];
     lines.push('   Faturas ate 60 dias: ' + formatMoney_(summary.faturas_60d));
     lines.push('   Obrigacoes cadastradas: ' + formatMoney_(summary.obrigacoes_60d));
     if (summary.margem_pos_obrigacoes < 0 && numberFromSheetValue_(summary.saldos_fontes_count) === 0) {
-      lines.push('Exposicao sem saldo informado: ' + formatMoney_(Math.abs(summary.margem_pos_obrigacoes)));
+      lines.push('⚠️ Exposicao sem saldo informado: ' + formatMoney_(Math.abs(summary.margem_pos_obrigacoes)));
     } else if (summary.margem_pos_obrigacoes < 0) {
-      lines.push('Falta para cobrir tudo: ' + formatMoney_(Math.abs(summary.margem_pos_obrigacoes)));
+      lines.push('⚠️ Falta para cobrir tudo: ' + formatMoney_(Math.abs(summary.margem_pos_obrigacoes)));
     } else {
-      lines.push('Depois das contas: ' + formatMoney_(summary.margem_pos_obrigacoes));
+      lines.push('✅ Depois das contas: ' + formatMoney_(summary.margem_pos_obrigacoes));
     }
     lines = lines.concat([
       '',
-      'Gastos registrados: ' + formatMoney_(summary.despesas_dre),
-      'Reserva/liquidez: ' + formatMoney_(summary.reserva_total),
+      '🛒 Gastos registrados: ' + formatMoney_(summary.despesas_dre),
+      '🏦 Reserva/liquidez: ' + formatMoney_(summary.reserva_total),
       '',
-      'Orientacao: ' + guidance.action,
-      'Motivo: ' + guidance.reason,
+      '🧭 Orientacao: ' + guidance.action,
+      '🔎 Motivo: ' + guidance.reason,
     ]);
     if (guidance.caveat) lines.push(guidance.caveat);
     if (summary.eventos_detalhados_preview && summary.eventos_detalhados_preview.length > 0) {
       lines.push('');
-      lines.push('Ultimos gastos:');
+      lines.push('🧾 Ultimos gastos:');
       summary.eventos_detalhados_preview.forEach(function(event) {
         lines.push('- ' + formatShortDate_(event.data) + ' ' + event.categoria + ' - ' + formatMoney_(event.valor));
       });
@@ -1299,11 +1299,11 @@ var V55 = (function() {
 
   function formatCostOfLifeAnswer_(summary) {
     return [
-      'Custo de vida de ' + friendlyCompetencia_(summary.competencia),
+      '📊 Custo de vida de ' + friendlyCompetencia_(summary.competencia),
       '',
-      'Gastos DRE registrados: ' + formatMoney_(summary.despesas_dre),
-      'Resultado DRE: ' + formatMoney_(summary.resultado_dre),
-      'Sobra de caixa registrada: ' + formatMoney_(summary.sobra_caixa),
+      '🛒 Gastos DRE registrados: ' + formatMoney_(summary.despesas_dre),
+      '📈 Resultado DRE: ' + formatMoney_(summary.resultado_dre),
+      '💵 Sobra de caixa registrada: ' + formatMoney_(summary.sobra_caixa),
       '',
       'Inclui itens privados no total, sem abrir detalhes pessoais.',
       'Base: lancamentos ja registrados no bot. Nao e media historica ainda.',
@@ -1313,12 +1313,12 @@ var V55 = (function() {
   function formatUpcomingObligationsAnswer_(summary) {
     var obligations = roundMoney_(summary.faturas_60d + summary.obrigacoes_60d);
     return [
-      'Contas proximas de ' + friendlyCompetencia_(summary.competencia),
+      '🧾 Contas proximas de ' + friendlyCompetencia_(summary.competencia),
       '',
       'Total ate 60 dias: ' + formatMoney_(obligations),
-      'Faturas: ' + formatMoney_(summary.faturas_60d),
-      'Obrigacoes: ' + formatMoney_(summary.obrigacoes_60d),
-      'Depois das contas: ' + formatMoney_(summary.margem_pos_obrigacoes),
+      '💳 Faturas: ' + formatMoney_(summary.faturas_60d),
+      '🏠 Obrigacoes: ' + formatMoney_(summary.obrigacoes_60d),
+      '✅ Depois das contas: ' + formatMoney_(summary.margem_pos_obrigacoes),
       '',
       'Base: faturas abertas e obrigacoes ativas registradas.',
     ].join('\n');
@@ -1326,11 +1326,11 @@ var V55 = (function() {
 
   function formatReserveAnswer_(summary) {
     return [
-      'Reserva e liquidez de ' + friendlyCompetencia_(summary.competencia),
+      '🏦 Reserva e liquidez de ' + friendlyCompetencia_(summary.competencia),
       '',
       'Reserva/liquidez registrada: ' + formatMoney_(summary.reserva_total),
-      'Saldo disponivel informado: ' + formatMoney_(summary.saldos_fontes_disponivel),
-      'Depois das contas: ' + formatMoney_(summary.margem_pos_obrigacoes),
+      '💵 Saldo disponivel informado: ' + formatMoney_(summary.saldos_fontes_disponivel),
+      '✅ Depois das contas: ' + formatMoney_(summary.margem_pos_obrigacoes),
       '',
       'Base: saldos e caixinhas/cofrinhos cadastrados no bot.',
     ].join('\n');
@@ -3218,7 +3218,7 @@ var V55 = (function() {
   function categoryClarificationText_(rawText, referenceData, eventType) {
     var suggestions = suggestCategoriesForText_(rawText, referenceData, eventType);
     var lines = [
-      'Nao anotei para nao chutar categoria.',
+      '⚠️ Nao anotei para nao chutar categoria.',
       'Reenvie com categoria no texto.',
       'Exemplo: notebook 3000 em 3x no nubank categoria Eletronicos e equipamentos.',
     ];
@@ -3491,21 +3491,21 @@ var V55 = (function() {
 
   function recordedEventText_(event, actionLabel, referenceData) {
     var lines = [
-      'OK, ' + lowerFirst_(actionLabel || 'anotei'),
-      'Valor: ' + formatMoney_(event.valor),
+      '✅ OK, ' + lowerFirst_(actionLabel || 'anotei'),
+      '💵 Valor: ' + formatMoney_(event.valor),
     ];
-    if (event.data) lines.push('Data: ' + formatSheetDate_(event.data));
-    if (event.descricao) lines.push('Descricao: ' + event.descricao);
-    lines.push('Tipo: ' + friendlyEventType_(event.tipo_evento));
+    if (event.data) lines.push('📅 Data: ' + formatSheetDate_(event.data));
+    if (event.descricao) lines.push('📝 Descricao: ' + event.descricao);
+    lines.push('🏷️ Tipo: ' + friendlyEventType_(event.tipo_evento));
     var categoryName = friendlyCategoryName_(event.id_categoria, referenceData);
-    if (categoryName) lines.push('Categoria: ' + categoryName);
+    if (categoryName) lines.push('📂 Categoria: ' + categoryName);
     var sourceName = friendlySourceName_(event.id_fonte, referenceData);
-    if (sourceName) lines.push('Fonte: ' + sourceName);
+    if (sourceName) lines.push('🏦 Fonte: ' + sourceName);
     var cardName = friendlyCardName_(event.id_cartao, referenceData);
-    if (cardName) lines.push('Cartao: ' + cardName);
-    if (event.id_fatura) lines.push('Fatura: ' + friendlyIdentifier_(event.id_fatura));
-    lines.push('Caixa familiar: ' + friendlyCashEffect_(event));
-    lines.push('Proximo: use /resumo para revisar o mes.');
+    if (cardName) lines.push('💳 Cartao: ' + cardName);
+    if (event.id_fatura) lines.push('🧾 Fatura: ' + friendlyIdentifier_(event.id_fatura));
+    lines.push('👨‍👩‍👧 Caixa familiar: ' + friendlyCashEffect_(event));
+    lines.push('📊 Proximo: use /resumo para revisar o mes.');
     return lines.join('\n');
   }
 
@@ -4531,46 +4531,46 @@ var V55 = (function() {
 
   function friendlyFailureText_(code) {
     if (code === 'INVALID_MONEY') {
-      return 'Nao entendi o valor.\nTente assim: mercado 42 hoje';
+      return '⚠️ Nao entendi o valor.\nTente assim: mercado 42 hoje';
     }
     if (code === 'INVALID_DATE_EMPTY' || code === 'INVALID_DATE_TEXTUAL' || code === 'INVALID_DATE_UNPADDED_ISO' || code === 'INVALID_COMPETENCIA') {
-      return 'Nao entendi a data.\nUse hoje, ontem ou uma data como 2026-04-30.';
+      return '⚠️ Nao entendi a data.\nUse hoje, ontem ou uma data como 2026-04-30.';
     }
     if (code === 'CONFIG_CATEGORY_BLOCKED' || code === 'PILOT_TEXT_CATEGORY_MISMATCH') {
-      return 'Nao anotei com seguranca.\nInclua valor, data, fonte ou cartao, e categoria.';
+      return '⚠️ Nao anotei com seguranca.\nInclua valor, data, fonte ou cartao, e categoria.';
     }
     if (code === 'CONFIG_SOURCE_BLOCKED') {
-      return 'Nao identifiquei a fonte do dinheiro.\nCite a conta ou mande de forma simples: mercado 42 hoje.';
+      return '⚠️ Nao identifiquei a fonte do dinheiro.\nCite a conta ou mande de forma simples: mercado 42 hoje.';
     }
     if (code === 'CONFIG_CARD_BLOCKED' || code === 'CONFIG_CARD_SOURCE_BLOCKED') {
-      return 'Nao identifiquei o cartao.\nTente assim: farmacia 18 no nubank.';
+      return '⚠️ Nao identifiquei o cartao.\nTente assim: farmacia 18 no nubank.';
     }
     if (code === 'PILOT_INVOICE_BLOCKED' || code === 'PILOT_INVOICE_NOT_FOUND') {
-      return 'Nao encontrei uma fatura aberta para pagar.\nCite cartao e valor, por exemplo: paguei fatura nubank 300.';
+      return '⚠️ Nao encontrei uma fatura aberta para pagar.\nCite cartao e valor, por exemplo: paguei fatura nubank 300.';
     }
     if (code === 'PILOT_INVOICE_ALREADY_PAID') {
-      return 'Essa fatura ja aparece como paga.\nSe precisar corrigir, mande um ajuste revisado com o motivo.';
+      return 'ℹ️ Essa fatura ja aparece como paga.\nSe precisar corrigir, mande um ajuste revisado com o motivo.';
     }
     if (code === 'PILOT_INVOICE_AMOUNT_MISMATCH') {
-      return 'O valor nao bate com a fatura aberta.\nConfira o valor ou registre um ajuste revisado.';
+      return '⚠️ O valor nao bate com a fatura aberta.\nConfira o valor ou registre um ajuste revisado.';
     }
     if (code === 'PILOT_TRANSFER_PERSON_BLOCKED' || code === 'PILOT_TRANSFER_PERSON_MISMATCH' || code === 'PILOT_TRANSFER_DIRECTION_BLOCKED') {
-      return 'Nao entendi a entrada no caixa familiar.\nTente assim: Luana mandou 200 para caixa familiar.';
+      return '⚠️ Nao entendi a entrada no caixa familiar.\nTente assim: Luana mandou 200 para caixa familiar.';
     }
     if (code === 'PILOT_ASSET_BLOCKED') {
-      return 'Nao identifiquei o investimento ativo.\nTente assim: aporte CDB 1000.';
+      return '⚠️ Nao identifiquei o investimento ativo.\nTente assim: aporte CDB 1000.';
     }
     if (code === 'PILOT_DEBT_BLOCKED') {
-      return 'Nao identifiquei a obrigacao.\nTente assim: paguei financiamento 500.';
+      return '⚠️ Nao identifiquei a obrigacao.\nTente assim: paguei financiamento 500.';
     }
     if (code === 'PILOT_ADJUSTMENT_REASON_BLOCKED') {
-      return 'Ajuste precisa de motivo.\nTente assim: ajuste revisado 10 erro de importacao.';
+      return '⚠️ Ajuste precisa de motivo.\nTente assim: ajuste revisado 10 erro de importacao.';
     }
     if (code === 'DUPLICATE_PROCESSING') {
-      return 'Essa mensagem ainda esta sendo processada.\nEspere alguns segundos antes de reenviar.';
+      return '⏳ Essa mensagem ainda esta sendo processada.\nEspere alguns segundos antes de reenviar.';
     }
     if (code === 'OPENAI_FETCH_FAILED' || code === 'OPENAI_REJECTED' || code === 'OPENAI_OUTPUT_NOT_JSON' || code === 'OPENAI_RESPONSE_PROCESSING_FAILED') {
-      return 'Nao consegui interpretar agora.\nTente uma frase curta com valor, por exemplo: mercado 42 hoje.';
+      return '⚠️ Nao consegui interpretar agora.\nTente uma frase curta com valor, por exemplo: mercado 42 hoje.';
     }
     return GENERIC_RECORD_FAILURE;
   }
@@ -4749,14 +4749,14 @@ var V55 = (function() {
   function handlePilotBalanceSnapshot_(update, message, text, config, referenceData) {
     var str = stringValue_(text).trim();
     var match = str.match(/^\/?saldo\s+(.+?)\s+([\d.,]+)\s*$/i);
-    if (!match) return fail_('INVALID_BALANCE_FORMAT', 'text', 'Formato: saldo <fonte> <valor>\nExemplo: /saldo nubank 3500');
+    if (!match) return fail_('INVALID_BALANCE_FORMAT', 'text', '⚠️ Formato: saldo <fonte> <valor>\nExemplo: /saldo nubank 3500');
     var sourceName = match[1].trim();
     var rawAmount = match[2].replace(/\./g, '').replace(',', '.');
     var amount = Number(rawAmount);
-    if (!isFinite(amount) || amount < 0) return fail_('INVALID_BALANCE_AMOUNT', 'valor', 'Valor de saldo invalido.');
+    if (!isFinite(amount) || amount < 0) return fail_('INVALID_BALANCE_AMOUNT', 'valor', '⚠️ Valor de saldo invalido.');
 
     var source = findSourceByAlias_(sourceName, referenceData.sources);
-    if (!source) return fail_('BALANCE_SOURCE_NOT_FOUND', 'id_fonte', 'Fonte nao encontrada: ' + sourceName + '\nFontes disponiveis: ' + referenceData.sources.filter(function(s) { return s.ativo !== false; }).map(function(s) { return s.nome; }).join(', '));
+    if (!source) return fail_('BALANCE_SOURCE_NOT_FOUND', 'id_fonte', '⚠️ Fonte nao encontrada: ' + sourceName + '\nFontes disponiveis: ' + referenceData.sources.filter(function(s) { return s.ativo !== false; }).map(function(s) { return s.nome; }).join(', '));
 
     var lock = LockService.getScriptLock();
     lock.waitLock(10000);
@@ -4782,9 +4782,9 @@ var V55 = (function() {
       return {
         ok: true,
         responseText: [
-          'OK, saldo atualizado.',
-          'Fonte: ' + stringValue_(source.nome),
-          'Saldo: R$ ' + formatBrazilianMoney_(amount),
+          '📊 OK, saldo atualizado.',
+          '🏦 Fonte: ' + stringValue_(source.nome),
+          '💵 Saldo: R$ ' + formatBrazilianMoney_(amount),
         ].join('\n'),
         shouldApplyDomainMutation: true,
       };
@@ -4826,9 +4826,9 @@ var V55 = (function() {
       return {
         ok: true,
         responseText: [
-          'OK, patrimonio atualizado.',
+          '🏦 OK, patrimonio atualizado.',
           'Ativo: ' + parsed.nome,
-          'Saldo: R$ ' + formatBrazilianMoney_(parsed.valor),
+          '💵 Saldo: R$ ' + formatBrazilianMoney_(parsed.valor),
           'Impacto: nao e receita nem despesa; entra como reserva/liquidez.',
         ].join('\n'),
         shouldApplyDomainMutation: true,
@@ -4843,11 +4843,11 @@ var V55 = (function() {
   function parsePilotAssetBalanceText_(text) {
     var str = stringValue_(text).trim();
     var match = str.match(/(?:atualizar\s+patrim[oô]nio:?\s*)?(caixinha|cofrinho)\s+(.+?)\s+(?:com\s+)?saldo\s+([\d.,]+)(?:\s+em\s+(\d{1,2}\/\d{1,2}(?:\/\d{4})?|\d{4}-\d{2}-\d{2}))?/i);
-    if (!match) return fail_('INVALID_ASSET_BALANCE_FORMAT', 'text', 'Formato: caixinha/cofrinho <nome> saldo <valor>\nExemplo: cofrinho Mercado Pago Gustavo saldo 9482,99');
+    if (!match) return fail_('INVALID_ASSET_BALANCE_FORMAT', 'text', '⚠️ Formato: caixinha/cofrinho <nome> saldo <valor>\nExemplo: cofrinho Mercado Pago Gustavo saldo 9482,99');
     var amount = Number(match[3].replace(/\./g, '').replace(',', '.'));
-    if (!isFinite(amount) || amount < 0) return fail_('INVALID_ASSET_BALANCE_AMOUNT', 'valor', 'Valor de patrimonio invalido.');
+    if (!isFinite(amount) || amount < 0) return fail_('INVALID_ASSET_BALANCE_AMOUNT', 'valor', '⚠️ Valor de patrimonio invalido.');
     var date = normalizeAssetBalanceDate_(match[4]);
-    if (!isValidIsoDate_(date)) return fail_('INVALID_ASSET_BALANCE_DATE', 'data', 'Data invalida para patrimonio.');
+    if (!isValidIsoDate_(date)) return fail_('INVALID_ASSET_BALANCE_DATE', 'data', '⚠️ Data invalida para patrimonio.');
     var kind = capitalize_(match[1]);
     var ownerName = match[2].trim().replace(/[.。]+$/, '');
     var name = kind + ' ' + ownerName;

@@ -637,15 +637,15 @@ test('Apps Script help gives practical launch examples without mutating', () => 
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Bot financeiro familiar/);
-    assert.match(result.responseText, /Lancamentos:/);
-    assert.match(result.responseText, /Perguntas seguras:/);
+    assert.match(result.responseText, /💰 Bot financeiro familiar/);
+    assert.match(result.responseText, /✍️ Lancamentos:/);
+    assert.match(result.responseText, /❓ Perguntas seguras:/);
     assert.match(result.responseText, /mercado 42 hoje/);
     assert.match(result.responseText, /farmacia 18 no nubank/);
     assert.match(result.responseText, /paguei fatura Mercado Pago 300/);
     assert.match(result.responseText, /Luana mandou 200 para caixa familiar/);
     assert.match(result.responseText, /qual meu custo de vida mensal/);
-    assert.doesNotMatch(result.responseText, /[\u{2705}\u{26a0}\u{1f4ca}\u{1f4b5}\u{1f9fe}]/u);
+    assert.match(result.responseText, /📌 Comandos:/);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
@@ -657,7 +657,7 @@ test('Apps Script balance snapshot creates a row in Saldos_Fontes', () => {
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, true);
-    assert.match(result.responseText, /OK, saldo atualizado\./);
+    assert.match(result.responseText, /📊 OK, saldo atualizado\./);
     assert.match(result.responseText, /Fonte: Nubank Gustavo/);
     assert.match(result.responseText, /Saldo: R\$ 1.500,50/);
     assert.strictEqual(sheets.Saldos_Fontes.rows.length, 2); // 1 header + 1 row
@@ -675,7 +675,7 @@ test('Apps Script asset balance updates caixinha and cofrinho as reserve liquidi
     assert.strictEqual(mp.ok, true);
     assert.strictEqual(nu.ok, true);
     assert.strictEqual(mp.shouldApplyDomainMutation, true);
-    assert.match(mp.responseText, /OK, patrimonio atualizado\./);
+    assert.match(mp.responseText, /🏦 OK, patrimonio atualizado\./);
     assert.match(mp.responseText, /Ativo: Cofrinho Mercado Pago Gustavo/);
     assert.match(mp.responseText, /Saldo: R\$ 9.482,99/);
     assert.match(nu.responseText, /Ativo: Caixinha Nubank Gustavo/);
@@ -822,21 +822,20 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Resumo de abril/);
-    assert.match(result.responseText, /Situacao: contas proximas cobertas pelos dados registrados\./);
-    assert.match(result.responseText, /Sobra do mes: R\$ 36,10/);
-    assert.match(result.responseText, /Contas proximas: R\$ 542,50/);
+    assert.match(result.responseText, /📊 Resumo de abril/);
+    assert.match(result.responseText, /🧭 Situacao: contas proximas cobertas pelos dados registrados\./);
+    assert.match(result.responseText, /💵 Sobra do mes: R\$ 36,10/);
+    assert.match(result.responseText, /🧾 Contas proximas: R\$ 542,50/);
     assert.match(result.responseText, /Faturas ate 60 dias: R\$ 42,50/);
     assert.match(result.responseText, /Obrigacoes cadastradas: R\$ 500,00/);
-    assert.match(result.responseText, /Depois das contas: R\$ 787,50/);
-    assert.match(result.responseText, /Gastos registrados: R\$ 106,40/);
-    assert.match(result.responseText, /Reserva\/liquidez: R\$ 1000,00/);
-    assert.match(result.responseText, /Orientacao: Priorizar reforco da reserva\./);
-    assert.match(result.responseText, /Motivo: As contas proximas parecem cobertas/);
+    assert.match(result.responseText, /✅ Depois das contas: R\$ 787,50/);
+    assert.match(result.responseText, /🛒 Gastos registrados: R\$ 106,40/);
+    assert.match(result.responseText, /🏦 Reserva\/liquidez: R\$ 1000,00/);
+    assert.match(result.responseText, /🧭 Orientacao: Priorizar reforco da reserva\./);
+    assert.match(result.responseText, /🔎 Motivo: As contas proximas parecem cobertas/);
     assert.doesNotMatch(result.responseText, /Nota: ainda falta saldo real das contas/);
-    assert.match(result.responseText, /Ultimos gastos:/);
+    assert.match(result.responseText, /🧾 Ultimos gastos:/);
     assert.match(result.responseText, /30\/04 Mercado da semana - R\$ 43,90/);
-    assert.doesNotMatch(result.responseText, /[\u{2705}\u{26a0}\u{1f4ca}\u{1f4b5}\u{1f9fe}]/u);
     assert.doesNotMatch(result.responseText, /OPEX_MERCADO_SEMANA/);
     assert.match(result.responseText, /Mercado da semana/);
     assert.doesNotMatch(result.responseText, /privado/);
@@ -2062,16 +2061,15 @@ test('Apps Script pilot expense canonicalizes fragile parser output before writi
     const result = postPilotMessage(context, 'mercado 10');
 
     assert.strictEqual(result.ok, true);
-    assert.match(result.responseText, /OK, anotei gasto da familia\./);
-    assert.match(result.responseText, /Valor: R\$ 10,00/);
-    assert.match(result.responseText, /Data: 2026-04-30/);
-    assert.match(result.responseText, /Descricao: mercado 10/);
-    assert.match(result.responseText, /Tipo: gasto/);
-    assert.match(result.responseText, /Categoria: Mercado da semana/);
-    assert.match(result.responseText, /Fonte: Conta familia/);
-    assert.match(result.responseText, /Caixa familiar: saiu/);
-    assert.match(result.responseText, /Proximo: use \/resumo para revisar o mes\./);
-    assert.doesNotMatch(result.responseText, /[\u{2705}\u{26a0}\u{1f4ca}\u{1f4b5}\u{1f9fe}]/u);
+    assert.match(result.responseText, /✅ OK, anotei gasto da familia\./);
+    assert.match(result.responseText, /💵 Valor: R\$ 10,00/);
+    assert.match(result.responseText, /📅 Data: 2026-04-30/);
+    assert.match(result.responseText, /📝 Descricao: mercado 10/);
+    assert.match(result.responseText, /🏷️ Tipo: gasto/);
+    assert.match(result.responseText, /📂 Categoria: Mercado da semana/);
+    assert.match(result.responseText, /🏦 Fonte: Conta familia/);
+    assert.match(result.responseText, /👨‍👩‍👧 Caixa familiar: saiu/);
+    assert.match(result.responseText, /📊 Proximo: use \/resumo para revisar o mes\./);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
