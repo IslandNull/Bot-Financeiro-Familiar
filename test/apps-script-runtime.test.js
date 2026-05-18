@@ -948,6 +948,27 @@ test('Apps Script answers cost-of-life question without calling the parser', () 
     assert.match(result.responseText, /Base: lancamentos ja registrados no bot/);
 });
 
+test('Apps Script answers singular open-invoice question without mutating', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_05',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-05',
+        valor_previsto: 421.93,
+        valor_pago: 0,
+        status: 'prevista',
+    });
+
+    const result = postPilotMessage(context, 'Qual o valor da fatura em aberto mercado pago?');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Contas proximas/);
+    assert.match(result.responseText, /Faturas: R\$ 421,93/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+});
+
 test('Apps Script doGet summary action returns current read-only family summary', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
@@ -1848,6 +1869,74 @@ test('Apps Script repair action fixes May benefit conversion source without dupl
     assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_NUBANK_GU');
 });
 
+test('Apps Script repair action fixes May cash account rows recorded as card purchases', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_WRONG_PRESENT',
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_LAZER_FAMILIAR',
+        valor: 50,
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_06',
+        afeta_caixa_familiar: false,
+        descricao: 'Paguei presente para cunhada familiar 50 pela Conta Mercado Pago Gustavo',
+        status: 'efetivado',
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_WRONG_PARKING',
+        data: '2026-05-05',
+        competencia: '2026-05',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO',
+        valor: 90,
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_05',
+        afeta_caixa_familiar: false,
+        descricao: 'Paguei estacionamento aeroporto Gustavo trabalho 90 pela Conta Mercado Pago Gustavo',
+        status: 'efetivado',
+    });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_06',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-06',
+        valor_previsto: 50,
+        status: 'prevista',
+    });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_05',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-05',
+        valor_previsto: 90,
+        status: 'prevista',
+    });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_04',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-04',
+        valor_previsto: 4219.93,
+        valor_pago: 4219.93,
+        status: 'paga',
+    });
+
+    const result = runRemoteAction(context, 'repair_may_2026_cash_account_misclassified_card');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result));
+    assert.strictEqual(result.canceled_launches, 2);
+    assert.strictEqual(result.canceled_invoices, 2);
+    assert.strictEqual(result.appended_launches, 3);
+    const launches = sheets.Lancamentos.rows.slice(1).map((row) => Object.fromEntries(lancamentosHeaders.map((header, index) => [header, row[index]])));
+    assert.strictEqual(launches.filter((row) => row.status === 'cancelado_revisao').length, 2);
+    assert.ok(launches.some((row) => row.tipo_evento === 'despesa' && row.valor === 50 && row.id_fonte === 'FONTE_CONTA_MERCADO_PAGO_GU' && row.afeta_caixa_familiar === true));
+    assert.ok(launches.some((row) => row.tipo_evento === 'despesa' && row.valor === 90 && row.id_categoria === 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_DINHEIRO'));
+    assert.ok(launches.some((row) => row.tipo_evento === 'pagamento_fatura' && row.valor === 4219.93 && row.id_fonte === 'FONTE_CONTA_MERCADO_PAGO_GU'));
+    const invoices = sheets.Faturas.rows.slice(1).map((row) => Object.fromEntries(faturasHeaders.map((header, index) => [header, row[index]])));
+    assert.strictEqual(invoices.filter((row) => row.status === 'cancelado_revisao').length, 2);
+});
+
 test('Apps Script closing_close action requires closed_at metadata', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
@@ -2645,6 +2734,82 @@ test('Apps Script card purchase uses the most specific explicit card category', 
     assert.strictEqual(launch.afeta_caixa_familiar, false);
 });
 
+test('Apps Script cash account payment with explicit category is not recorded as card purchase', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '2026-05-05',
+        competencia: '2026-05',
+        valor: '90',
+        descricao: 'Estacionamento aeroporto Gustavo trabalho',
+        id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        pessoa: '',
+        escopo: '',
+        visibilidade: '',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: true,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: '',
+        parcelas: 1,
+    });
+    sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => ({
+        id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_DINHEIRO',
+        nome: 'Transporte trabalho Gustavo dinheiro',
+        grupo: 'Transporte',
+        tipo_evento_padrao: 'despesa',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: true,
+        visibilidade_padrao: 'privada',
+        ativo: true,
+    })[header] ?? ''));
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU',
+        nome: 'Conta Mercado Pago Gustavo',
+        tipo: 'conta_corrente',
+        titular: 'Gustavo',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        nome: 'Mercado Pago Gustavo',
+        tipo: 'cartao_credito',
+        titular: 'Gustavo',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+    sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        nome: 'Mercado Pago Gustavo',
+        titular: 'Gustavo',
+        fechamento_dia: 17,
+        vencimento_dia: 25,
+        limite: 5000,
+        ativo: true,
+    })[header] ?? ''));
+
+    const result = postPilotMessage(context, 'Paguei estacionamento aeroporto Gustavo trabalho 90 pela Conta Mercado Pago Gustavo em 05/05. Categoria transporte trabalho Gustavo dinheiro.');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'despesa');
+    assert.strictEqual(launch.id_categoria, 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_DINHEIRO');
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_MERCADO_PAGO_GU');
+    assert.strictEqual(launch.id_cartao, '');
+    assert.strictEqual(launch.id_fatura, '');
+    assert.strictEqual(launch.afeta_caixa_familiar, true);
+    assert.strictEqual(sheets.Faturas.rows.length, 1);
+});
+
 test('Apps Script pilot invoice payment writes cash launch and marks invoice paid', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'pagamento_fatura',
@@ -3358,6 +3523,8 @@ test('Apps Script deterministic override records house financing payment without
     assert.strictEqual(launch.afeta_dre, false);
     assert.strictEqual(launch.afeta_patrimonio, true);
     assert.strictEqual(launch.afeta_caixa_familiar, true);
+    assert.match(result.responseText, /anotei pagamento de obrigacao/);
+    assert.doesNotMatch(result.responseText, /compra no cartao/);
 });
 
 test('Apps Script generic launch writes reviewed adjustment without financial references', () => {

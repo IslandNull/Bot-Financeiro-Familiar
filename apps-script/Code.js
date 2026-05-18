@@ -114,6 +114,9 @@ var V55 = (function() {
     if (action === 'repair_may_2026_benefit_conversion_source') {
       return json_(repairMay2026BenefitConversionSourceV55());
     }
+    if (action === 'repair_may_2026_cash_account_misclassified_card') {
+      return json_(repairMay2026CashAccountMisclassifiedCardV55());
+    }
     if (action === 'reset_april_2026_clean_rebuild') {
       return json_(resetApril2026CleanRebuildV55());
     }
@@ -521,6 +524,7 @@ var V55 = (function() {
     return containsAliasPhrase_(normalized, 'custo de vida') ||
       containsAliasPhrase_(normalized, 'gasto mensal') ||
       containsAliasPhrase_(normalized, 'gastos do mes') ||
+      containsAliasPhrase_(normalized, 'fatura') ||
       containsAliasPhrase_(normalized, 'faturas') ||
       containsAliasPhrase_(normalized, 'contas proximas') ||
       containsAliasPhrase_(normalized, 'reserva') ||
@@ -540,7 +544,7 @@ var V55 = (function() {
         shouldApplyDomainMutation: false,
       };
     }
-    if (containsAliasPhrase_(normalized, 'faturas') || containsAliasPhrase_(normalized, 'contas proximas')) {
+    if (containsAliasPhrase_(normalized, 'fatura') || containsAliasPhrase_(normalized, 'faturas') || containsAliasPhrase_(normalized, 'contas proximas')) {
       return {
         ok: true,
         responseText: formatUpcomingObligationsAnswer_(result.summary),
@@ -786,6 +790,219 @@ var V55 = (function() {
     } finally {
       lock.releaseLock();
     }
+  }
+
+  function repairMay2026CashAccountMisclassifiedCardV55() {
+    var config = readConfig_();
+    var runtimeCheck = verifyReportingRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+      var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
+      verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+      verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
+      var repairs = may2026CashAccountMisclassificationRepairs_();
+      var canceledLaunches = 0;
+      var canceledInvoices = 0;
+      var appendedLaunches = 0;
+      for (var i = 0; i < repairs.length; i += 1) {
+        var repair = repairs[i];
+        var result = applyMay2026CashAccountRepair_(launchSheet, invoiceSheet, repair);
+        canceledLaunches += result.canceledLaunches;
+        canceledInvoices += result.canceledInvoices;
+        appendedLaunches += result.appendedLaunches;
+      }
+      var paymentResult = appendMissingMay2026MercadoPagoAprilInvoicePayment_(launchSheet, invoiceSheet);
+      appendedLaunches += paymentResult.appendedLaunches;
+      return {
+        ok: true,
+        action: 'repair_may_2026_cash_account_misclassified_card',
+        canceled_launches: canceledLaunches,
+        canceled_invoices: canceledInvoices,
+        appended_launches: appendedLaunches,
+        shouldApplyDomainMutation: canceledLaunches > 0 || canceledInvoices > 0 || appendedLaunches > 0,
+      };
+    } catch (_err) {
+      return fail_('MAY_CASH_ACCOUNT_REPAIR_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  function may2026CashAccountMisclassificationRepairs_() {
+    return [
+      {
+        key: 'present_cunhada_mp_cash',
+        date: '2026-05-15',
+        value: 50,
+        wrongCategory: 'OPEX_LAZER_FAMILIAR',
+        correctCategory: 'OPEX_LAZER_FAMILIAR',
+        correctPessoa: 'Familiar',
+        correctEscopo: 'Familiar',
+        correctVisibility: 'detalhada',
+        descriptionNeedle: 'presente para cunhada',
+        correctedDescription: 'Paguei presente para cunhada familiar 50 pela Conta Mercado Pago Gustavo em 15/05. Categoria lazer familiar. Ajuste automatico: era conta, nao cartao.',
+      },
+      {
+        key: 'parking_airport_mp_cash',
+        date: '2026-05-05',
+        value: 90,
+        wrongCategory: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO',
+        correctCategory: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_DINHEIRO',
+        correctPessoa: 'Gustavo',
+        correctEscopo: 'Gustavo',
+        correctVisibility: 'privada',
+        descriptionNeedle: 'estacionamento aeroporto',
+        correctedDescription: 'Paguei estacionamento aeroporto Gustavo trabalho 90 pela Conta Mercado Pago Gustavo em 05/05. Categoria transporte trabalho Gustavo dinheiro. Ajuste automatico: era conta, nao cartao.',
+      },
+    ];
+  }
+
+  function applyMay2026CashAccountRepair_(launchSheet, invoiceSheet, repair) {
+    var launchRows = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS);
+    var statusIndex = HEADERS[SHEETS.LANCAMENTOS].indexOf('status');
+    var canceledLaunches = 0;
+    var invoiceIds = {};
+    for (var i = 0; i < launchRows.length; i += 1) {
+      var row = launchRows[i];
+      if (!isMay2026CashAccountWrongCardLaunch_(row, repair)) continue;
+      launchSheet.getRange(i + 2, statusIndex + 1).setValue('cancelado_revisao');
+      invoiceIds[stringValue_(row.id_fatura)] = true;
+      canceledLaunches += 1;
+    }
+    var canceledInvoices = cancelMay2026CashAccountWrongInvoices_(invoiceSheet, repair, invoiceIds, canceledLaunches);
+    var appendedLaunches = canceledLaunches > 0 && !hasMay2026CorrectedCashLaunch_(launchRows, repair)
+      ? appendMay2026CorrectedCashLaunch_(launchSheet, repair)
+      : 0;
+    return { canceledLaunches: canceledLaunches, canceledInvoices: canceledInvoices, appendedLaunches: appendedLaunches };
+  }
+
+  function isMay2026CashAccountWrongCardLaunch_(row, repair) {
+    return normalizeSheetCompetencia_(row.competencia) === '2026-05' &&
+      row.tipo_evento === 'compra_cartao' &&
+      isMercadoPagoCardId_(row.id_cartao) &&
+      row.status === 'efetivado' &&
+      formatSheetDate_(row.data) === repair.date &&
+      Math.abs(numberFromSheetValue_(row.valor) - repair.value) < 0.009;
+  }
+
+  function cancelMay2026CashAccountWrongInvoices_(invoiceSheet, repair, invoiceIds, maxCount) {
+    if (maxCount <= 0) return 0;
+    var headers = HEADERS[SHEETS.FATURAS];
+    var rows = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS);
+    var statusIndex = headers.indexOf('status');
+    var count = 0;
+    for (var i = rows.length - 1; i >= 0; i -= 1) {
+      var row = rows[i];
+      if (count >= maxCount) break;
+      if (!isMercadoPagoCardId_(row.id_cartao)) continue;
+      if (row.status !== 'prevista') continue;
+      if (Object.keys(invoiceIds).length > 0 && !invoiceIds[stringValue_(row.id_fatura)]) continue;
+      if (Math.abs(numberFromSheetValue_(row.valor_previsto) - repair.value) >= 0.009) continue;
+      invoiceSheet.getRange(i + 2, statusIndex + 1).setValue('cancelado_revisao');
+      count += 1;
+    }
+    return count;
+  }
+
+  function hasMay2026CorrectedCashLaunch_(rows, repair) {
+    for (var i = 0; i < rows.length; i += 1) {
+      var row = rows[i];
+      if (normalizeSheetCompetencia_(row.competencia) !== '2026-05') continue;
+      if (row.tipo_evento !== 'despesa') continue;
+      if (row.id_categoria !== repair.correctCategory) continue;
+      if (row.id_fonte !== 'FONTE_CONTA_MERCADO_PAGO_GU') continue;
+      if (row.status !== 'efetivado') continue;
+      if (formatSheetDate_(row.data) !== repair.date) continue;
+      if (Math.abs(numberFromSheetValue_(row.valor) - repair.value) < 0.009) return true;
+    }
+    return false;
+  }
+
+  function appendMay2026CorrectedCashLaunch_(launchSheet, repair) {
+    appendRow_(launchSheet, SHEETS.LANCAMENTOS, {
+      id_lancamento: stableId_('LAN', 'repair|' + repair.key + '|2026-05'),
+      data: repair.date,
+      competencia: '2026-05',
+      tipo_evento: 'despesa',
+      id_categoria: repair.correctCategory,
+      valor: repair.value,
+      id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU',
+      pessoa: repair.correctPessoa,
+      escopo: repair.correctEscopo,
+      id_cartao: '',
+      id_fatura: '',
+      id_divida: '',
+      id_ativo: '',
+      afeta_dre: true,
+      afeta_patrimonio: false,
+      afeta_caixa_familiar: true,
+      visibilidade: repair.correctVisibility,
+      status: 'efetivado',
+      descricao: repair.correctedDescription,
+      parcelas: '',
+      created_at: isoNow_(),
+    });
+    return 1;
+  }
+
+  function appendMissingMay2026MercadoPagoAprilInvoicePayment_(launchSheet, invoiceSheet) {
+    var rows = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS);
+    for (var i = 0; i < rows.length; i += 1) {
+      var row = rows[i];
+      if (row.tipo_evento === 'pagamento_fatura' &&
+          formatSheetDate_(row.data) === '2026-05-05' &&
+          row.id_fonte === 'FONTE_CONTA_MERCADO_PAGO_GU' &&
+          row.status === 'efetivado' &&
+          Math.abs(numberFromSheetValue_(row.valor) - 4219.93) < 0.009) {
+        return { appendedLaunches: 0 };
+      }
+    }
+    var invoiceId = firstInvoiceIdForAnyCardCompetencia_(invoiceSheet, ['CARD_MERCADO_PAGO_GU', 'CARD_MP_GU'], '2026-04');
+    if (!invoiceId) return { appendedLaunches: 0 };
+    appendRow_(launchSheet, SHEETS.LANCAMENTOS, {
+      id_lancamento: stableId_('LAN', 'repair|mp_april_invoice_payment|2026-05-05|4219.93'),
+      data: '2026-05-05',
+      competencia: '2026-05',
+      tipo_evento: 'pagamento_fatura',
+      id_categoria: '',
+      valor: 4219.93,
+      id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU',
+      pessoa: 'Gustavo',
+      escopo: 'Familiar',
+      id_cartao: '',
+      id_fatura: invoiceId,
+      id_divida: '',
+      id_ativo: '',
+      afeta_dre: false,
+      afeta_patrimonio: false,
+      afeta_caixa_familiar: true,
+      visibilidade: 'detalhada',
+      status: 'efetivado',
+      descricao: 'Pagamento fatura Mercado Pago Gustavo de abril em 05/05 pela Conta Mercado Pago Gustavo. Ajuste automatico: fatura historica ja estava marcada como paga.',
+      parcelas: '',
+      created_at: isoNow_(),
+    });
+    return { appendedLaunches: 1 };
+  }
+
+  function firstInvoiceIdForAnyCardCompetencia_(invoiceSheet, cardIds, competencia) {
+    var rows = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS);
+    for (var i = 0; i < rows.length; i += 1) {
+      if (cardIds.indexOf(stringValue_(rows[i].id_cartao)) !== -1 && normalizeSheetCompetencia_(rows[i].competencia) === competencia) {
+        return stringValue_(rows[i].id_fatura);
+      }
+    }
+    return '';
+  }
+
+  function isMercadoPagoCardId_(cardId) {
+    var id = stringValue_(cardId);
+    return id === 'CARD_MERCADO_PAGO_GU' || id === 'CARD_MP_GU';
   }
 
   function resetApril2026CleanRebuildV55() {
@@ -2647,6 +2864,26 @@ var V55 = (function() {
         return event;
       }
     }
+    var explicitCashAccountCategory = inferExplicitSpendingCategoryFromText_(text, referenceData);
+    var explicitCashAccountSource = inferCashSourceFromText_(text, referenceData);
+    if (isCashAccountPaymentText_(normalized) && explicitCashAccountCategory && explicitCashAccountSource) {
+      event.tipo_evento = 'despesa';
+      event.id_categoria = explicitCashAccountCategory.id_categoria;
+      event.id_fonte = explicitCashAccountSource.id_fonte;
+      event.id_cartao = '';
+      event.id_fatura = '';
+      event.id_divida = '';
+      event.id_ativo = '';
+      event.pessoa = event.pessoa || explicitCashAccountCategory.escopo_padrao;
+      event.escopo = explicitCashAccountCategory.escopo_padrao;
+      event.visibilidade = effectiveCategoryVisibility_(explicitCashAccountCategory);
+      event.direcao_caixa_familiar = '';
+      event.status = 'efetivado';
+      event.afeta_dre = true;
+      event.afeta_patrimonio = false;
+      event.afeta_caixa_familiar = true;
+      return event;
+    }
     if (isPilotInvoicePaymentText_(normalized)) {
       var paymentSource = inferCashSourceFromText_(text, referenceData) || defaultFamilyCashSource_(referenceData);
       var paymentInvoiceId = inferInvoicePaymentIdFromText_(event, referenceData);
@@ -2738,6 +2975,15 @@ var V55 = (function() {
       containsAliasPhrase_(normalizedText, 'amortizacao') ||
       containsAliasPhrase_(normalizedText, 'parcela');
     return hasDebtContext && hasPayment && !containsAliasPhrase_(normalizedText, 'fatura');
+  }
+
+  function isCashAccountPaymentText_(normalizedText) {
+    if (!normalizedText) return false;
+    return containsAliasPhrase_(normalizedText, 'pela conta') ||
+      containsAliasPhrase_(normalizedText, 'pela conta mercado pago') ||
+      containsAliasPhrase_(normalizedText, 'pela conta nubank') ||
+      containsAliasPhrase_(normalizedText, 'da conta mercado pago') ||
+      containsAliasPhrase_(normalizedText, 'da conta nubank');
   }
 
   function canonicalizePilotCardPurchaseEvent_(event, referenceData) {
@@ -3270,6 +3516,27 @@ var V55 = (function() {
     return matches[0];
   }
 
+  function inferExplicitSpendingCategoryFromText_(rawText, referenceData) {
+    var normalizedText = normalizeAliasText_(rawText);
+    if (!normalizedText || !containsAliasPhrase_(normalizedText, 'categoria')) return null;
+    var matches = [];
+    for (var i = 0; i < referenceData.categories.length; i += 1) {
+      var category = referenceData.categories[i];
+      var eventType = stringValue_(category.tipo_evento_padrao);
+      if (eventType !== 'despesa' && eventType !== 'compra_cartao') continue;
+      var name = normalizeAliasText_(category.nome);
+      if (!name) continue;
+      if (containsAliasPhrase_(normalizedText, 'categoria ' + name) || containsAliasPhrase_(normalizedText, name)) {
+        matches.push(category);
+      }
+    }
+    if (!matches.length) return null;
+    matches.sort(function(a, b) {
+      return normalizeAliasText_(b.nome).length - normalizeAliasText_(a.nome).length;
+    });
+    return matches[0];
+  }
+
   function suggestCategoriesForText_(rawText, referenceData, eventType) {
     var result = [];
     for (var i = 0; i < referenceData.categories.length; i += 1) {
@@ -3756,7 +4023,7 @@ var V55 = (function() {
         created_at: now,
       });
       updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-      return { ok: true, responseText: recordedEventText_(event, 'anotei compra no cartao.', referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
+      return { ok: true, responseText: recordedEventText_(event, actionLabelForGenericLaunch_(event), referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
     } catch (_err) {
       if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
         updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -3765,6 +4032,14 @@ var V55 = (function() {
     } finally {
       lock.releaseLock();
     }
+  }
+
+  function actionLabelForGenericLaunch_(event) {
+    if (event.tipo_evento === 'divida_pagamento') return 'anotei pagamento de obrigacao.';
+    if (event.tipo_evento === 'aporte') return 'anotei aporte.';
+    if (event.tipo_evento === 'receita') return 'anotei entrada.';
+    if (event.tipo_evento === 'ajuste') return 'anotei ajuste revisado.';
+    return 'anotei.';
   }
 
   function recordPilotCardPurchase_(update, message, event, config, referenceData) {
@@ -4975,6 +5250,7 @@ var V55 = (function() {
     repairPrematureCurrentFamilyClosingV55: repairPrematureCurrentFamilyClosingV55,
     repairNotebookInstallmentPilotV55: repairNotebookInstallmentPilotV55,
     repairMay2026BenefitConversionSourceV55: repairMay2026BenefitConversionSourceV55,
+    repairMay2026CashAccountMisclassifiedCardV55: repairMay2026CashAccountMisclassifiedCardV55,
     resetApril2026CleanRebuildV55: resetApril2026CleanRebuildV55,
     ensureApril2026HouseDebtConfigV55: ensureApril2026HouseDebtConfigV55,
     runHelpSmokeSelfTest: runHelpSmokeSelfTest,
@@ -5061,6 +5337,12 @@ function repairNotebookInstallmentPilotV55() {
 
 function repairMay2026BenefitConversionSourceV55() {
   var result = V55.repairMay2026BenefitConversionSourceV55();
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+function repairMay2026CashAccountMisclassifiedCardV55() {
+  var result = V55.repairMay2026CashAccountMisclassifiedCardV55();
   Logger.log(JSON.stringify(result));
   return result;
 }

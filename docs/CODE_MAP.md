@@ -83,6 +83,7 @@ doGet(e)
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed competencias from sheets
 - Operational repair action: `repair_premature_current_closing` reopens only a prematurely closed current competencia.
 - Operational repair action: `repair_notebook_installment_pilot` cancels the duplicated wrong notebook pilot rows without deleting history.
+- Operational repair action: `repair_may_2026_cash_account_misclassified_card` cancels reviewed May account-paid rows that were accidentally recorded as Mercado Pago card purchases and appends corrected cash rows.
 - Operational rebuild action: `reset_april_2026_clean_rebuild` clears operational rows for a reviewed clean import while preserving config sheets.
 - Reviewed historical type: `fatura_prevista` writes `Faturas` exposure only, with no `Lancamentos` row and no DRE/cash effect.
 

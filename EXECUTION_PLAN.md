@@ -16,7 +16,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed family closings from sheets.
 - Reviewed historical JSONL import is narrow: max 5 events per request, full validation before writes, `historical_jsonl` idempotency, no private-detail output. Normal launches stay in 2026-04; `fatura_prevista` may add reviewed future invoice exposure through 2027 for April rebuilds.
 - April 2026 clean rebuild was applied on @80 from final local source documents in `private/abril-2026/`: 151 reviewed events, 89 `Lancamentos`, 116 `Faturas`, and 2026-04 `Fechamento_Familiar` closed after owner aggregate review.
-- Version @97 deployed on 2026-05-18 with audit, pilot, clean rebuild, May launch hardening, `/resumo` exposure hardening, caixinha/cofrinho patrimonio updates, and Telegram UX hardening:
+- Version @100 deployed on 2026-05-18 with audit, pilot, clean rebuild, May launch hardening, `/resumo` exposure hardening, caixinha/cofrinho patrimonio updates, and Telegram UX hardening:
   - strict calendar-date validation, including February/leap-year cases;
   - stricter money parsing and ambiguous-number fallback blocking;
   - no money fallback in reviewed historical import;
@@ -35,10 +35,11 @@ Operational authority for Bot Financeiro Familiar V55.
   - explicit reviewed invoice payment can reconcile a small overage in known invoice exposure without creating retroactive DRE;
   - invoice payment competence is forced to the payment date month, not the paid invoice month.
   - explicit `categoria <nome>` plus card text overrides parser category guesses and parser expense/card-purchase type mistakes, preferring the most specific matching card category name.
+  - `pela Conta ...` with explicit category is treated as cash expense, not card purchase; singular fatura questions are read-only; May MP cash-account misclassified card rows were repaired.
 - `/resumo` counts open invoice exposure only through the next 60 days, shows invoice/obligation breakdown, and avoids saying "Falta para cobrir tudo" when no real source-balance snapshot exists.
 - `/resumo` uses informed source balances plus reserve/liquidity assets to evaluate obligation coverage; caixinha/cofrinho Telegram text updates `Patrimonio_Ativos` without DRE/category effects.
 - UX hardening is deployed: Telegram replies are shorter with light emoji markers, safe read-only questions such as "qual meu custo de vida mensal?" use deterministic summary calculations instead of LLM, Mercado Pago invoice payments and house-financing payments have deterministic overrides, and active category defaults were migrated from legacy `resumo` visibility to `detalhada`/`privada`.
-- Latest validation after @97: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-18.
+- Latest validation after @100: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-18.
 - Current real closing state in snapshot: 2026-04 closed; 2026-05 open with initial May launches in progress.
 
 ### Unverified
@@ -67,6 +68,7 @@ Available actions: `snapshot`, `summary`, `closing_draft`, `closing_close`,
 `repair_premature_current_closing`,
 `repair_notebook_installment_pilot`,
 `repair_may_2026_benefit_conversion_source`,
+`repair_may_2026_cash_account_misclassified_card`,
 `reset_april_2026_clean_rebuild`,
 `ensure_remaining_mutation_config`, `ensure_april_2026_config`,
 `ensure_april_2026_house_debts`, `repair_april_2026_mp_invoice_cycle`,
