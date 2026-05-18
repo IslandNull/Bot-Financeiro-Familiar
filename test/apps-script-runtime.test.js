@@ -833,7 +833,7 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.match(result.responseText, /Não é tudo vencendo agora\./);
     assert.match(result.responseText, /Folga após compromissos: R\$ 787,50/);
     assert.match(result.responseText, /Caixa registrado: R\$ 36,10/);
-    assert.match(result.responseText, /Gastos do mês: R\$ 106,40/);
+    assert.match(result.responseText, /Gastos assumidos \(DRE\): R\$ 106,40/);
     assert.match(result.responseText, /Pagar as faturas atuais e preservar a reserva\./);
     assert.doesNotMatch(result.responseText, /Nota: ainda falta saldo real das contas/);
     assert.match(result.responseText, /🧾 Últimos gastos/);
@@ -863,7 +863,7 @@ test('Apps Script /resumo normalizes sheet date cells used as competencia', () =
     const result = postPilotMessage(context, '/resumo_familiar');
 
     assert.strictEqual(result.ok, true);
-    assert.match(result.responseText, /Gastos do mês: R\$ 43,90/);
+    assert.match(result.responseText, /Gastos assumidos \(DRE\): R\$ 43,90/);
     assert.match(result.responseText, /Caixa registrado: R\$ 56,10/);
     assert.match(result.responseText, /Ainda nao vou sugerir investimento, reserva ou amortizacao/);
     assert.match(result.responseText, /ainda falta o saldo real das contas/);
@@ -1143,12 +1143,55 @@ test('Apps Script answers top spending categories without opening private line i
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Para onde foi o dinheiro em abril/);
-    assert.match(result.responseText, /Total em gastos do mês: R\$ 250,00/);
+    assert.match(result.responseText, /Impacto previsto em fatura\/caixa: R\$ 250,00/);
+    assert.match(result.responseText, /Gasto assumido no mês: R\$ 250,00/);
     assert.match(result.responseText, /Mercado da semana: R\$ 200,00/);
     assert.match(result.responseText, /Farmacia: R\$ 50,00/);
     assert.doesNotMatch(result.responseText, /remedio privado/);
     assert.doesNotMatch(result.responseText, /Pagamento de fatura: R\$/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 5);
+});
+
+test('Apps Script category forecast uses installment amount for monthly predictability', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeLaunch(sheets, {
+        data: '2026-04-07',
+        valor: 179.9,
+        id_categoria: 'OPEX_LAZER_PESSOAL',
+        tipo_evento: 'compra_cartao',
+        afeta_caixa_familiar: false,
+        parcelas: 3,
+    });
+    appendFakeLaunch(sheets, {
+        data: '2026-04-07',
+        valor: 151.76,
+        id_categoria: 'OPEX_LAZER_PESSOAL',
+        tipo_evento: 'compra_cartao',
+        afeta_caixa_familiar: false,
+        parcelas: 3,
+    });
+    appendFakeLaunch(sheets, {
+        data: '2026-04-10',
+        valor: 53.9,
+        id_categoria: 'OPEX_LAZER_PESSOAL',
+        tipo_evento: 'compra_cartao',
+        afeta_caixa_familiar: false,
+        parcelas: 1,
+    });
+
+    const result = postPilotMessage(context, 'para onde foi meu dinheiro este mes?');
+
+    assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /Impacto previsto em fatura\/caixa: R\$ 164,46/);
+    assert.match(result.responseText, /lazer pessoal: R\$ 164,46/);
+    assert.match(result.responseText, /Gasto assumido no mês: R\$ 385,56/);
+    assert.match(result.responseText, /Compra parcelada aparece pelo valor da parcela nesta leitura/);
 });
 
 test('Apps Script answers singular open-invoice question without mutating', () => {

@@ -103,6 +103,6 @@ Full headers in `SHEET_SCHEMA.md`.
 | Command | Mutation | Description |
 |---------|----------|-------------|
 | `/help`, `/start` | No | Bot info |
-| `/resumo` | No | Read-only family summary focused on current liquidity, current invoices, commitments, cash-flow explanation, top spending categories, and next step |
-| Safe finance question | No | Deterministic read-only answers for cost of life, top spending categories, upcoming invoices/commitments, and reserve/liquidity |
+| `/resumo` | No | Read-only family summary focused on current liquidity, current invoices, commitments, cash-flow explanation, installment-adjusted category forecast, and next step |
+| Safe finance question | No | Deterministic read-only answers for cost of life, installment-adjusted spending categories, upcoming invoices/commitments, and reserve/liquidity |
 | Natural text | Yes | Parsed by OpenAI → validated → written to sheets |

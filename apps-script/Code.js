@@ -1379,6 +1379,7 @@ var V55 = (function() {
       eventos_detalhados: countSharedDetailedEvents_(launches),
       eventos_detalhados_preview: buildSharedDetailedEventPreview_(launches, 5, categoriesById || {}),
       categorias_gastos: summarizePilotSpendingCategories_(launches, categoriesById || {}, competencia),
+      categorias_previsao: summarizePilotForecastCategories_(launches, categoriesById || {}, competencia),
       caixa_saida_pagamento_fatura: summarizePilotCashOutByType_(launches, competencia, 'pagamento_fatura'),
       caixa_saida_obrigacoes: summarizePilotCashOutByType_(launches, competencia, 'divida_pagamento'),
     };
@@ -1405,12 +1406,29 @@ var V55 = (function() {
   }
 
   function summarizePilotSpendingCategories_(launches, categoriesById, competencia) {
+    return summarizePilotCategoriesWithAmount_(launches, categoriesById, competencia, function(row) {
+      return numberFromSheetValue_(row.valor);
+    });
+  }
+
+  function summarizePilotForecastCategories_(launches, categoriesById, competencia) {
+    return summarizePilotCategoriesWithAmount_(launches, categoriesById, competencia, function(row) {
+      var amount = numberFromSheetValue_(row.valor);
+      if (stringValue_(row.tipo_evento) === 'compra_cartao') {
+        var parcelas = Number(row.parcelas) || 1;
+        if (parcelas > 1) return roundMoney_(amount / parcelas);
+      }
+      return amount;
+    });
+  }
+
+  function summarizePilotCategoriesWithAmount_(launches, categoriesById, competencia, amountForRow) {
     var byCategory = {};
     (launches || []).forEach(function(row) {
       if (normalizeSheetCompetencia_(row.competencia) !== competencia) return;
       if (row.status && stringValue_(row.status) !== 'efetivado') return;
       if (row.afeta_dre !== true) return;
-      var amount = numberFromSheetValue_(row.valor);
+      var amount = roundMoney_(amountForRow(row));
       if (amount <= 0) return;
       var id = stringValue_(row.id_categoria) || 'SEM_CATEGORIA';
       var category = categoriesById[id] || {};
@@ -1788,7 +1806,7 @@ var V55 = (function() {
     lines = lines.concat([
       '',
       '📈 Maio até agora',
-      'Gastos do mês: ' + formatMoney_(summary.despesas_dre),
+      'Gastos assumidos (DRE): ' + formatMoney_(summary.despesas_dre),
       'Caixa registrado: ' + formatMoney_(summary.sobra_caixa),
       'Renda prevista: ' + formatMoney_(summary.rendas_recorrentes_planejadas),
     ]);
@@ -1796,12 +1814,13 @@ var V55 = (function() {
       lines.push('Esse caixa inclui faturas pagas e obrigacoes, nao so custo de vida.');
       lines.push('Faturas pagas: ' + formatMoney_(summary.caixa_saida_pagamento_fatura) + ' | Obrigacoes: ' + formatMoney_(summary.caixa_saida_obrigacoes));
     }
-    if (summary.categorias_gastos && summary.categorias_gastos.length > 0) {
+    if (summary.categorias_previsao && summary.categorias_previsao.length > 0) {
       lines.push('');
-      lines.push('🔎 Maiores categorias');
-      summary.categorias_gastos.slice(0, 3).forEach(function(item) {
+      lines.push('🔎 Maior impacto previsto');
+      summary.categorias_previsao.slice(0, 3).forEach(function(item) {
         lines.push('• ' + item.categoria + ': ' + formatMoney_(item.valor));
       });
+      lines.push('Compras parceladas aparecem pelo valor da parcela nesta leitura.');
     }
     lines = lines.concat([
       '',
@@ -1889,23 +1908,36 @@ var V55 = (function() {
   }
 
   function formatTopSpendingCategoriesAnswer_(summary) {
-    var categories = summary.categorias_gastos || [];
+    var forecastCategories = summary.categorias_previsao || [];
+    var assumedCategories = summary.categorias_gastos || [];
+    var forecastTotal = roundMoney_(forecastCategories.reduce(function(sum, item) {
+      return roundMoney_(sum + numberFromSheetValue_(item.valor));
+    }, 0));
     var lines = [
       '🔎 Para onde foi o dinheiro em ' + friendlyCompetencia_(summary.competencia),
       '',
-      'Total em gastos do mês: ' + formatMoney_(summary.despesas_dre),
+      'Impacto previsto em fatura/caixa: ' + formatMoney_(forecastTotal),
     ];
-    if (categories.length === 0) {
+    if (forecastCategories.length === 0) {
       lines.push('Ainda nao ha gastos DRE registrados neste mes.');
       lines.push('');
       lines.push('Base: categorias de gastos ja registradas. Pagamento de fatura nao entra aqui, porque nao e gasto novo.');
       return lines.join('\n');
     }
-    categories.slice(0, 6).forEach(function(item) {
+    forecastCategories.slice(0, 6).forEach(function(item) {
       lines.push('• ' + item.categoria + ': ' + formatMoney_(item.valor));
     });
     lines.push('');
-    lines.push('Base: soma por categoria dos gastos do mes. Pagamento de fatura e transferencia interna ficam fora para nao duplicar despesa.');
+    lines.push('Gasto assumido no mês: ' + formatMoney_(summary.despesas_dre));
+    if (assumedCategories.length > 0) {
+      lines.push('Maiores compromissos assumidos:');
+      assumedCategories.slice(0, 3).forEach(function(item) {
+        lines.push('• ' + item.categoria + ': ' + formatMoney_(item.valor));
+      });
+    }
+    lines.push('');
+    lines.push('Base: impacto previsto usa valor da parcela em compras parceladas. Pagamento de fatura e transferencia interna ficam fora para nao duplicar despesa.');
+    lines.push('Compra parcelada aparece pelo valor da parcela nesta leitura; DRE continua reconhecendo o valor total assumido.');
     lines.push('Detalhes privados nao sao abertos aqui; entram apenas no total da categoria.');
     return lines.join('\n');
   }

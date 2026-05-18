@@ -16,7 +16,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed family closings from sheets.
 - Reviewed historical JSONL import is narrow: max 5 events per request, full validation before writes, `historical_jsonl` idempotency, no private-detail output. Normal launches stay in 2026-04; `fatura_prevista` may add reviewed future invoice exposure through 2027 for April rebuilds.
 - April 2026 clean rebuild was applied on @80 from final local source documents in `private/abril-2026/`: 151 reviewed events, 89 `Lancamentos`, 116 `Faturas`, and 2026-04 `Fechamento_Familiar` closed after owner aggregate review.
-- Version @107 deployed on 2026-05-18 with audit, pilot, clean rebuild, May launch hardening, `/resumo` exposure hardening, caixinha/cofrinho patrimonio updates, and Telegram UX hardening:
+- Version @108 deployed on 2026-05-18 with audit, pilot, clean rebuild, May launch hardening, `/resumo` exposure hardening, caixinha/cofrinho patrimonio updates, and Telegram UX hardening:
   - strict calendar-date and money parsing; no money fallback in reviewed historical import;
   - payable invoice allowlist; partial invoice payment uses only outstanding balance;
   - closed competencias block mutations unless event type is `ajuste`;
@@ -33,12 +33,12 @@ Operational authority for Bot Financeiro Familiar V55.
   - explicit `categoria <nome>` plus card text overrides parser category guesses and parser expense/card-purchase type mistakes;
   - `pela Conta ...` with explicit category is treated as cash expense, not card purchase; singular fatura questions are read-only; May MP cash-account misclassified card rows were repaired;
   - `/resumo` shows saldo, reserva, current confirmed invoices first, obligations, registered cash flow, latest expenses newest-first, and nets effective invoice-payment launches against invoice rows that still look open.
-- `/resumo` counts open invoice exposure only through the next 60 days, separates it from current liquidity, shows invoice/commitment/category breakdown, explains negative cash flow caused by invoice/debt payments, and avoids saying "Falta para cobrir tudo" when no real source-balance snapshot exists.
+- `/resumo` counts open invoice exposure only through the next 60 days, separates current liquidity, DRE spending assumed, cash flow, commitments, and installment-adjusted category forecast, and avoids saying "Falta para cobrir tudo" when no real source-balance snapshot exists.
 - Current confirmed June invoice totals were registered from owner review: Nubank R$ 1260.47 and Mercado Pago R$ 2100.97.
 - Legacy duplicated house-debt rows were repaired by `repair_duplicate_house_debts`; the action keeps canonical house obligations, preserves legacy debt balance, and inactivates duplicate legacy rows.
 - `/resumo` uses informed source balances plus reserve/liquidity assets to evaluate obligation coverage; caixinha/cofrinho Telegram text updates `Patrimonio_Ativos` without DRE/category effects.
-- UX hardening is deployed: Telegram replies are shorter with light emoji markers, safe read-only questions such as "qual meu custo de vida mensal?" and "para onde foi meu dinheiro?" use deterministic summary calculations instead of LLM, Mercado Pago invoice payments and house-financing payments have deterministic overrides, and active category defaults were migrated from legacy `resumo` visibility to `detalhada`/`privada`.
-- Latest validation after @107: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-18.
+- UX hardening is deployed: Telegram replies are shorter with light emoji markers, safe read-only questions such as "qual meu custo de vida mensal?" and "para onde foi meu dinheiro?" use deterministic summary calculations instead of LLM; category forecast uses installment amount for monthly predictability while DRE keeps the full assumed purchase.
+- Latest validation after @108: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-18.
 - Current real closing state in snapshot: 2026-04 closed; 2026-05 open with initial May launches in progress.
 
 ### Unverified
