@@ -106,6 +106,9 @@ var V55 = (function() {
     if (action === 'repair_notebook_installment_pilot') {
       return json_(repairNotebookInstallmentPilotV55());
     }
+    if (action === 'repair_may_2026_benefit_conversion_source') {
+      return json_(repairMay2026BenefitConversionSourceV55());
+    }
     if (action === 'reset_april_2026_clean_rebuild') {
       return json_(resetApril2026CleanRebuildV55());
     }
@@ -682,6 +685,43 @@ var V55 = (function() {
       };
     } catch (_err) {
       return fail_('NOTEBOOK_INSTALLMENT_REPAIR_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  function repairMay2026BenefitConversionSourceV55() {
+    var config = readConfig_();
+    var runtimeCheck = verifyReportingRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+      verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+      var rows = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS);
+      var updated = 0;
+      for (var i = 0; i < rows.length; i += 1) {
+        var row = rows[i];
+        if (normalizeSheetCompetencia_(row.competencia) !== '2026-05') continue;
+        if (row.tipo_evento !== 'receita') continue;
+        if (row.id_categoria !== 'REC_CONVERSAO_BENEFICIO_CAIXA') continue;
+        if (row.id_fonte !== 'FONTE_CONTA_FAMILIA') continue;
+        if (roundMoney_(numberFromSheetValue_(row.valor)) !== 750) continue;
+        row.id_fonte = 'FONTE_CONTA_NUBANK_GU';
+        writeRow_(launchSheet, i + 2, SHEETS.LANCAMENTOS, row);
+        updated += 1;
+      }
+      return {
+        ok: true,
+        action: 'repair_may_2026_benefit_conversion_source',
+        updated_count: updated,
+        shouldApplyDomainMutation: updated > 0,
+      };
+    } catch (_err) {
+      return fail_('MAY_BENEFIT_SOURCE_REPAIR_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
     } finally {
       lock.releaseLock();
     }
@@ -2336,6 +2376,7 @@ var V55 = (function() {
   }
 
   function canonicalizePilotEvent_(event, referenceData) {
+    event = overrideParserForDeterministicMoneyMovement_(event, referenceData);
     if (event.tipo_evento === 'despesa') return canonicalizePilotExpenseEvent_(event, referenceData);
     if (event.tipo_evento === 'compra_cartao') return canonicalizePilotCardPurchaseEvent_(event, referenceData);
     if (event.tipo_evento === 'pagamento_fatura') return canonicalizePilotInvoicePaymentEvent_(event, referenceData);
@@ -2387,6 +2428,49 @@ var V55 = (function() {
       event.afeta_caixa_familiar = false;
     } else {
       applyCategoryDefaults_(event, category);
+    }
+    return event;
+  }
+
+  function overrideParserForDeterministicMoneyMovement_(event, referenceData) {
+    var text = event.raw_text || event.descricao;
+    var normalized = normalizeAliasText_(text);
+    if (isPilotOwnSourceTransferText_(normalized)) {
+      event.tipo_evento = 'transferencia_interna';
+      event.id_categoria = stringValue_((defaultCategoryForType_(referenceData, 'transferencia_interna') || {}).id_categoria);
+      event.id_fonte = '';
+      event.id_cartao = '';
+      event.id_fatura = '';
+      event.id_divida = '';
+      event.id_ativo = '';
+      event.pessoa = inferPilotTransferPerson_(text) || 'Gustavo';
+      event.escopo = 'Familiar';
+      event.visibilidade = 'resumo';
+      event.direcao_caixa_familiar = 'interna';
+      event.status = 'efetivado';
+      event.afeta_dre = false;
+      event.afeta_patrimonio = false;
+      event.afeta_caixa_familiar = false;
+      return event;
+    }
+    if (isBenefitConversionText_(normalized)) {
+      var category = referenceData.categoriesById.REC_CONVERSAO_BENEFICIO_CAIXA || null;
+      var source = inferCashSourceFromText_(text, referenceData) || defaultFamilyCashSource_(referenceData);
+      if (category && source) {
+        event.tipo_evento = 'receita';
+        event.id_categoria = category.id_categoria;
+        event.id_fonte = source.id_fonte;
+        event.id_cartao = '';
+        event.id_fatura = '';
+        event.id_divida = '';
+        event.id_ativo = '';
+        event.pessoa = event.pessoa || 'Gustavo';
+        event.escopo = category.escopo_padrao;
+        event.visibilidade = category.visibilidade_padrao;
+        event.direcao_caixa_familiar = '';
+        event.status = 'efetivado';
+        applyCategoryDefaults_(event, category);
+      }
     }
     return event;
   }
@@ -2939,6 +3023,20 @@ var V55 = (function() {
     var hasMercadoPago = containsAliasPhrase_(normalizedText, 'mercado pago') ||
       containsAliasPhrase_(normalizedText, 'mp');
     return hasNubank && hasMercadoPago && containsAliasPhrase_(normalizedText, 'para');
+  }
+
+  function isBenefitConversionText_(normalizedText) {
+    if (!normalizedText) return false;
+    var hasBenefit = containsAliasPhrase_(normalizedText, 'vale alimentacao') ||
+      containsAliasPhrase_(normalizedText, 'beneficio');
+    var hasConversion = containsAliasPhrase_(normalizedText, 'venda') ||
+      containsAliasPhrase_(normalizedText, 'vendi') ||
+      containsAliasPhrase_(normalizedText, 'conversao') ||
+      containsAliasPhrase_(normalizedText, 'converti');
+    var blocksDre = containsAliasPhrase_(normalizedText, 'nao e receita dre') ||
+      containsAliasPhrase_(normalizedText, 'nao receita dre') ||
+      containsAliasPhrase_(normalizedText, 'sem dre');
+    return hasBenefit && (hasConversion || blocksDre);
   }
 
   function inferPilotTransferPerson_(text) {
@@ -4322,6 +4420,7 @@ var V55 = (function() {
     repairApril2026MercadoPagoInvoiceCycleV55: repairApril2026MercadoPagoInvoiceCycleV55,
     repairPrematureCurrentFamilyClosingV55: repairPrematureCurrentFamilyClosingV55,
     repairNotebookInstallmentPilotV55: repairNotebookInstallmentPilotV55,
+    repairMay2026BenefitConversionSourceV55: repairMay2026BenefitConversionSourceV55,
     resetApril2026CleanRebuildV55: resetApril2026CleanRebuildV55,
     ensureApril2026HouseDebtConfigV55: ensureApril2026HouseDebtConfigV55,
     runHelpSmokeSelfTest: runHelpSmokeSelfTest,
@@ -4402,6 +4501,12 @@ function repairPrematureCurrentFamilyClosingV55() {
 
 function repairNotebookInstallmentPilotV55() {
   var result = V55.repairNotebookInstallmentPilotV55();
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+function repairMay2026BenefitConversionSourceV55() {
+  var result = V55.repairMay2026BenefitConversionSourceV55();
   Logger.log(JSON.stringify(result));
   return result;
 }

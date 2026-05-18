@@ -1659,6 +1659,36 @@ test('Apps Script repair action cancels duplicated wrong notebook pilot rows wit
     assert.deepStrictEqual(sheets.Faturas.rows.slice(1).map((row) => row[faturasHeaders.indexOf('status')]), ['cancelado_revisao', 'cancelado_revisao', 'cancelado_revisao', 'cancelado_revisao']);
 });
 
+test('Apps Script repair action fixes May benefit conversion source without duplicating cash', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    sheets.Lancamentos.appendRow(lancamentosHeaders.map((header) => ({
+        id_lancamento: 'LAN_BENEFIT',
+        data: '2026-05-08',
+        competencia: '2026-05',
+        tipo_evento: 'receita',
+        id_categoria: 'REC_CONVERSAO_BENEFICIO_CAIXA',
+        valor: 750,
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        visibilidade: 'resumo',
+        status: 'efetivado',
+        descricao: 'Conversao beneficio em caixa',
+        created_at: '2026-05-17T23:55:00Z',
+    })[header] ?? ''));
+
+    const result = runRemoteAction(context, 'repair_may_2026_benefit_conversion_source');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result));
+    assert.strictEqual(result.updated_count, 1);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_NUBANK_GU');
+});
+
 test('Apps Script closing_close action requires closed_at metadata', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
@@ -2403,13 +2433,13 @@ test('Apps Script pilot internal transfer writes family cash entry only', () => 
 
 test('Apps Script pilot internal transfer moves money between own active sources', () => {
     const { context, sheets } = createAppsScriptHarness({
-        tipo_evento: 'transferencia_interna',
+        tipo_evento: 'receita',
         data: '2026-05-08',
         competencia: '2026-05',
         valor: '1675',
         descricao: '',
-        id_categoria: 'MOV_CAIXA_FAMILIAR',
-        id_fonte: '',
+        id_categoria: 'REC_RECEITA_FAMILIAR',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
         pessoa: 'Gustavo',
         escopo: 'Familiar',
         visibilidade: 'detalhada',
@@ -2417,10 +2447,10 @@ test('Apps Script pilot internal transfer moves money between own active sources
         id_fatura: '',
         id_divida: '',
         id_ativo: '',
-        afeta_dre: true,
+        afeta_dre: false,
         afeta_patrimonio: false,
         afeta_caixa_familiar: false,
-        direcao_caixa_familiar: 'interna',
+        direcao_caixa_familiar: '',
         status: 'efetivado',
     });
     [
@@ -2451,8 +2481,8 @@ test('Apps Script pilot benefit conversion records cash entry without DRE', () =
         competencia: '2026-05',
         valor: '750',
         descricao: '',
-        id_categoria: 'REC_CONVERSAO_BENEFICIO_CAIXA',
-        id_fonte: 'FONTE_CONTA_NUBANK_GU',
+        id_categoria: 'REC_RECEITA_FAMILIAR',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
         pessoa: 'Gustavo',
         escopo: 'Familiar',
         visibilidade: 'detalhada',
@@ -2498,6 +2528,7 @@ test('Apps Script pilot benefit conversion records cash entry without DRE', () =
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.tipo_evento, 'receita');
     assert.strictEqual(launch.id_categoria, 'REC_CONVERSAO_BENEFICIO_CAIXA');
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_NUBANK_GU');
     assert.strictEqual(launch.afeta_dre, false);
     assert.strictEqual(launch.afeta_caixa_familiar, true);
 });
