@@ -3256,14 +3256,18 @@ var V55 = (function() {
     var matches = [];
     for (var i = 0; i < referenceData.categories.length; i += 1) {
       var category = referenceData.categories[i];
-      if (!categoryForEvent_(referenceData, category.id_categoria, eventType)) continue;
+      if (stringValue_(category.tipo_evento_padrao) !== eventType) continue;
       var name = normalizeAliasText_(category.nome);
       if (!name) continue;
       if (containsAliasPhrase_(normalizedText, 'categoria ' + name) || containsAliasPhrase_(normalizedText, name)) {
         matches.push(category);
       }
     }
-    return matches.length === 1 ? matches[0] : null;
+    if (!matches.length) return null;
+    matches.sort(function(a, b) {
+      return normalizeAliasText_(b.nome).length - normalizeAliasText_(a.nome).length;
+    });
+    return matches[0];
   }
 
   function suggestCategoriesForText_(rawText, referenceData, eventType) {
