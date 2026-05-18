@@ -2466,6 +2466,7 @@ var V55 = (function() {
       event.id_divida = '';
       event.id_ativo = '';
       event.pessoa = event.pessoa || 'Gustavo';
+      event.competencia = normalizeCompetenciaValue_('', event.data);
       event.escopo = 'Familiar';
       event.visibilidade = 'detalhada';
       event.direcao_caixa_familiar = '';

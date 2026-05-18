@@ -2382,7 +2382,7 @@ test('Apps Script pilot invoice payment reconciles small reviewed invoice overag
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'pagamento_fatura',
         data: '2026-05-07',
-        competencia: '2026-05',
+        competencia: '2026-04',
         valor: '1997.73',
         descricao: 'Paguei a fatura Nubank Gustavo de abril',
         id_categoria: '',
@@ -2416,6 +2416,7 @@ test('Apps Script pilot invoice payment reconciles small reviewed invoice overag
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.tipo_evento, 'pagamento_fatura');
+    assert.strictEqual(launch.competencia, '2026-05');
     assert.strictEqual(launch.valor, 1997.73);
     assert.strictEqual(launch.afeta_dre, false);
     assert.strictEqual(sheets.Faturas.rows.length, 4);
