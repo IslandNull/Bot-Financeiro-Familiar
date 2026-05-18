@@ -663,6 +663,51 @@ test('Apps Script balance snapshot creates a row in Saldos_Fontes', () => {
     assert.strictEqual(sheets.Saldos_Fontes.rows[1][6], 1500.5); // saldo_disponivel
 });
 
+test('Apps Script asset balance updates caixinha and cofrinho as reserve liquidity', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+
+    const mp = postPilotMessage(context, 'Atualizar patrimônio: cofrinho Mercado Pago Gustavo com saldo 9482,99 em 18/05. É reserva/liquidez, não é receita');
+    const nu = postPilotMessage(context, 'Atualizar patrimônio: caixinha Nubank Gustavo com saldo 5189,84 em 18/05. É reserva/liquidez, não é receita');
+
+    assert.strictEqual(mp.ok, true);
+    assert.strictEqual(nu.ok, true);
+    assert.strictEqual(mp.shouldApplyDomainMutation, true);
+    assert.match(mp.responseText, /Patrimonio atualizado: Cofrinho Mercado Pago Gustavo R\$ 9.482,99/);
+    assert.match(nu.responseText, /Patrimonio atualizado: Caixinha Nubank Gustavo R\$ 5.189,84/);
+    assert.strictEqual(sheets.Patrimonio_Ativos.rows.length, 3);
+    const mpAsset = Object.fromEntries(patrimonioAtivosHeaders.map((header, index) => [header, sheets.Patrimonio_Ativos.rows[1][index]]));
+    const nuAsset = Object.fromEntries(patrimonioAtivosHeaders.map((header, index) => [header, sheets.Patrimonio_Ativos.rows[2][index]]));
+    assert.strictEqual(mpAsset.nome, 'Cofrinho Mercado Pago Gustavo');
+    assert.strictEqual(mpAsset.instituicao, 'Mercado Pago');
+    assert.strictEqual(mpAsset.saldo_atual, 9482.99);
+    assert.strictEqual(mpAsset.data_referencia, '2026-05-18');
+    assert.strictEqual(mpAsset.conta_reserva_emergencia, true);
+    assert.strictEqual(nuAsset.nome, 'Caixinha Nubank Gustavo');
+    assert.strictEqual(nuAsset.instituicao, 'Nubank');
+    assert.strictEqual(nuAsset.saldo_atual, 5189.84);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script asset balance command updates existing asset instead of duplicating', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeAsset(sheets, {
+        id_ativo: 'ATIVO_CAIXINHA_NU',
+        nome: 'Caixinha Nubank Gustavo',
+        instituicao: 'Nubank',
+        saldo_atual: 100,
+        conta_reserva_emergencia: true,
+    });
+
+    const result = postPilotMessage(context, 'caixinha Nubank Gustavo saldo 5189,84');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(sheets.Patrimonio_Ativos.rows.length, 2);
+    const asset = Object.fromEntries(patrimonioAtivosHeaders.map((header, index) => [header, sheets.Patrimonio_Ativos.rows[1][index]]));
+    assert.strictEqual(asset.id_ativo, 'ATIVO_CAIXINHA_NU');
+    assert.strictEqual(asset.saldo_atual, 5189.84);
+    assert.strictEqual(asset.conta_reserva_emergencia, true);
+});
+
 
 test('Apps Script /resumo command is read-only and does not require pilot mutation gate', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
@@ -775,16 +820,16 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.match(result.responseText, /💵 Sobrou no mes/);
     assert.match(result.responseText, /🧭 Orientacao do momento/);
     assert.match(result.responseText, /Resumo de abril/);
-    assert.match(result.responseText, /Hoje a situacao e de atencao\./);
+    assert.match(result.responseText, /Hoje as contas proximas parecem cobertas pelos dados registrados\./);
     assert.match(result.responseText, /Sobrou no mes: R\$ 36,10/);
     assert.match(result.responseText, /Contas proximas: R\$ 542,50/);
     assert.match(result.responseText, /Faturas ate 60 dias: R\$ 42,50/);
     assert.match(result.responseText, /Obrigacoes cadastradas: R\$ 500,00/);
-    assert.match(result.responseText, /Falta para cobrir tudo: R\$ 506,40/);
+    assert.match(result.responseText, /Depois das contas: R\$ 787,50/);
     assert.match(result.responseText, /Gastos registrados: R\$ 106,40/);
     assert.match(result.responseText, /Reserva: R\$ 1000,00/);
-    assert.match(result.responseText, /Orientacao do momento:\nSegurar o dinheiro agora para as contas proximas\./);
-    assert.match(result.responseText, /Por que:\nAs contas proximas sao maiores que a sobra registrada/);
+    assert.match(result.responseText, /Orientacao do momento:\nPriorizar reforco da reserva\./);
+    assert.match(result.responseText, /Por que:\nAs contas proximas parecem cobertas/);
     assert.doesNotMatch(result.responseText, /Nota: ainda falta saldo real das contas/);
     assert.match(result.responseText, /Ultimos gastos:/);
     assert.match(result.responseText, /30\/04 Mercado da semana - R\$ 43,90/);
@@ -830,7 +875,7 @@ test('Apps Script /resumo labels uncovered obligations as exposure when source b
     appendFakeTransfer(sheets, { valor: 100 });
     appendFakeInvoice(sheets, { valor_previsto: 300, valor_pago: '', status: 'prevista' });
 
-    const result = postPilotMessage(context, '/resumo');
+    const result = runRemoteAction(context, 'summary');
 
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Contas proximas: R\$ 300,00/);
@@ -838,6 +883,39 @@ test('Apps Script /resumo labels uncovered obligations as exposure when source b
     assert.match(result.responseText, /Exposicao sem saldo informado: R\$ 200,00/);
     assert.doesNotMatch(result.responseText, /Falta para cobrir tudo/);
     assert.match(result.responseText, /ainda falta saldo real das contas/);
+});
+
+test('Apps Script /resumo uses informed liquidity and reserve to evaluate obligations', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeLaunch(sheets, {
+        tipo_evento: 'pagamento_fatura',
+        valor: 500,
+        afeta_dre: false,
+        afeta_caixa_familiar: true,
+    });
+    appendFakeSourceBalance(sheets, { saldo_inicial: 0, saldo_final: 324.91, saldo_disponivel: 324.91 });
+    appendFakeAsset(sheets, {
+        nome: 'Cofrinho Mercado Pago Gustavo',
+        saldo_atual: 9482.99,
+        conta_reserva_emergencia: true,
+    });
+    appendFakeInvoice(sheets, { valor_previsto: 300, valor_pago: '', status: 'prevista' });
+
+    const result = runRemoteAction(context, 'summary');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.summary.sobra_caixa, -500);
+    assert.strictEqual(result.summary.saldos_fontes_disponivel, 324.91);
+    assert.strictEqual(result.summary.reserva_total, 9482.99);
+    assert.strictEqual(result.summary.margem_pos_obrigacoes, 9507.9);
+    assert.match(result.responseText, /Depois das contas: R\$ 9507,90/);
+    assert.doesNotMatch(result.responseText, /Falta para cobrir tudo/);
 });
 
 test('Apps Script doGet summary action returns current read-only family summary', () => {

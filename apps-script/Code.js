@@ -302,6 +302,10 @@ var V55 = (function() {
       return handlePilotBalanceSnapshot_(update, message, text, config, referenceData);
     }
 
+    if (isPilotAssetBalanceText_(text)) {
+      return handlePilotAssetBalance_(update, message, text, config, referenceData);
+    }
+
     var parsed = parseFinancialEventWithOpenAI_(text, config, referenceData);
     if (!parsed.ok) return parsed;
 
@@ -930,8 +934,11 @@ var V55 = (function() {
     }, 0);
     var recurringIncome = summarizePilotRecurringIncome_(recurringIncomes || []);
     var sourceBalanceSummary = summarizePilotSourceBalances_(sourceBalances || [], competencia);
-    var margemPosObrigacoes = roundMoney_(cash.sobra_caixa - faturas60d - obrigacoes60d);
-    var capacity = computePilotDecisionCapacity_(cash.sobra_caixa, reservaTotal, faturas60d, obrigacoes60d, debts);
+    var coverageBase = sourceBalanceSummary.saldos_fontes_count > 0
+      ? roundMoney_(sourceBalanceSummary.saldos_fontes_disponivel + reservaTotal)
+      : cash.sobra_caixa;
+    var margemPosObrigacoes = roundMoney_(coverageBase - faturas60d - obrigacoes60d);
+    var capacity = computePilotDecisionCapacity_(coverageBase, reservaTotal, faturas60d, obrigacoes60d, debts);
 
     return {
       competencia: competencia,
@@ -4533,6 +4540,11 @@ var V55 = (function() {
     return /^\/?saldo\s+/i.test(str);
   }
 
+  function isPilotAssetBalanceText_(text) {
+    var str = normalizeAliasText_(text);
+    return /(^|\s)(atualizar patrimonio|patrimonio|caixinha|cofrinho)(\s|$)/.test(str) && /\bsaldo\b/.test(str);
+  }
+
   function handlePilotBalanceSnapshot_(update, message, text, config, referenceData) {
     var str = stringValue_(text).trim();
     var match = str.match(/^\/?saldo\s+(.+?)\s+([\d.,]+)\s*$/i);
@@ -4576,6 +4588,106 @@ var V55 = (function() {
     } finally {
       lock.releaseLock();
     }
+  }
+
+  function handlePilotAssetBalance_(update, message, text, config, referenceData) {
+    var parsed = parsePilotAssetBalanceText_(text);
+    if (!parsed.ok) return parsed;
+
+    var lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var assetSheet = spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS);
+      verifySheetHeaders_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
+      var rowNumber = findAssetRowByAlias_(assetSheet, parsed.nome);
+      var values = {
+        id_ativo: stableId_('ATIVO', normalizeAliasText_(parsed.nome)),
+        nome: parsed.nome,
+        tipo_ativo: 'liquidez',
+        instituicao: parsed.instituicao,
+        saldo_atual: roundMoney_(parsed.valor),
+        data_referencia: parsed.data,
+        destinacao: 'reserva/liquidez',
+        conta_reserva_emergencia: true,
+        ativo: true,
+      };
+      if (rowNumber) {
+        values.id_ativo = assetSheet.getRange(rowNumber, HEADERS[SHEETS.PATRIMONIO_ATIVOS].indexOf('id_ativo') + 1).getValues()[0][0] || values.id_ativo;
+        writeRow_(assetSheet, rowNumber, SHEETS.PATRIMONIO_ATIVOS, values);
+      } else {
+        appendRow_(assetSheet, SHEETS.PATRIMONIO_ATIVOS, values);
+      }
+      return {
+        ok: true,
+        responseText: '\ud83c\udfe6 Patrimonio atualizado: ' + parsed.nome + ' R$ ' + formatBrazilianMoney_(parsed.valor) + '\nNao e receita, nao e despesa; entra como reserva/liquidez.',
+        shouldApplyDomainMutation: true,
+      };
+    } catch (_err) {
+      return fail_('ASSET_BALANCE_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  function parsePilotAssetBalanceText_(text) {
+    var str = stringValue_(text).trim();
+    var match = str.match(/(?:atualizar\s+patrim[oô]nio:?\s*)?(caixinha|cofrinho)\s+(.+?)\s+(?:com\s+)?saldo\s+([\d.,]+)(?:\s+em\s+(\d{1,2}\/\d{1,2}(?:\/\d{4})?|\d{4}-\d{2}-\d{2}))?/i);
+    if (!match) return fail_('INVALID_ASSET_BALANCE_FORMAT', 'text', '\u26a0\ufe0f Formato: caixinha/cofrinho <nome> saldo <valor>\n\ud83d\udca1 Exemplo: cofrinho Mercado Pago Gustavo saldo 9482,99');
+    var amount = Number(match[3].replace(/\./g, '').replace(',', '.'));
+    if (!isFinite(amount) || amount < 0) return fail_('INVALID_ASSET_BALANCE_AMOUNT', 'valor', '\u26a0\ufe0f Valor de patrimonio invalido.');
+    var date = normalizeAssetBalanceDate_(match[4]);
+    if (!isValidIsoDate_(date)) return fail_('INVALID_ASSET_BALANCE_DATE', 'data', '\u26a0\ufe0f Data invalida para patrimonio.');
+    var kind = capitalize_(match[1]);
+    var ownerName = match[2].trim().replace(/[.。]+$/, '');
+    var name = kind + ' ' + ownerName;
+    return {
+      ok: true,
+      nome: name,
+      instituicao: inferAssetInstitution_(ownerName),
+      valor: amount,
+      data: date,
+    };
+  }
+
+  function normalizeAssetBalanceDate_(value) {
+    var text = stringValue_(value);
+    if (!text) return todaySaoPaulo_();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+    var shortDate = text.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?$/);
+    if (shortDate) {
+      var year = shortDate[3] || todaySaoPaulo_().slice(0, 4);
+      return year + '-' + pad2_(shortDate[2]) + '-' + pad2_(shortDate[1]);
+    }
+    return text;
+  }
+
+  function inferAssetInstitution_(name) {
+    var normalized = normalizeAliasText_(name);
+    if (normalized.indexOf('mercado pago') !== -1 || /\bmp\b/.test(normalized)) return 'Mercado Pago';
+    if (normalized.indexOf('nubank') !== -1 || /\bnu\b/.test(normalized)) return 'Nubank';
+    return '';
+  }
+
+  function findAssetRowByAlias_(sheet, assetName) {
+    var headers = HEADERS[SHEETS.PATRIMONIO_ATIVOS];
+    var nameIndex = headers.indexOf('nome');
+    var activeIndex = headers.indexOf('ativo');
+    var target = normalizeAliasText_(assetName);
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return 0;
+    var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    for (var i = 0; i < values.length; i += 1) {
+      var active = normalizeSheetCell_(values[i][activeIndex]);
+      var existing = normalizeAliasText_(values[i][nameIndex]);
+      if (active !== false && existing === target) return i + 2;
+    }
+    return 0;
+  }
+
+  function capitalize_(value) {
+    var text = stringValue_(value).toLowerCase();
+    return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
   }
 
   function findSourceByAlias_(name, sources) {
