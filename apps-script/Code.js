@@ -18,6 +18,7 @@ var V55 = (function() {
     '',
     '❓ Perguntas seguras:',
     '- qual meu custo de vida mensal?',
+    '- para onde foi meu dinheiro este mes?',
     '- quais faturas tenho proximas?',
     '- como esta minha reserva?',
     '',
@@ -134,6 +135,9 @@ var V55 = (function() {
     }
     if (action === 'ensure_april_2026_house_debts') {
       return json_(ensureApril2026HouseDebtConfigV55());
+    }
+    if (action === 'repair_duplicate_house_debts') {
+      return json_(repairDuplicateHouseDebtsV55());
     }
     if (action === 'migrate_config_visibility') {
       return json_(migrateConfigVisibilityV55());
@@ -522,11 +526,17 @@ var V55 = (function() {
       containsAliasPhrase_(normalized, 'quanto') ||
       containsAliasPhrase_(normalized, 'como') ||
       containsAliasPhrase_(normalized, 'quais') ||
+      containsAliasPhrase_(normalized, 'onde') ||
+      containsAliasPhrase_(normalized, 'para onde') ||
       normalized.indexOf('?') !== -1;
     if (!asks) return false;
     return containsAliasPhrase_(normalized, 'custo de vida') ||
       containsAliasPhrase_(normalized, 'gasto mensal') ||
       containsAliasPhrase_(normalized, 'gastos do mes') ||
+      containsAliasPhrase_(normalized, 'para onde foi') ||
+      containsAliasPhrase_(normalized, 'onde foi') ||
+      containsAliasPhrase_(normalized, 'maiores gastos') ||
+      containsAliasPhrase_(normalized, 'categorias') ||
       containsAliasPhrase_(normalized, 'fatura') ||
       containsAliasPhrase_(normalized, 'faturas') ||
       containsAliasPhrase_(normalized, 'contas proximas') ||
@@ -544,6 +554,16 @@ var V55 = (function() {
       return {
         ok: true,
         responseText: formatCostOfLifeAnswer_(result.summary),
+        shouldApplyDomainMutation: false,
+      };
+    }
+    if (containsAliasPhrase_(normalized, 'para onde foi') ||
+        containsAliasPhrase_(normalized, 'onde foi') ||
+        containsAliasPhrase_(normalized, 'maiores gastos') ||
+        containsAliasPhrase_(normalized, 'categorias')) {
+      return {
+        ok: true,
+        responseText: formatTopSpendingCategoriesAnswer_(result.summary),
         shouldApplyDomainMutation: false,
       };
     }
@@ -1302,9 +1322,8 @@ var V55 = (function() {
     var invoiceExposure = summarizePilotInvoiceExposure_(invoices, todaySaoPaulo_(), cardsById || {}, buildPilotInvoicePaymentCoverage_(launches, invoices, cardsById || {}));
     var faturas60d = invoiceExposure.total;
     var currentInvoiceExposure = summarizeCurrentInvoiceExposure_(invoiceExposure.items, todaySaoPaulo_());
-    var obrigacoes60d = debts.reduce(function(sum, row) {
-      return row.status === 'ativa' ? roundMoney_(sum + numberFromSheetValue_(row.valor_parcela)) : sum;
-    }, 0);
+    var obligationExposure = summarizePilotObligationExposure_(debts);
+    var obrigacoes60d = obligationExposure.total;
     var reservaTotal = assets.reduce(function(sum, row) {
       return row.ativo !== false && row.conta_reserva_emergencia === true
         ? roundMoney_(sum + numberFromSheetValue_(row.saldo_atual))
@@ -1337,6 +1356,7 @@ var V55 = (function() {
       faturas_atuais: currentInvoiceExposure.total,
       faturas_atuais_detalhe: currentInvoiceExposure.items,
       obrigacoes_60d: obrigacoes60d,
+      obrigacoes_60d_detalhe: obligationExposure.items,
       reserva_total: reservaTotal,
       patrimonio_liquido: roundMoney_(ativosTotal - dividasTotal),
       rendas_recorrentes_ativas: recurringIncome.rendas_recorrentes_ativas,
@@ -1358,7 +1378,69 @@ var V55 = (function() {
       destino_sugerido: suggestPilotDestination_(coverageBase, reservaTotal, faturas60d, obrigacoes60d),
       eventos_detalhados: countSharedDetailedEvents_(launches),
       eventos_detalhados_preview: buildSharedDetailedEventPreview_(launches, 5, categoriesById || {}),
+      categorias_gastos: summarizePilotSpendingCategories_(launches, categoriesById || {}, competencia),
+      caixa_saida_pagamento_fatura: summarizePilotCashOutByType_(launches, competencia, 'pagamento_fatura'),
+      caixa_saida_obrigacoes: summarizePilotCashOutByType_(launches, competencia, 'divida_pagamento'),
     };
+  }
+
+  function summarizePilotObligationExposure_(debts) {
+    var items = (debts || []).filter(function(row) {
+      return row.status === 'ativa' && numberFromSheetValue_(row.valor_parcela) > 0;
+    }).map(function(row) {
+      return {
+        nome: stringValue_(row.nome) || friendlyIdentifier_(row.id_divida),
+        valor: numberFromSheetValue_(row.valor_parcela),
+      };
+    }).sort(function(a, b) {
+      if (b.valor !== a.valor) return b.valor - a.valor;
+      return a.nome < b.nome ? -1 : 1;
+    });
+    return {
+      total: roundMoney_(items.reduce(function(sum, item) {
+        return roundMoney_(sum + item.valor);
+      }, 0)),
+      items: items,
+    };
+  }
+
+  function summarizePilotSpendingCategories_(launches, categoriesById, competencia) {
+    var byCategory = {};
+    (launches || []).forEach(function(row) {
+      if (normalizeSheetCompetencia_(row.competencia) !== competencia) return;
+      if (row.status && stringValue_(row.status) !== 'efetivado') return;
+      if (row.afeta_dre !== true) return;
+      var amount = numberFromSheetValue_(row.valor);
+      if (amount <= 0) return;
+      var id = stringValue_(row.id_categoria) || 'SEM_CATEGORIA';
+      var category = categoriesById[id] || {};
+      if (!byCategory[id]) {
+        byCategory[id] = {
+          id_categoria: id,
+          categoria: stringValue_(category.nome) || friendlyIdentifier_(id),
+          valor: 0,
+          count: 0,
+        };
+      }
+      byCategory[id].valor = roundMoney_(byCategory[id].valor + amount);
+      byCategory[id].count += 1;
+    });
+    return Object.keys(byCategory).map(function(id) {
+      return byCategory[id];
+    }).sort(function(a, b) {
+      if (b.valor !== a.valor) return b.valor - a.valor;
+      return a.categoria < b.categoria ? -1 : 1;
+    });
+  }
+
+  function summarizePilotCashOutByType_(launches, competencia, tipoEvento) {
+    return (launches || []).reduce(function(sum, row) {
+      if (normalizeSheetCompetencia_(row.competencia) !== competencia) return sum;
+      if (row.status && stringValue_(row.status) !== 'efetivado') return sum;
+      if (stringValue_(row.tipo_evento) !== tipoEvento) return sum;
+      if (row.afeta_caixa_familiar !== true) return sum;
+      return roundMoney_(sum + numberFromSheetValue_(row.valor));
+    }, 0);
   }
 
   function summarizePilotRecurringIncome_(rows) {
@@ -1690,7 +1772,10 @@ var V55 = (function() {
     lines.push('Total: ' + formatMoney_(currentInvoices));
     lines.push('');
     lines.push('🏠 Próximos 60 dias');
-    lines.push('Obrigações cadastradas: ' + formatMoney_(summary.obrigacoes_60d));
+    lines.push('Compromissos cadastrados: ' + formatMoney_(summary.obrigacoes_60d));
+    (summary.obrigacoes_60d_detalhe || []).slice(0, 4).forEach(function(item) {
+      lines.push('• ' + item.nome + ': ' + formatMoney_(item.valor));
+    });
     lines.push('Parcelas futuras no cartão: ' + formatMoney_(futureCardExposure));
     lines.push('Não é tudo vencendo agora.');
     if (summary.margem_pos_obrigacoes < 0 && numberFromSheetValue_(summary.saldos_fontes_count) === 0) {
@@ -1698,14 +1783,27 @@ var V55 = (function() {
     } else if (summary.margem_pos_obrigacoes < 0) {
       lines.push('⚠️ Cobertura total abaixo das contas registradas: ' + formatMoney_(Math.abs(summary.margem_pos_obrigacoes)));
     } else {
-      lines.push('Sobra após tudo registrado: ' + formatMoney_(summary.margem_pos_obrigacoes));
+      lines.push('Folga após compromissos: ' + formatMoney_(summary.margem_pos_obrigacoes));
     }
     lines = lines.concat([
       '',
       '📈 Maio até agora',
       'Gastos do mês: ' + formatMoney_(summary.despesas_dre),
-      'Caixa do mês: ' + formatMoney_(summary.sobra_caixa),
+      'Caixa registrado: ' + formatMoney_(summary.sobra_caixa),
       'Renda prevista: ' + formatMoney_(summary.rendas_recorrentes_planejadas),
+    ]);
+    if (summary.sobra_caixa < 0) {
+      lines.push('Esse caixa inclui faturas pagas e obrigacoes, nao so custo de vida.');
+      lines.push('Faturas pagas: ' + formatMoney_(summary.caixa_saida_pagamento_fatura) + ' | Obrigacoes: ' + formatMoney_(summary.caixa_saida_obrigacoes));
+    }
+    if (summary.categorias_gastos && summary.categorias_gastos.length > 0) {
+      lines.push('');
+      lines.push('🔎 Maiores categorias');
+      summary.categorias_gastos.slice(0, 3).forEach(function(item) {
+        lines.push('• ' + item.categoria + ': ' + formatMoney_(item.valor));
+      });
+    }
+    lines = lines.concat([
       '',
       '🧭 Próximo passo',
       guidance.action,
@@ -1790,6 +1888,28 @@ var V55 = (function() {
     ].join('\n');
   }
 
+  function formatTopSpendingCategoriesAnswer_(summary) {
+    var categories = summary.categorias_gastos || [];
+    var lines = [
+      '🔎 Para onde foi o dinheiro em ' + friendlyCompetencia_(summary.competencia),
+      '',
+      'Total em gastos do mês: ' + formatMoney_(summary.despesas_dre),
+    ];
+    if (categories.length === 0) {
+      lines.push('Ainda nao ha gastos DRE registrados neste mes.');
+      lines.push('');
+      lines.push('Base: categorias de gastos ja registradas. Pagamento de fatura nao entra aqui, porque nao e gasto novo.');
+      return lines.join('\n');
+    }
+    categories.slice(0, 6).forEach(function(item) {
+      lines.push('• ' + item.categoria + ': ' + formatMoney_(item.valor));
+    });
+    lines.push('');
+    lines.push('Base: soma por categoria dos gastos do mes. Pagamento de fatura e transferencia interna ficam fora para nao duplicar despesa.');
+    lines.push('Detalhes privados nao sao abertos aqui; entram apenas no total da categoria.');
+    return lines.join('\n');
+  }
+
   function formatUpcomingObligationsAnswer_(summary) {
     var obligations = roundMoney_(summary.faturas_60d + summary.obrigacoes_60d);
     var lines = [
@@ -1801,7 +1921,7 @@ var V55 = (function() {
       lines.push('- ' + item.cartao + ' ' + item.competencia + ': ' + formatMoney_(item.valor));
     });
     lines = lines.concat([
-      '🏠 Obrigacoes mensais cadastradas: ' + formatMoney_(summary.obrigacoes_60d),
+      '🏠 Compromissos cadastrados: ' + formatMoney_(summary.obrigacoes_60d),
       'Total registrado para pagar ate 60 dias: ' + formatMoney_(obligations),
       '✅ Depois desses pagamentos: ' + formatMoney_(summary.margem_pos_obrigacoes),
       '',
@@ -2145,6 +2265,97 @@ var V55 = (function() {
     } catch (_err) {
       return fail_('APRIL_2026_HOUSE_DEBT_ENSURE_FAILED', 'Dividas', GENERIC_REQUEST_FAILURE);
     }
+  }
+
+  function repairDuplicateHouseDebtsV55() {
+    var config = readConfig_();
+    var runtimeCheck = verifyReportingRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
+      verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
+      var rows = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS);
+      var hasCanonicalCaixa = rows.some(function(row) {
+        return row.id_divida === 'DIV_FINANCIAMENTO_CAIXA_CASA' && row.status === 'ativa';
+      });
+      var hasCanonicalVasco = rows.some(function(row) {
+        return row.id_divida === 'DIV_CONSTRUTORA_VASCO_CASA' && row.status === 'ativa';
+      });
+      var deactivated = [];
+      var updatedBalances = [];
+      updatedBalances = updatedBalances.concat(copyLegacyDebtBalanceIfMissing_(
+        debtSheet,
+        rows,
+        'DIV_FINANCIAMENTO_CAIXA_CASA',
+        function(row) { return normalizeAliasText_(row.nome) === 'financiamento caixa casa'; }
+      ));
+      updatedBalances = updatedBalances.concat(copyLegacyDebtBalanceIfMissing_(
+        debtSheet,
+        rows,
+        'DIV_CONSTRUTORA_VASCO_CASA',
+        function(row) { return normalizeAliasText_(row.nome) === 'vasco'; }
+      ));
+      rows = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS);
+      for (var i = 0; i < rows.length; i += 1) {
+        var row = rows[i];
+        if (row.status !== 'ativa') continue;
+        var normalizedName = normalizeAliasText_(row.nome);
+        var shouldDeactivateCaixa = hasCanonicalCaixa &&
+          row.id_divida !== 'DIV_FINANCIAMENTO_CAIXA_CASA' &&
+          normalizedName === 'financiamento caixa casa';
+        var shouldDeactivateVasco = hasCanonicalVasco &&
+          row.id_divida !== 'DIV_CONSTRUTORA_VASCO_CASA' &&
+          normalizedName === 'vasco';
+        if (!shouldDeactivateCaixa && !shouldDeactivateVasco) continue;
+        row.status = 'inativa';
+        row.observacao = appendObservation_(row.observacao, 'Inativada por reparo: duplicidade legada de obrigacao da casa.');
+        writeRow_(debtSheet, i + 2, SHEETS.DIVIDAS, row);
+        deactivated.push(stringValue_(row.id_divida));
+      }
+      return {
+        ok: true,
+        action: 'repair_duplicate_house_debts',
+        deactivated_debts: deactivated,
+        deactivated_count: deactivated.length,
+        updated_debt_balances: updatedBalances,
+        updated_debt_balances_count: updatedBalances.length,
+        shouldApplyDomainMutation: deactivated.length > 0 || updatedBalances.length > 0,
+      };
+    } catch (_err) {
+      return fail_('DUPLICATE_HOUSE_DEBT_REPAIR_FAILED', 'Dividas', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  function appendObservation_(current, addition) {
+    var text = stringValue_(current);
+    if (!text) return addition;
+    if (text.indexOf(addition) !== -1) return text;
+    return text + ' ' + addition;
+  }
+
+  function copyLegacyDebtBalanceIfMissing_(sheet, rows, canonicalId, isLegacyDuplicate) {
+    var canonicalIndex = -1;
+    var legacyBalance = 0;
+    for (var i = 0; i < rows.length; i += 1) {
+      var row = rows[i];
+      if (row.id_divida === canonicalId) canonicalIndex = i;
+      if (row.id_divida !== canonicalId && isLegacyDuplicate(row)) {
+        legacyBalance = Math.max(legacyBalance, numberFromSheetValue_(row.saldo_devedor));
+      }
+    }
+    if (canonicalIndex < 0 || legacyBalance <= 0) return [];
+    var canonical = rows[canonicalIndex];
+    if (numberFromSheetValue_(canonical.saldo_devedor) > 0) return [];
+    canonical.saldo_devedor = legacyBalance;
+    canonical.observacao = appendObservation_(canonical.observacao, 'Saldo devedor copiado de obrigacao legada duplicada antes da inativacao.');
+    writeRow_(sheet, canonicalIndex + 2, SHEETS.DIVIDAS, canonical);
+    return [canonicalId];
   }
 
   function repairApril2026MercadoPagoInvoiceCycleV55() {

@@ -828,10 +828,11 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.match(result.responseText, /Reserva: R\$ 1000,00/);
     assert.match(result.responseText, /Nubank: R\$ 42,50 vence 07\/05/);
     assert.match(result.responseText, /Total: R\$ 42,50/);
-    assert.match(result.responseText, /Obrigações cadastradas: R\$ 500,00/);
+    assert.match(result.responseText, /Compromissos cadastrados: R\$ 500,00/);
+    assert.match(result.responseText, /Financiamento: R\$ 500,00/);
     assert.match(result.responseText, /Não é tudo vencendo agora\./);
-    assert.match(result.responseText, /Sobra após tudo registrado: R\$ 787,50/);
-    assert.match(result.responseText, /Caixa do mês: R\$ 36,10/);
+    assert.match(result.responseText, /Folga após compromissos: R\$ 787,50/);
+    assert.match(result.responseText, /Caixa registrado: R\$ 36,10/);
     assert.match(result.responseText, /Gastos do mês: R\$ 106,40/);
     assert.match(result.responseText, /Pagar as faturas atuais e preservar a reserva\./);
     assert.doesNotMatch(result.responseText, /Nota: ainda falta saldo real das contas/);
@@ -863,7 +864,7 @@ test('Apps Script /resumo normalizes sheet date cells used as competencia', () =
 
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Gastos do mês: R\$ 43,90/);
-    assert.match(result.responseText, /Caixa do mês: R\$ 56,10/);
+    assert.match(result.responseText, /Caixa registrado: R\$ 56,10/);
     assert.match(result.responseText, /Ainda nao vou sugerir investimento, reserva ou amortizacao/);
     assert.match(result.responseText, /ainda falta o saldo real das contas/);
 });
@@ -919,7 +920,7 @@ test('Apps Script /resumo uses informed liquidity and reserve to evaluate obliga
     assert.strictEqual(result.summary.reserva_total, 9482.99);
     assert.strictEqual(result.summary.margem_pos_obrigacoes, 9507.9);
     assert.strictEqual(result.summary.destino_sugerido, 'reforcar_reserva');
-    assert.match(result.responseText, /Sobra após tudo registrado: R\$ 9507,90/);
+    assert.match(result.responseText, /Folga após compromissos: R\$ 9507,90/);
     assert.doesNotMatch(result.responseText, /Falta para cobrir tudo/);
 });
 
@@ -965,7 +966,7 @@ test('Apps Script /resumo separates current liquidity from 60-day exposure and s
     assert.match(result.responseText, /Reserva: R\$ 9482,99/);
     assert.match(result.responseText, /Nubank: R\$ 1260,47 vence 07\/05/);
     assert.match(result.responseText, /Total: R\$ 1260,47/);
-    assert.match(result.responseText, /Obrigações cadastradas: R\$ 878,41/);
+    assert.match(result.responseText, /Compromissos cadastrados: R\$ 878,41/);
     assert.doesNotMatch(result.responseText, /Contas proximas: R\$ 4239,85/);
     assert.ok(result.responseText.indexOf('30/04 Mercado da semana - R$ 30,00') < result.responseText.indexOf('29/04 Farmacia - R$ 20,00'));
 });
@@ -1116,6 +1117,38 @@ test('Apps Script answers cost-of-life question without calling the parser', () 
     assert.match(result.responseText, /Gastos DRE registrados: R\$ 200,45/);
     assert.match(result.responseText, /Inclui itens privados no total, sem abrir detalhes pessoais/);
     assert.match(result.responseText, /Base: lancamentos ja registrados no bot/);
+});
+
+test('Apps Script answers top spending categories without opening private line items', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeLaunch(sheets, { data: '2026-04-10', valor: 120, id_categoria: 'OPEX_MERCADO_SEMANA', descricao: 'mercado detalhado' });
+    appendFakeLaunch(sheets, { data: '2026-04-11', valor: 80, id_categoria: 'OPEX_MERCADO_SEMANA', descricao: 'outro mercado' });
+    appendFakeLaunch(sheets, { data: '2026-04-12', valor: 50, id_categoria: 'OPEX_FARMACIA', descricao: 'remedio privado', visibilidade: 'privada' });
+    appendFakeLaunch(sheets, {
+        data: '2026-04-13',
+        valor: 300,
+        tipo_evento: 'pagamento_fatura',
+        afeta_dre: false,
+        id_categoria: 'MOV_PAGAMENTO_FATURA',
+    });
+
+    const result = postPilotMessage(context, 'para onde foi meu dinheiro este mes?');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Para onde foi o dinheiro em abril/);
+    assert.match(result.responseText, /Total em gastos do mês: R\$ 250,00/);
+    assert.match(result.responseText, /Mercado da semana: R\$ 200,00/);
+    assert.match(result.responseText, /Farmacia: R\$ 50,00/);
+    assert.doesNotMatch(result.responseText, /remedio privado/);
+    assert.doesNotMatch(result.responseText, /Pagamento de fatura: R\$/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 5);
 });
 
 test('Apps Script answers singular open-invoice question without mutating', () => {
@@ -1425,6 +1458,40 @@ test('Apps Script ensure_april_2026_house_debts appends separate active house de
     assert.strictEqual(caixa[parcelaIndex], 2120);
     assert.strictEqual(vasco[parcelaIndex], 862.12);
     assert.strictEqual(obrigacoesCasa[parcelaIndex], 0);
+});
+
+test('Apps Script repair action deactivates duplicated legacy house debts', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const idIndex = dividasHeaders.indexOf('id_divida');
+    const statusIndex = dividasHeaders.indexOf('status');
+    runRemoteAction(context, 'ensure_april_2026_house_debts');
+    appendFakeDebt(sheets, {
+        id_divida: 'DIV_LEGACY_CAIXA_CASA',
+        nome: 'Financiamento Caixa Casa',
+        saldo_devedor: 300000,
+        valor_parcela: 1906.2,
+        status: 'ativa',
+    });
+    appendFakeDebt(sheets, {
+        id_divida: 'DIV_LEGACY_VASCO',
+        nome: 'Vasco',
+        saldo_devedor: 0,
+        valor_parcela: 862.12,
+        status: 'ativa',
+    });
+
+    const result = runRemoteAction(context, 'repair_duplicate_house_debts');
+
+    assert.strictEqual(result.ok, true);
+    assert.deepStrictEqual(result.deactivated_debts, ['DIV_LEGACY_CAIXA_CASA', 'DIV_LEGACY_VASCO']);
+    assert.deepStrictEqual(result.updated_debt_balances, ['DIV_FINANCIAMENTO_CAIXA_CASA']);
+    const statuses = Object.fromEntries(sheets.Dividas.rows.slice(1).map((row) => [row[idIndex], row[statusIndex]]));
+    assert.strictEqual(statuses.DIV_FINANCIAMENTO_CAIXA_CASA, 'ativa');
+    assert.strictEqual(statuses.DIV_CONSTRUTORA_VASCO_CASA, 'ativa');
+    assert.strictEqual(statuses.DIV_LEGACY_CAIXA_CASA, 'inativa');
+    assert.strictEqual(statuses.DIV_LEGACY_VASCO, 'inativa');
+    const canonicalCaixa = sheets.Dividas.rows.find((row) => row[idIndex] === 'DIV_FINANCIAMENTO_CAIXA_CASA');
+    assert.strictEqual(canonicalCaixa[dividasHeaders.indexOf('saldo_devedor')], 300000);
 });
 
 test('Apps Script reset_april_2026_clean_rebuild clears operational data but preserves config', () => {
