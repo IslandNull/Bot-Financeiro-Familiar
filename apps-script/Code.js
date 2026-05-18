@@ -2608,6 +2608,24 @@ var V55 = (function() {
         return event;
       }
     }
+    var explicitCardCategory = inferExplicitCategoryFromText_(text, referenceData, 'compra_cartao');
+    var explicitCard = inferActiveCardFromText_(text, referenceData);
+    if (explicitCardCategory && explicitCard) {
+      event.tipo_evento = 'compra_cartao';
+      event.id_categoria = explicitCardCategory.id_categoria;
+      event.id_fonte = explicitCard.id_fonte;
+      event.id_cartao = explicitCard.id_cartao;
+      event.id_fatura = '';
+      event.id_divida = '';
+      event.id_ativo = '';
+      event.pessoa = event.pessoa || explicitCard.titular || explicitCardCategory.escopo_padrao;
+      event.escopo = explicitCardCategory.escopo_padrao;
+      event.visibilidade = effectiveCategoryVisibility_(explicitCardCategory);
+      event.direcao_caixa_familiar = '';
+      event.status = 'efetivado';
+      applyCategoryDefaults_(event, explicitCardCategory);
+      return event;
+    }
     if (isHouseDebtPaymentText_(normalized)) {
       var debtCategory = referenceData.categoriesById.OBR_PAGAMENTO_DIVIDA || null;
       var debtSource = inferCashSourceFromText_(text, referenceData) || defaultCashSourceForScope_(referenceData, 'Familiar');

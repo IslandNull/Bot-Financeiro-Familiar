@@ -2513,6 +2513,72 @@ test('Apps Script card purchase honors explicit private category and Mercado Pag
     assert.strictEqual(launch.afeta_caixa_familiar, false);
 });
 
+test('Apps Script card purchase overrides parser expense type when text explicitly says card category', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-05-04',
+        competencia: '2026-05',
+        valor: '20.90',
+        descricao: 'Cafe Gustavo aeroporto trabalho',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: '',
+        escopo: '',
+        visibilidade: '',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: true,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: '',
+        parcelas: 1,
+    });
+    sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => ({
+        id_categoria: 'OPEX_ALIMENTACAO_PESSOAL_GUSTAVO',
+        nome: 'Alimentacao pessoal Gustavo',
+        grupo: 'Alimentacao',
+        tipo_evento_padrao: 'compra_cartao',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: false,
+        visibilidade_padrao: 'privada',
+        ativo: true,
+    })[header] ?? ''));
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        nome: 'Mercado Pago Gustavo',
+        tipo: 'cartao_credito',
+        titular: 'Gustavo',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+    sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        nome: 'Mercado Pago Gustavo',
+        titular: 'Gustavo',
+        fechamento_dia: 17,
+        vencimento_dia: 25,
+        limite: 5000,
+        ativo: true,
+    })[header] ?? ''));
+
+    const result = postPilotMessage(context, 'Comprei café Gustavo aeroporto trabalho 20,90 no cartão Mercado Pago Gustavo em 04/05. Categoria alimentação pessoal Gustavo.');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'compra_cartao');
+    assert.strictEqual(launch.id_categoria, 'OPEX_ALIMENTACAO_PESSOAL_GUSTAVO');
+    assert.strictEqual(launch.id_cartao, 'CARD_MERCADO_PAGO_GU');
+    assert.strictEqual(launch.id_fonte, 'FONTE_MERCADO_PAGO_GU');
+    assert.strictEqual(launch.afeta_caixa_familiar, false);
+});
+
 test('Apps Script pilot invoice payment writes cash launch and marks invoice paid', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'pagamento_fatura',
