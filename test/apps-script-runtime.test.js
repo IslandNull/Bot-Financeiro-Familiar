@@ -2233,6 +2233,58 @@ test('Apps Script card purchase accepts notebook when parser selects matching el
     assert.deepStrictEqual(invoices.map((invoice) => invoice.competencia), ['2026-04', '2026-05', '2026-06']);
 });
 
+test('Apps Script card purchase overrides reimbursable client cost defaults from explicit text', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '2026-05-01',
+        competencia: '2026-05',
+        valor: '49.77',
+        descricao: 'Google API 49,77 no cartão Nubank Gustavo',
+        id_categoria: 'OPEX_FARMACIA',
+        id_fonte: '',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: true,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: '',
+        parcelas: 1,
+    });
+    sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => ({
+        id_categoria: 'OPEX_CUSTO_REEMBOLSAVEL_CLIENTE',
+        nome: 'Custo reembolsavel cliente',
+        grupo: 'Trabalho',
+        tipo_evento_padrao: 'compra_cartao',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: false,
+        visibilidade_padrao: 'resumo',
+        ativo: true,
+    })[header] ?? ''));
+
+    const result = postPilotMessage(context, 'Comprei Google API 49,77 no cartão Nubank Gustavo em 01/05. Categoria custo reembolsável cliente. Ainda não reembolsado.');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'compra_cartao');
+    assert.strictEqual(launch.id_categoria, 'OPEX_CUSTO_REEMBOLSAVEL_CLIENTE');
+    assert.strictEqual(launch.id_fonte, 'FONTE_NUBANK_GU');
+    assert.strictEqual(launch.id_cartao, 'CARD_NUBANK_GU');
+    assert.strictEqual(launch.escopo, 'Gustavo');
+    assert.strictEqual(launch.visibilidade, 'resumo');
+    assert.strictEqual(launch.afeta_dre, true);
+    assert.strictEqual(launch.afeta_patrimonio, false);
+    assert.strictEqual(launch.afeta_caixa_familiar, false);
+});
+
 test('Apps Script pilot invoice payment writes cash launch and marks invoice paid', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'pagamento_fatura',
@@ -2273,6 +2325,56 @@ test('Apps Script pilot invoice payment writes cash launch and marks invoice pai
     assert.strictEqual(launch.afeta_caixa_familiar, true);
     const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
     assert.strictEqual(invoice.valor_pago, 42.5);
+    assert.strictEqual(invoice.status, 'paga');
+});
+
+test('Apps Script pilot invoice payment infers Nubank April invoice and cash source from explicit text', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'pagamento_fatura',
+        data: '2026-05-07',
+        competencia: '2026-05',
+        valor: '1997.73',
+        descricao: 'Paguei a fatura Nubank Gustavo de abril',
+        id_categoria: 'OPEX_FARMACIA',
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: '',
+        escopo: '',
+        visibilidade: '',
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: true,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_CONTA_NUBANK_GU',
+        nome: 'Conta Nubank Gustavo',
+        tipo: 'conta_corrente',
+        titular: 'Gustavo',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+    appendFakeInvoice(sheets, { valor_previsto: 1997.73 });
+
+    const result = postPilotMessage(context, 'Paguei a fatura Nubank Gustavo de abril no valor de 1997,73 em 07/05 pela Conta Nubank Gustavo. Não é despesa nova, é pagamento de fatura.');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'pagamento_fatura');
+    assert.strictEqual(launch.data, '2026-05-07');
+    assert.strictEqual(launch.competencia, '2026-05');
+    assert.strictEqual(launch.id_categoria, '');
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_NUBANK_GU');
+    assert.strictEqual(launch.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
+    assert.strictEqual(launch.afeta_dre, false);
+    assert.strictEqual(launch.afeta_patrimonio, false);
+    assert.strictEqual(launch.afeta_caixa_familiar, true);
+    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    assert.strictEqual(invoice.valor_pago, 1997.73);
     assert.strictEqual(invoice.status, 'paga');
 });
 

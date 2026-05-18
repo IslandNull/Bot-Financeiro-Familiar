@@ -2435,6 +2435,46 @@ var V55 = (function() {
   function overrideParserForDeterministicMoneyMovement_(event, referenceData) {
     var text = event.raw_text || event.descricao;
     var normalized = normalizeAliasText_(text);
+    if (isReimbursableClientCardPurchaseText_(normalized)) {
+      var reimbursableCategory = referenceData.categoriesById.OPEX_CUSTO_REEMBOLSAVEL_CLIENTE || null;
+      var reimbursableCard = inferActiveCardFromText_(text, referenceData) || defaultActiveCard_(referenceData);
+      if (reimbursableCategory && reimbursableCard) {
+        event.tipo_evento = 'compra_cartao';
+        event.id_categoria = reimbursableCategory.id_categoria;
+        event.id_fonte = reimbursableCard.id_fonte;
+        event.id_cartao = reimbursableCard.id_cartao;
+        event.id_fatura = '';
+        event.id_divida = '';
+        event.id_ativo = '';
+        event.pessoa = event.pessoa || reimbursableCard.titular || 'Gustavo';
+        event.escopo = reimbursableCategory.escopo_padrao;
+        event.visibilidade = reimbursableCategory.visibilidade_padrao;
+        event.direcao_caixa_familiar = '';
+        event.status = 'efetivado';
+        applyCategoryDefaults_(event, reimbursableCategory);
+        return event;
+      }
+    }
+    if (isPilotInvoicePaymentText_(normalized)) {
+      var paymentSource = inferCashSourceFromText_(text, referenceData) || defaultFamilyCashSource_(referenceData);
+      var paymentInvoiceId = inferInvoicePaymentIdFromText_(event, referenceData);
+      event.tipo_evento = 'pagamento_fatura';
+      event.id_categoria = '';
+      event.id_fonte = paymentSource ? paymentSource.id_fonte : '';
+      event.id_cartao = '';
+      event.id_fatura = paymentInvoiceId || event.id_fatura;
+      event.id_divida = '';
+      event.id_ativo = '';
+      event.pessoa = event.pessoa || 'Gustavo';
+      event.escopo = 'Familiar';
+      event.visibilidade = 'detalhada';
+      event.direcao_caixa_familiar = '';
+      event.status = 'efetivado';
+      event.afeta_dre = false;
+      event.afeta_patrimonio = false;
+      event.afeta_caixa_familiar = true;
+      return event;
+    }
     if (isPilotOwnSourceTransferText_(normalized)) {
       event.tipo_evento = 'transferencia_interna';
       event.id_categoria = stringValue_((defaultCategoryForType_(referenceData, 'transferencia_interna') || {}).id_categoria);
@@ -2473,6 +2513,23 @@ var V55 = (function() {
       }
     }
     return event;
+  }
+
+  function isReimbursableClientCardPurchaseText_(normalizedText) {
+    if (!normalizedText) return false;
+    var hasPurchase = containsAliasPhrase_(normalizedText, 'comprei') ||
+      containsAliasPhrase_(normalizedText, 'compra') ||
+      containsAliasPhrase_(normalizedText, 'paguei');
+    var hasCard = containsAliasPhrase_(normalizedText, 'cartao') ||
+      containsAliasPhrase_(normalizedText, 'nubank') ||
+      containsAliasPhrase_(normalizedText, 'mercado pago');
+    var hasReimbursement = containsAliasPhrase_(normalizedText, 'reembolsavel') ||
+      containsAliasPhrase_(normalizedText, 'reembolsado') ||
+      containsAliasPhrase_(normalizedText, 'reembolso');
+    var hasClient = containsAliasPhrase_(normalizedText, 'cliente');
+    var knownClientCost = containsAliasPhrase_(normalizedText, 'google api') ||
+      containsAliasPhrase_(normalizedText, 'hetzner');
+    return hasPurchase && hasCard && hasReimbursement && (hasClient || knownClientCost);
   }
 
   function canonicalizePilotCardPurchaseEvent_(event, referenceData) {
@@ -2705,6 +2762,77 @@ var V55 = (function() {
 
   function defaultActiveCard_(referenceData) {
     return referenceData.cards.length ? referenceData.cards[0] : null;
+  }
+
+  function inferActiveCardFromText_(text, referenceData) {
+    var normalized = normalizeAliasText_(text);
+    if (!normalized) return null;
+    for (var i = 0; i < referenceData.cards.length; i += 1) {
+      var card = referenceData.cards[i];
+      var name = normalizeAliasText_(card.nome);
+      if (name && containsAliasPhrase_(normalized, name)) return card;
+      if (card.id_cartao === 'CARD_NUBANK_GU' && containsAliasPhrase_(normalized, 'nubank')) return card;
+      if (card.id_cartao === 'CARD_MERCADO_PAGO_GU' && containsAliasPhrase_(normalized, 'mercado pago')) return card;
+    }
+    return null;
+  }
+
+  function inferInvoicePaymentIdFromText_(event, referenceData) {
+    var text = event.raw_text || event.descricao;
+    var card = inferActiveCardFromText_(text, referenceData) || cardForEvent_(referenceData, event.id_cartao);
+    if (!card) return '';
+    var competencia = inferInvoiceCompetenciaFromText_(text, event.data);
+    var candidates = [];
+    for (var i = 0; i < referenceData.invoices.length; i += 1) {
+      var invoice = referenceData.invoices[i];
+      if (invoice.id_cartao !== card.id_cartao) continue;
+      if (competencia && normalizeSheetCompetencia_(invoice.competencia) !== competencia) continue;
+      candidates.push(invoice);
+    }
+    if (!candidates.length) return '';
+    var grouped = {};
+    candidates.forEach(function(invoice) {
+      var id = stringValue_(invoice.id_fatura);
+      if (!grouped[id]) grouped[id] = 0;
+      var expected = numberFromSheetValue_(invoice.valor_fechado) > 0 ? numberFromSheetValue_(invoice.valor_fechado) : numberFromSheetValue_(invoice.valor_previsto);
+      grouped[id] = roundMoney_(grouped[id] + Math.max(0, expected - numberFromSheetValue_(invoice.valor_pago)));
+    });
+    var ids = Object.keys(grouped);
+    for (var j = 0; j < ids.length; j += 1) {
+      if (Math.abs(grouped[ids[j]] - event.valor) <= 0.009) return ids[j];
+    }
+    return ids.length === 1 ? ids[0] : '';
+  }
+
+  function inferInvoiceCompetenciaFromText_(text, eventDate) {
+    var normalized = normalizeAliasText_(text);
+    var year = Number(stringValue_(eventDate).slice(0, 4)) || Number(todaySaoPaulo_().slice(0, 4));
+    var currentMonth = Number(stringValue_(eventDate).slice(5, 7)) || Number(todaySaoPaulo_().slice(5, 7));
+    var monthByName = {
+      janeiro: 1,
+      fevereiro: 2,
+      marco: 3,
+      abril: 4,
+      maio: 5,
+      junho: 6,
+      julho: 7,
+      agosto: 8,
+      setembro: 9,
+      outubro: 10,
+      novembro: 11,
+      dezembro: 12,
+    };
+    var names = Object.keys(monthByName);
+    for (var i = 0; i < names.length; i += 1) {
+      if (containsAliasPhrase_(normalized, names[i])) {
+        var month = monthByName[names[i]];
+        var inferredYear = month > currentMonth ? year - 1 : year;
+        return inferredYear + '-' + pad2_(month);
+      }
+    }
+    var explicit = normalized.match(/\b(20\d{2})\s+(\d{1,2})\b/);
+    if (explicit) return explicit[1] + '-' + pad2_(explicit[2]);
+    return '';
   }
 
   function defaultPayableInvoice_(referenceData) {
