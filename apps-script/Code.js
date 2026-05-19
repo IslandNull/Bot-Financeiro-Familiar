@@ -126,6 +126,15 @@ var V55 = (function() {
     if (action === 'repair_may_2026_current_invoice_totals') {
       return json_(repairMay2026CurrentInvoiceTotalsV55());
     }
+    if (action === 'record_may_2026_brenda_house_inspection') {
+      return json_(recordMay2026BrendaHouseInspectionV55());
+    }
+    if (action === 'repair_may_2026_duplicate_brenda_house_inspection') {
+      return json_(repairMay2026DuplicateBrendaHouseInspectionV55());
+    }
+    if (action === 'record_may_2026_mp_cofrinho_after_brenda') {
+      return json_(recordMay2026MpCofrinhoAfterBrendaV55());
+    }
     if (action === 'reset_april_2026_clean_rebuild') {
       return json_(resetApril2026CleanRebuildV55());
     }
@@ -353,6 +362,8 @@ var V55 = (function() {
     if (parsed.event.tipo_evento === 'pagamento_fatura') {
       var invoicePaymentCheck = validatePilotInvoicePaymentEvent_(parsed.event, referenceData);
       if (!invoicePaymentCheck.ok) return invoicePaymentCheck;
+      var invoiceBalanceCheck = validateSufficientSourceBalanceForEvent_(parsed.event, referenceData);
+      if (!invoiceBalanceCheck.ok) return invoiceBalanceCheck;
       return recordPilotInvoicePayment_(update, message, parsed.event, config, referenceData);
     }
 
@@ -371,11 +382,15 @@ var V55 = (function() {
     if (isGenericLaunchEventType_(parsed.event.tipo_evento)) {
       var genericCheck = validatePilotGenericLaunchEvent_(parsed.event, referenceData);
       if (!genericCheck.ok) return genericCheck;
+      var genericBalanceCheck = validateSufficientSourceBalanceForEvent_(parsed.event, referenceData);
+      if (!genericBalanceCheck.ok) return genericBalanceCheck;
       return recordPilotGenericLaunch_(update, message, parsed.event, config, referenceData);
     }
 
     var pilotCheck = validatePilotExpenseEvent_(parsed.event, referenceData);
     if (!pilotCheck.ok) return pilotCheck;
+    var expenseBalanceCheck = validateSufficientSourceBalanceForEvent_(parsed.event, referenceData);
+    if (!expenseBalanceCheck.ok) return expenseBalanceCheck;
 
     return recordPilotExpense_(update, message, parsed.event, config, referenceData);
   }
@@ -991,6 +1006,122 @@ var V55 = (function() {
     } finally {
       lock.releaseLock();
     }
+  }
+
+  function recordMay2026BrendaHouseInspectionV55() {
+    var config = readConfig_();
+    var runtimeCheck = verifyFinancialRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+    var referenceData = readRuntimeReferenceData_(config);
+    if (!referenceData.ok) return referenceData;
+    var text = 'Transferi 400 para Brenda Gantus pagamento vistoria da casa';
+    var normalized = normalizeParsedEvent_({
+      tipo_evento: 'transferencia_interna',
+      data: '2026-05-19',
+      competencia: '2026-05',
+      valor: '400',
+      descricao: text,
+      id_categoria: '',
+      id_fonte: '',
+      pessoa: 'Gustavo',
+      escopo: 'Familiar',
+      visibilidade: 'detalhada',
+      id_cartao: '',
+      id_fatura: '',
+      id_divida: '',
+      id_ativo: '',
+      afeta_dre: false,
+      afeta_patrimonio: false,
+      afeta_caixa_familiar: false,
+      direcao_caixa_familiar: 'entrada',
+      status: 'efetivado',
+    }, text, referenceData, { allowMoneyFallback: false });
+    if (!normalized.ok) return normalized;
+    var closedPeriodCheck = validateClosedPeriodForEvent_(normalized.event, referenceData.closedCompetencias);
+    if (!closedPeriodCheck.ok) return closedPeriodCheck;
+    var validation = validatePilotGenericLaunchEvent_(normalized.event, referenceData);
+    if (!validation.ok) return validation;
+    return recordPilotGenericLaunch_(
+      { update_id: 'operational_2026_05_brenda_house_inspection' },
+      {
+        message_id: 'record_may_2026_brenda_house_inspection',
+        chat: { id: '' },
+        __request: {
+          idempotency_key: 'operational:2026-05:brenda-house-inspection',
+          source: 'operational_action',
+          external_update_id: 'record_may_2026_brenda_house_inspection',
+          external_message_id: '1',
+          chat_id: '',
+          payload_hash: stableId_('PAY', text),
+        },
+      },
+      normalized.event,
+      config,
+      referenceData
+    );
+  }
+
+  function repairMay2026DuplicateBrendaHouseInspectionV55() {
+    var config = readConfig_();
+    var runtimeCheck = verifyReportingRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+      verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+      var rows = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS);
+      var brendaRows = [];
+      for (var i = 0; i < rows.length; i += 1) {
+        var row = rows[i];
+        var normalizedDescription = normalizeAliasText_(row.descricao);
+        if (normalizeSheetCompetencia_(row.competencia) !== '2026-05') continue;
+        if (row.tipo_evento !== 'divida_pagamento') continue;
+        if (row.status !== 'efetivado') continue;
+        if (roundMoney_(numberFromSheetValue_(row.valor)) !== 400) continue;
+        if (!containsAliasPhrase_(normalizedDescription, 'brenda')) continue;
+        if (!containsAliasPhrase_(normalizedDescription, 'vistoria')) continue;
+        brendaRows.push({ row: row, rowNumber: i + 2 });
+      }
+      var canceled = 0;
+      if (brendaRows.length > 1) {
+        var statusIndex = HEADERS[SHEETS.LANCAMENTOS].indexOf('status');
+        for (var j = 0; j < brendaRows.length; j += 1) {
+          var duplicate = brendaRows[j];
+          if (duplicate.row.id_lancamento !== 'LAN_987FC10AB5F9' && j === 0) continue;
+          launchSheet.getRange(duplicate.rowNumber, statusIndex + 1).setValue('cancelado_revisao');
+          canceled += 1;
+          break;
+        }
+      }
+      return {
+        ok: true,
+        action: 'repair_may_2026_duplicate_brenda_house_inspection',
+        matched_launches: brendaRows.length,
+        canceled_launches: canceled,
+        shouldApplyDomainMutation: canceled > 0,
+      };
+    } catch (_err) {
+      return fail_('BRENDA_DUPLICATE_REPAIR_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  function recordMay2026MpCofrinhoAfterBrendaV55() {
+    var config = readConfig_();
+    var runtimeCheck = verifyFinancialRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+    var referenceData = readRuntimeReferenceData_(config);
+    if (!referenceData.ok) return referenceData;
+    return handlePilotAssetBalance_(
+      { update_id: 'operational_2026_05_mp_cofrinho_after_brenda' },
+      { message_id: 'record_may_2026_mp_cofrinho_after_brenda', chat: { id: '' } },
+      'cofrinho Mercado Pago Gustavo saldo 103,01 em 19/05',
+      config,
+      referenceData
+    );
   }
 
   function upsertAuthoritativeInvoiceTotal_(sheet, repair) {
@@ -2381,6 +2512,7 @@ var V55 = (function() {
       var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
       var assetSheet = spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS);
       var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
+      var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
       var closingSheet = spreadsheet.getSheetByName(SHEETS.FECHAMENTO_FAMILIAR);
       verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
       verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
@@ -2388,6 +2520,7 @@ var V55 = (function() {
       verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
       verifySheetHeaders_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
       verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
+      verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
       verifySheetHeaders_(closingSheet, SHEETS.FECHAMENTO_FAMILIAR);
 
       var categories = readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS).filter(function(row) { return row.ativo === true; });
@@ -2400,6 +2533,7 @@ var V55 = (function() {
       var debts = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS).filter(function(row) {
         return ['ativa', 'em_aberto', 'renegociada'].indexOf(row.status) !== -1;
       });
+      var sourceBalances = readRowsAsObjects_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
       var closedCompetencias = readRowsAsObjects_(closingSheet, SHEETS.FECHAMENTO_FAMILIAR).filter(function(row) {
         return row.status === 'closed' || stringValue_(row.closed_at) !== '';
       }).map(function(row) {
@@ -2416,6 +2550,7 @@ var V55 = (function() {
         invoices: invoices,
         assets: assets,
         debts: debts,
+        sourceBalances: sourceBalances,
         closedCompetencias: closedCompetencias,
         categoriesById: indexBy_(categories, 'id_categoria'),
         sourcesById: indexBy_(sources, 'id_fonte'),
@@ -3911,7 +4046,9 @@ var V55 = (function() {
     var hasPayment = containsAliasPhrase_(normalizedText, 'paguei') ||
       containsAliasPhrase_(normalizedText, 'pagamento') ||
       containsAliasPhrase_(normalizedText, 'amortizacao') ||
-      containsAliasPhrase_(normalizedText, 'parcela');
+      containsAliasPhrase_(normalizedText, 'parcela') ||
+      containsAliasPhrase_(normalizedText, 'transferi') ||
+      containsAliasPhrase_(normalizedText, 'pix');
     return hasDebtContext && hasPayment && !containsAliasPhrase_(normalizedText, 'fatura');
   }
 
@@ -4244,6 +4381,18 @@ var V55 = (function() {
   function inferDebtFromText_(text, referenceData) {
     var normalized = normalizeAliasText_(text);
     if (!normalized) return null;
+    if ((containsAliasPhrase_(normalized, 'vistoria') || containsAliasPhrase_(normalized, 'laudo')) &&
+        (containsAliasPhrase_(normalized, 'casa') || containsAliasPhrase_(normalized, 'imovel'))) {
+      for (var punctualIndex = 0; punctualIndex < referenceData.debts.length; punctualIndex += 1) {
+        var punctualDebt = referenceData.debts[punctualIndex];
+        var punctualName = normalizeAliasText_(punctualDebt.nome);
+        var punctualType = normalizeAliasText_(punctualDebt.tipo);
+        if (containsAliasPhrase_(punctualName, 'obrigacoes pontuais') ||
+            containsAliasPhrase_(punctualType, 'obrigacao pontual imovel')) {
+          return punctualDebt;
+        }
+      }
+    }
     for (var i = 0; i < referenceData.debts.length; i += 1) {
       var debt = referenceData.debts[i];
       var name = normalizeAliasText_(debt.nome);
@@ -4399,6 +4548,43 @@ var V55 = (function() {
     var flagCheck = validateCategoryFlags_(event, category);
     if (!flagCheck.ok) return flagCheck;
     return { ok: true };
+  }
+
+  function validateSufficientSourceBalanceForEvent_(event, referenceData) {
+    if (!event || event.afeta_caixa_familiar !== true) return { ok: true };
+    if (['despesa', 'pagamento_fatura', 'aporte', 'divida_pagamento'].indexOf(event.tipo_evento) === -1) return { ok: true };
+    if (!event.id_fonte || !referenceData || !referenceData.sourceBalances) return { ok: true };
+    var latest = latestSourceBalanceForEvent_(event, referenceData.sourceBalances);
+    if (!latest) return { ok: true };
+    var available = numberFromSheetValue_(latest.saldo_disponivel);
+    var amount = numberFromSheetValue_(event.valor);
+    if (available + 0.009 >= amount) return { ok: true };
+    var source = sourceForEvent_(referenceData, event.id_fonte) || {};
+    return fail_('SOURCE_BALANCE_INSUFFICIENT', 'id_fonte', [
+      '⚠️ Saldo insuficiente',
+      '',
+      '💰 Fonte escolhida',
+      'Fonte: ' + (source.nome || event.id_fonte),
+      'Disponível: ' + formatMoney_(available),
+      'Lançamento: ' + formatMoney_(amount),
+      '',
+      '📌 Como cobrir',
+      'Me diga de qual fonte ou reserva saiu a diferença antes de eu anotar.',
+      '',
+      'Exemplo:',
+      'tirei 178,45 do cofrinho MP e agora saldo 103,01',
+    ].join('\n'));
+  }
+
+  function latestSourceBalanceForEvent_(event, sourceBalances) {
+    var latest = null;
+    for (var i = 0; i < sourceBalances.length; i += 1) {
+      var row = sourceBalances[i];
+      if (row.id_fonte !== event.id_fonte) continue;
+      if (normalizeSheetCompetencia_(row.competencia) !== event.competencia) continue;
+      if (!latest || stringValue_(row.data_referencia) >= stringValue_(latest.data_referencia)) latest = row;
+    }
+    return latest;
   }
 
   function validateCategoryFlags_(event, category) {
@@ -6187,6 +6373,21 @@ var V55 = (function() {
 
   function parsePilotAssetBalanceText_(text) {
     var str = stringValue_(text).trim();
+    var naturalAssetMatch = str.match(/(caixinha|cofrinho)\s+(.+?)\s+.*?\bsaldo\s*(?:e|é|=)?\s*([\d.,]+)(?:\s+em\s+(\d{1,2}\/\d{1,2}(?:\/\d{4})?|\d{4}-\d{2}-\d{2}))?/i);
+    if (naturalAssetMatch && (containsAliasPhrase_(normalizeAliasText_(str), 'tirei') || containsAliasPhrase_(normalizeAliasText_(str), 'agora'))) {
+      var naturalAmount = Number(naturalAssetMatch[3].replace(/\./g, '').replace(',', '.'));
+      if (!isFinite(naturalAmount) || naturalAmount < 0) return fail_('INVALID_ASSET_BALANCE_AMOUNT', 'valor', 'âš ï¸ Valor de patrimÃ´nio invÃ¡lido.\n\nðŸ“Œ Como corrigir\nMande um valor positivo.');
+      var naturalDate = normalizeTelegramReferenceDate_(naturalAssetMatch[4]);
+      if (!isValidIsoDate_(naturalDate)) return fail_('INVALID_ASSET_BALANCE_DATE', 'data', 'âš ï¸ Data invÃ¡lida para patrimÃ´nio.\n\nðŸ“Œ Como corrigir\nUse uma data como 18/05 ou 2026-05-18.');
+      var naturalOwner = normalizeAssetOwnerName_(naturalAssetMatch[2]);
+      return {
+        ok: true,
+        nome: capitalize_(naturalAssetMatch[1]) + ' ' + naturalOwner,
+        instituicao: inferAssetInstitution_(naturalOwner),
+        valor: naturalAmount,
+        data: naturalDate,
+      };
+    }
     var match = str.match(/(?:atualizar\s+patrim[oô]nio:?\s*)?(caixinha|cofrinho)\s+(.+?)\s+(?:com\s+)?saldo\s+([\d.,]+)(?:\s+em\s+(\d{1,2}\/\d{1,2}(?:\/\d{4})?|\d{4}-\d{2}-\d{2}))?/i);
     if (!match) return fail_('INVALID_ASSET_BALANCE_FORMAT', 'text', '⚠️ Não entendi o patrimônio.\n\n📌 Como corrigir\nUse caixinha/cofrinho + nome + saldo.\n\nExemplo:\ncofrinho Mercado Pago Gustavo saldo 9482,99');
     var amount = Number(match[3].replace(/\./g, '').replace(',', '.'));
@@ -6194,7 +6395,7 @@ var V55 = (function() {
     var date = normalizeTelegramReferenceDate_(match[4]);
     if (!isValidIsoDate_(date)) return fail_('INVALID_ASSET_BALANCE_DATE', 'data', '⚠️ Data inválida para patrimônio.\n\n📌 Como corrigir\nUse uma data como 18/05 ou 2026-05-18.');
     var kind = capitalize_(match[1]);
-    var ownerName = match[2].trim().replace(/[.]+$/, '');
+    var ownerName = normalizeAssetOwnerName_(match[2]);
     var name = kind + ' ' + ownerName;
     return {
       ok: true,
@@ -6203,6 +6404,14 @@ var V55 = (function() {
       valor: amount,
       data: date,
     };
+  }
+
+  function normalizeAssetOwnerName_(value) {
+    var text = stringValue_(value).trim().replace(/[.]+$/, '');
+    var normalized = normalizeAliasText_(text);
+    if (containsAliasPhrase_(normalized, 'mercado pago') || /\bmp\b/.test(normalized)) return 'Mercado Pago Gustavo';
+    if (containsAliasPhrase_(normalized, 'nubank') || /\bnu\b/.test(normalized)) return 'Nubank Gustavo';
+    return text;
   }
 
   function normalizeTelegramReferenceDate_(value) {
@@ -6290,6 +6499,9 @@ var V55 = (function() {
     repairMay2026BenefitConversionSourceV55: repairMay2026BenefitConversionSourceV55,
     repairMay2026CashAccountMisclassifiedCardV55: repairMay2026CashAccountMisclassifiedCardV55,
     repairMay2026CurrentInvoiceTotalsV55: repairMay2026CurrentInvoiceTotalsV55,
+    recordMay2026BrendaHouseInspectionV55: recordMay2026BrendaHouseInspectionV55,
+    repairMay2026DuplicateBrendaHouseInspectionV55: repairMay2026DuplicateBrendaHouseInspectionV55,
+    recordMay2026MpCofrinhoAfterBrendaV55: recordMay2026MpCofrinhoAfterBrendaV55,
     resetApril2026CleanRebuildV55: resetApril2026CleanRebuildV55,
     ensureApril2026HouseDebtConfigV55: ensureApril2026HouseDebtConfigV55,
     runHelpSmokeSelfTest: runHelpSmokeSelfTest,
@@ -6388,6 +6600,24 @@ function repairMay2026CashAccountMisclassifiedCardV55() {
 
 function repairMay2026CurrentInvoiceTotalsV55() {
   var result = V55.repairMay2026CurrentInvoiceTotalsV55();
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+function recordMay2026BrendaHouseInspectionV55() {
+  var result = V55.recordMay2026BrendaHouseInspectionV55();
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+function repairMay2026DuplicateBrendaHouseInspectionV55() {
+  var result = V55.repairMay2026DuplicateBrendaHouseInspectionV55();
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+function recordMay2026MpCofrinhoAfterBrendaV55() {
+  var result = V55.recordMay2026MpCofrinhoAfterBrendaV55();
   Logger.log(JSON.stringify(result));
   return result;
 }

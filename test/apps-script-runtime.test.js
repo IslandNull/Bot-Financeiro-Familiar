@@ -835,6 +835,29 @@ test('Apps Script asset balance command updates existing asset instead of duplic
     assert.strictEqual(asset.conta_reserva_emergencia, true);
 });
 
+test('Apps Script asset balance understands natural cofrinho withdrawal balance update', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeAsset(sheets, {
+        id_ativo: 'ATIVO_COF_MP',
+        nome: 'Cofrinho Mercado Pago Gustavo',
+        instituicao: 'Mercado Pago',
+        saldo_atual: 281.46,
+        conta_reserva_emergencia: true,
+    });
+
+    const result = postPilotMessage(context, 'para pagar a brenda eu tirei 178,45 do cofrinho mp e agora meu saldo é 103,01');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.match(result.responseText, /Patrim.nio atualizado/);
+    assert.match(result.responseText, /Saldo: R\$ 103,01/);
+    assert.strictEqual(sheets.Patrimonio_Ativos.rows.length, 2);
+    const asset = Object.fromEntries(patrimonioAtivosHeaders.map((header, index) => [header, sheets.Patrimonio_Ativos.rows[1][index]]));
+    assert.strictEqual(asset.id_ativo, 'ATIVO_COF_MP');
+    assert.strictEqual(asset.nome, 'Cofrinho Mercado Pago Gustavo');
+    assert.strictEqual(asset.saldo_atual, 103.01);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
 
 test('Apps Script /resumo command is read-only and does not require pilot mutation gate', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
@@ -4206,6 +4229,231 @@ test('Apps Script deterministic override records house financing payment without
     assert.strictEqual(launch.afeta_caixa_familiar, true);
     assert.match(result.responseText, /Obriga[çc][ãa]o anotada/);
     assert.doesNotMatch(result.responseText, /compra no cartao/);
+});
+
+test('Apps Script deterministic override treats third-party house inspection transfer as house obligation', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'transferencia_interna',
+        data: '2026-05-19',
+        competencia: '2026-05',
+        valor: '400',
+        descricao: 'Transferi 400 para Brenda Gantus pagamento vistoria da casa',
+        id_categoria: '',
+        id_fonte: '',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: 'entrada',
+        status: 'efetivado',
+    });
+    appendFakeDebt(sheets, {
+        id_divida: 'DIV_FINANCIAMENTO_CAIXA_CASA',
+        nome: 'Financiamento Caixa da casa',
+        credor: 'Caixa Economica Federal',
+        tipo: 'financiamento_imobiliario',
+    });
+    appendFakeDebt(sheets, {
+        id_divida: 'DIV_OBRIGACOES_CASA',
+        nome: 'Obrigacoes pontuais da casa',
+        credor: 'Casa',
+        tipo: 'obrigacao_pontual_imovel',
+    });
+
+    const result = postPilotMessage(context, 'Transferi 400 para Brenda Gantus pagamento vistoria da casa');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.strictEqual(sheets.Transferencias_Internas.rows.length, 1);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.data, '2026-05-19');
+    assert.strictEqual(launch.competencia, '2026-05');
+    assert.strictEqual(launch.tipo_evento, 'divida_pagamento');
+    assert.strictEqual(launch.id_categoria, 'OBR_PAGAMENTO_DIVIDA');
+    assert.strictEqual(launch.valor, 400);
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_FAMILIA');
+    assert.strictEqual(launch.id_divida, 'DIV_OBRIGACOES_CASA');
+    assert.strictEqual(launch.afeta_dre, false);
+    assert.strictEqual(launch.afeta_patrimonio, true);
+    assert.strictEqual(launch.afeta_caixa_familiar, true);
+    assert.match(result.responseText, /Obrig/);
+});
+
+test('Apps Script cash outflow asks for another source when selected source balance is insufficient', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'divida_pagamento',
+        data: '2026-05-19',
+        competencia: '2026-05',
+        valor: '400',
+        descricao: 'Pagamento vistoria da casa',
+        id_categoria: 'OBR_PAGAMENTO_DIVIDA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: 'DIV_OBRIGACOES_CASA',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: true,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    appendFakeSourceBalance(sheets, {
+        competencia: '2026-05',
+        data_referencia: '2026-05-19',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        saldo_final: 324.91,
+        saldo_disponivel: 324.91,
+    });
+    appendFakeAsset(sheets, {
+        nome: 'Cofrinho Mercado Pago Gustavo',
+        saldo_atual: 281.46,
+        conta_reserva_emergencia: true,
+    });
+    appendFakeDebt(sheets, {
+        id_divida: 'DIV_OBRIGACOES_CASA',
+        nome: 'Obrigacoes pontuais da casa',
+        credor: 'Casa',
+        tipo: 'obrigacao_pontual_imovel',
+    });
+
+    const result = postPilotMessage(context, 'paguei 400 vistoria da casa');
+
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Saldo insuficiente|saldo insuficiente/i);
+    assert.match(result.responseText, /Conta familia/);
+    assert.match(result.responseText, /R\$ 324,91/);
+    assert.match(result.responseText, /R\$ 400,00/);
+    assert.match(result.responseText, /cofrinho|caixinha|fonte/i);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script operational action records Brenda house inspection obligation idempotently', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-05-19',
+        competencia: '2026-05',
+        valor: '400',
+        descricao: 'fallback should not be used',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    appendFakeDebt(sheets, {
+        id_divida: 'DIV_FINANCIAMENTO_CAIXA_CASA',
+        nome: 'Financiamento Caixa da casa',
+        credor: 'Caixa Economica Federal',
+        tipo: 'financiamento_imobiliario',
+    });
+    appendFakeDebt(sheets, {
+        id_divida: 'DIV_OBRIGACOES_CASA',
+        nome: 'Obrigacoes pontuais da casa',
+        credor: 'Casa',
+        tipo: 'obrigacao_pontual_imovel',
+    });
+
+    const first = JSON.parse(context.doGet({
+        parameter: {
+            action: 'record_may_2026_brenda_house_inspection',
+            secret: 'test_secret',
+        },
+    }).getContentText());
+    const second = JSON.parse(context.doGet({
+        parameter: {
+            action: 'record_may_2026_brenda_house_inspection',
+            secret: 'test_secret',
+        },
+    }).getContentText());
+
+    assert.strictEqual(first.ok, true, JSON.stringify(first.errors));
+    assert.strictEqual(second.ok, true, JSON.stringify(second.errors));
+    assert.strictEqual(second.status, 'duplicate_completed');
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.data, '2026-05-19');
+    assert.strictEqual(launch.competencia, '2026-05');
+    assert.strictEqual(launch.tipo_evento, 'divida_pagamento');
+    assert.strictEqual(launch.id_categoria, 'OBR_PAGAMENTO_DIVIDA');
+    assert.strictEqual(launch.valor, 400);
+    assert.strictEqual(launch.id_divida, 'DIV_OBRIGACOES_CASA');
+    assert.strictEqual(launch.afeta_dre, false);
+    assert.strictEqual(launch.afeta_patrimonio, true);
+    assert.strictEqual(launch.afeta_caixa_familiar, true);
+});
+
+test('Apps Script repair action cancels duplicated Brenda house inspection launch without deleting history', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_ORIGINAL_BRENDA',
+        data: '2026-05-19',
+        competencia: '2026-05',
+        tipo_evento: 'divida_pagamento',
+        id_categoria: 'OBR_PAGAMENTO_DIVIDA',
+        valor: 400,
+        id_divida: 'DIV_OBRIGACOES_CASA',
+        descricao: 'Transferência de 400 para Brenda Gantus - pagamento de vistoria da casa',
+        status: 'efetivado',
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_987FC10AB5F9',
+        data: '2026-05-19',
+        competencia: '2026-05',
+        tipo_evento: 'divida_pagamento',
+        id_categoria: 'OBR_PAGAMENTO_DIVIDA',
+        valor: 400,
+        id_divida: 'DIV_OBRIGACOES_CASA',
+        descricao: 'Transferi 400 para Brenda Gantus pagamento vistoria da casa',
+        status: 'efetivado',
+    });
+
+    const result = runRemoteAction(context, 'repair_may_2026_duplicate_brenda_house_inspection');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result));
+    assert.strictEqual(result.canceled_launches, 1);
+    const launches = sheets.Lancamentos.rows.slice(1).map((row) => Object.fromEntries(lancamentosHeaders.map((header, index) => [header, row[index]])));
+    assert.strictEqual(launches.find((row) => row.id_lancamento === 'LAN_ORIGINAL_BRENDA').status, 'efetivado');
+    assert.strictEqual(launches.find((row) => row.id_lancamento === 'LAN_987FC10AB5F9').status, 'cancelado_revisao');
+});
+
+test('Apps Script operational action updates MP cofrinho after Brenda payment', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeAsset(sheets, {
+        id_ativo: 'ATIVO_COF_MP',
+        nome: 'Cofrinho Mercado Pago Gustavo',
+        instituicao: 'Mercado Pago',
+        saldo_atual: 281.46,
+        conta_reserva_emergencia: true,
+    });
+
+    const result = runRemoteAction(context, 'record_may_2026_mp_cofrinho_after_brenda');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result));
+    assert.strictEqual(result.shouldApplyDomainMutation, true);
+    assert.strictEqual(sheets.Patrimonio_Ativos.rows.length, 2);
+    const asset = Object.fromEntries(patrimonioAtivosHeaders.map((header, index) => [header, sheets.Patrimonio_Ativos.rows[1][index]]));
+    assert.strictEqual(asset.id_ativo, 'ATIVO_COF_MP');
+    assert.strictEqual(asset.saldo_atual, 103.01);
+    assert.strictEqual(asset.data_referencia, '2026-05-19');
 });
 
 test('Apps Script generic launch writes reviewed adjustment without financial references', () => {
