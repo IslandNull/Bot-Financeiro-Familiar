@@ -1830,78 +1830,72 @@ var V55 = (function() {
     var liquidezTotal = roundMoney_(summary.saldos_fontes_disponivel + summary.reserva_total);
     var currentInvoices = numberFromSheetValue_(summary.faturas_atuais);
     var currentAfterLiquidity = roundMoney_(liquidezTotal - currentInvoices);
-    var futureCardExposure = roundMoney_(Math.max(0, summary.faturas_60d - currentInvoices));
     var lines = [
       '📊 Resumo de ' + friendlyCompetencia_(summary.competencia),
       '',
-      '✅ ' + buildPilotSituationText_(summary, obligations),
+      '✅ Situação',
+      buildPilotSituationText_(summary, obligations),
       '',
-      '💰 Foto de hoje',
+      '💰 Dinheiro disponível',
       'Contas: ' + formatMoney_(summary.saldos_fontes_disponivel),
       'Reserva: ' + formatMoney_(summary.reserva_total),
-      'Depois das faturas atuais: ' + formatMoney_(currentAfterLiquidity),
+      'Após faturas atuais: ' + formatMoney_(currentAfterLiquidity),
       '',
       '💳 Faturas atuais',
     ];
     var currentInvoiceItems = summary.faturas_atuais_detalhe || [];
     if (currentInvoiceItems.length === 0) lines.push('Nenhuma fatura atual aberta registrada.');
     currentInvoiceItems.forEach(function(item) {
-      lines.push('• ' + shortCardName_(item.cartao) + ': ' + formatMoney_(item.valor) + ' vence ' + formatShortDate_(item.data_vencimento));
+      lines.push(shortCardName_(item.cartao) + ' ' + formatShortDate_(item.data_vencimento) + ': ' + formatMoney_(item.valor));
     });
     lines.push('Total: ' + formatMoney_(currentInvoices));
     lines.push('');
-    lines.push('🏠 Próximos 60 dias');
-    lines.push('Compromissos cadastrados: ' + formatMoney_(summary.obrigacoes_60d));
-    (summary.obrigacoes_60d_detalhe || []).slice(0, 4).forEach(function(item) {
-      lines.push('• ' + item.nome + ': ' + formatMoney_(item.valor));
-    });
-    lines.push('Parcelas futuras no cartão: ' + formatMoney_(futureCardExposure));
-    lines.push('Não é tudo vencendo agora.');
-    if (summary.margem_pos_obrigacoes < 0 && numberFromSheetValue_(summary.saldos_fontes_count) === 0) {
-      lines.push('⚠️ Falta saldo informado para avaliar tudo.');
-    } else if (summary.margem_pos_obrigacoes < 0) {
-      lines.push('⚠️ Cobertura total abaixo das contas registradas: ' + formatMoney_(Math.abs(summary.margem_pos_obrigacoes)));
-    } else {
-      lines.push('Folga após compromissos: ' + formatMoney_(summary.margem_pos_obrigacoes));
-    }
-    lines = lines.concat([
-      '',
-      '📈 Maio até agora',
-      'Gastos assumidos (DRE): ' + formatMoney_(summary.despesas_dre),
-      'Caixa registrado: ' + formatMoney_(summary.sobra_caixa),
-      'Renda prevista: ' + formatMoney_(summary.rendas_recorrentes_planejadas),
-    ]);
-    if (summary.sobra_caixa < 0) {
-      lines.push('Esse caixa inclui faturas pagas e obrigacoes, nao so custo de vida.');
-      lines.push('Faturas pagas: ' + formatMoney_(summary.caixa_saida_pagamento_fatura) + ' | Obrigacoes: ' + formatMoney_(summary.caixa_saida_obrigacoes));
-    }
+    lines.push('📌 Atenção');
+    Array.prototype.push.apply(lines, buildPilotAttentionLines_(summary, currentAfterLiquidity));
     if (summary.categorias_previsao && summary.categorias_previsao.length > 0) {
       lines.push('');
-      lines.push('🔎 Maior impacto previsto');
+      lines.push('🔎 Maior impacto do mês');
       summary.categorias_previsao.slice(0, 3).forEach(function(item) {
-        lines.push('• ' + item.categoria + ': ' + formatMoney_(item.valor));
+        lines.push(item.categoria + ': ' + formatMoney_(item.valor));
       });
-      lines.push('Compras parceladas aparecem pelo valor da parcela nesta leitura.');
     }
     lines = lines.concat([
       '',
       '🧭 Próximo passo',
       guidance.action,
-      guidance.reason,
+      '',
+      'Ver detalhes:',
+      '/agenda',
+      'para onde foi meu dinheiro?',
+      '/revisar_mes',
     ]);
-    if (guidance.caveat) lines.push(guidance.caveat);
-    if (summary.eventos_detalhados_preview && summary.eventos_detalhados_preview.length > 0) {
-      lines.push('');
-      lines.push('🧾 Últimos gastos');
-      summary.eventos_detalhados_preview.slice(0, 3).forEach(function(event) {
-        lines.push('- ' + formatShortDate_(event.data) + ' ' + event.categoria + ' - ' + formatMoney_(event.valor));
-      });
-    }
-    lines.push('');
-    lines.push('Ver tambem: /agenda, /revisar_mes ou "posso comprar 900 em 3x?"');
     return lines.join('\n');
   }
 
+  function buildPilotAttentionLines_(summary, currentAfterLiquidity) {
+    if (numberFromSheetValue_(summary.saldos_fontes_count) === 0) {
+      return [
+        'Ainda falta saldo real das contas.',
+        'Sem esse dado eu evito sugerir investimento, reserva ou amortização.',
+      ];
+    }
+    if (currentAfterLiquidity < 0) {
+      return [
+        'As faturas atuais passam do saldo + reserva registrados.',
+        'Separar dinheiro para pagamento vem antes de gasto novo.',
+      ];
+    }
+    if (summary.saldos_fontes_disponivel < summary.faturas_atuais) {
+      return [
+        'Saldo em conta está baixo.',
+        'A reserva cobre as faturas, mas o ideal é preservar liquidez até entrar renda.',
+      ];
+    }
+    return [
+      'As faturas atuais cabem no saldo informado.',
+      'Ainda vale conferir agenda e parcelas antes de gasto grande.',
+    ];
+  }
   function buildPilotSituationText_(summary, obligations) {
     if (summary.margem_pos_obrigacoes < 0) return 'Atenção: falta cobertura para tudo que está registrado.';
     if (numberFromSheetValue_(summary.faturas_atuais) > 0) return 'Faturas atuais cobertas pela liquidez registrada.';
@@ -5863,7 +5857,7 @@ var V55 = (function() {
     var date = normalizeAssetBalanceDate_(match[4]);
     if (!isValidIsoDate_(date)) return fail_('INVALID_ASSET_BALANCE_DATE', 'data', '⚠️ Data invalida para patrimonio.');
     var kind = capitalize_(match[1]);
-    var ownerName = match[2].trim().replace(/[.。]+$/, '');
+    var ownerName = match[2].trim().replace(/[.]+$/, '');
     var name = kind + ' ' + ownerName;
     return {
       ok: true,
