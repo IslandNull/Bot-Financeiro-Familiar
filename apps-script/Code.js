@@ -29,7 +29,7 @@ var V55 = (function() {
     '- /revisar_mes: checklist antes de fechamento',
     '- /ajuda: exemplos'
   ].join('\n');
-  var SUCCESS_TEXT = '✅ Anotado.\n\nPróximo passo:\nUse /resumo para revisar o mês.';
+  var SUCCESS_TEXT = '✅ Anotado.\n\n🧭 Próximo passo\nUse /resumo para revisar o mês.';
   var FAMILY_SUMMARY_HELP_TEXT = '🛡️ Regra de segurança\nSe eu não tiver certeza, eu não chuto. Eu peço categoria, fonte ou contexto.';
   var DEFAULT_OPENAI_MODEL = 'gpt-5-nano';
   var OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
@@ -300,7 +300,7 @@ var V55 = (function() {
     if (isHelpCommand_(text)) {
       return {
         ok: true,
-        responseText: HELP_TEXT + '\n' + FAMILY_SUMMARY_HELP_TEXT,
+        responseText: HELP_TEXT + '\n\n' + FAMILY_SUMMARY_HELP_TEXT,
         shouldApplyDomainMutation: false,
       };
     }
@@ -4528,20 +4528,20 @@ var V55 = (function() {
       '💵 Lançamento',
       'Valor: ' + formatMoney_(event.valor),
     ];
-    if (event.data) lines.push('Data: ' + formatSheetDate_(event.data));
-    lines.push('Tipo: ' + friendlyEventType_(event.tipo_evento));
+    if (event.data) lines.push('Data: ' + formatShortDate_(event.data));
     var categoryName = friendlyCategoryName_(event.id_categoria, referenceData);
     if (categoryName) lines.push('Categoria: ' + categoryName);
+    if (event.parcelas && Number(event.parcelas) > 1) lines.push('Parcela estimada: ' + formatMoney_(roundMoney_(event.valor / Number(event.parcelas))));
     lines.push('');
     lines.push('📌 Impacto');
     var sourceName = friendlySourceName_(event.id_fonte, referenceData);
     if (sourceName) lines.push('Fonte: ' + sourceName);
     var cardName = friendlyCardName_(event.id_cartao, referenceData);
     if (cardName) lines.push('Cartão: ' + cardName);
-    if (event.id_fatura) lines.push('Fatura: ' + friendlyIdentifier_(event.id_fatura));
-    lines.push('Caixa familiar: ' + friendlyCashEffect_(event));
+    if (event.id_fatura) lines.push('Fatura: ' + friendlyInvoiceName_(event.id_fatura, referenceData));
+    lines = lines.concat(friendlyImpactLines_(event));
     lines.push('');
-    lines.push('Próximo passo');
+    lines.push('🧭 Próximo passo');
     lines.push('Use /resumo para revisar o mês.');
     return lines.join('\n');
   }
@@ -4579,14 +4579,32 @@ var V55 = (function() {
     return text || 'lancamento';
   }
 
-  function friendlyCashEffect_(event) {
-    if (event.tipo_evento === 'compra_cartao') return 'nao saiu agora; entra na fatura';
-    if (event.tipo_evento === 'transferencia_interna' && event.direcao_caixa_familiar === 'entrada') return 'entrou';
-    if (event.afeta_caixa_familiar === true) {
-      if (event.tipo_evento === 'receita') return 'entrou';
-      return 'saiu';
+  function friendlyImpactLines_(event) {
+    if (event.tipo_evento === 'compra_cartao') {
+      return [
+        'Não saiu do caixa agora.',
+        'Entra na fatura do cartão.',
+      ];
     }
-    return 'nao alterou agora';
+    if (event.tipo_evento === 'pagamento_fatura') {
+      return [
+        'Saiu do caixa.',
+        'Não é despesa nova; baixa uma fatura já assumida.',
+      ];
+    }
+    if (event.tipo_evento === 'transferencia_interna' && event.direcao_caixa_familiar === 'entrada') {
+      return ['Caixa familiar: entrou.'];
+    }
+    if (event.tipo_evento === 'transferencia_interna') {
+      return ['Movimento interno; não muda DRE nem gasto do mês.'];
+    }
+    if (event.afeta_caixa_familiar === true) {
+      if (event.tipo_evento === 'receita') return ['Caixa familiar: entrou.'];
+      return ['Caixa familiar: saiu.'];
+    }
+    if (event.tipo_evento === 'aporte') return ['Não é gasto operacional; move caixa para patrimônio.'];
+    if (event.tipo_evento === 'divida_pagamento') return ['Saiu do caixa para reduzir obrigação registrada.'];
+    return ['Não alterou o caixa familiar agora.'];
   }
 
   function friendlyCategoryName_(id, referenceData) {
@@ -4602,6 +4620,21 @@ var V55 = (function() {
   function friendlyCardName_(id, referenceData) {
     var card = referenceData && referenceData.cardsById && referenceData.cardsById[stringValue_(id)];
     return card ? stringValue_(card.nome) : '';
+  }
+
+  function friendlyInvoiceName_(id, referenceData) {
+    var invoiceId = stringValue_(id);
+    var invoice = referenceData && referenceData.invoicesById && referenceData.invoicesById[invoiceId];
+    if (invoice) {
+      var card = referenceData.cardsById && referenceData.cardsById[stringValue_(invoice.id_cartao)];
+      var cardName = card ? shortCardName_(card.nome) : shortCardName_(invoice.id_cartao);
+      return cardName + ' ' + friendlyCompetencia_(normalizeSheetCompetencia_(invoice.competencia));
+    }
+    var match = invoiceId.match(/(20\d{2})[_-](\d{2})/);
+    var competencia = match ? friendlyCompetencia_(match[1] + '-' + match[2]) : '';
+    if (invoiceId.indexOf('NUBANK') !== -1) return competencia ? 'Nubank ' + competencia : 'Nubank';
+    if (invoiceId.indexOf('MERCADO_PAGO') !== -1 || invoiceId.indexOf('MP') !== -1) return competencia ? 'Mercado Pago ' + competencia : 'Mercado Pago';
+    return 'fatura registrada';
   }
 
   function recordPilotExpense_(update, message, event, config, referenceData) {
@@ -5808,14 +5841,14 @@ var V55 = (function() {
   function handlePilotBalanceSnapshot_(update, message, text, config, referenceData) {
     var str = stringValue_(text).trim();
     var match = str.match(/^\/?saldo\s+(.+?)\s+([\d.,]+)\s*$/i);
-    if (!match) return fail_('INVALID_BALANCE_FORMAT', 'text', '⚠️ Não entendi o saldo.\n\nFormato:\nsaldo <fonte> <valor>\n\nExemplo:\n/saldo nubank 3500');
+    if (!match) return fail_('INVALID_BALANCE_FORMAT', 'text', '⚠️ Não entendi o saldo.\n\n📌 Como corrigir\nUse o formato saldo + fonte + valor.\n\nExemplo:\n/saldo nubank 3500');
     var sourceName = match[1].trim();
     var rawAmount = match[2].replace(/\./g, '').replace(',', '.');
     var amount = Number(rawAmount);
-    if (!isFinite(amount) || amount < 0) return fail_('INVALID_BALANCE_AMOUNT', 'valor', '⚠️ Valor de saldo inválido.');
+    if (!isFinite(amount) || amount < 0) return fail_('INVALID_BALANCE_AMOUNT', 'valor', '⚠️ Valor de saldo inválido.\n\n📌 Como corrigir\nMande um valor positivo.\n\nExemplo:\n/saldo nubank 3500');
 
     var source = findSourceByAlias_(sourceName, referenceData.sources);
-    if (!source) return fail_('BALANCE_SOURCE_NOT_FOUND', 'id_fonte', '⚠️ Fonte não encontrada.\n\nFonte informada:\n' + sourceName + '\n\nFontes disponíveis:\n' + referenceData.sources.filter(function(s) { return s.ativo !== false; }).map(function(s) { return s.nome; }).join(', '));
+    if (!source) return fail_('BALANCE_SOURCE_NOT_FOUND', 'id_fonte', '⚠️ Fonte não encontrada.\n\n📌 Fonte informada\n' + sourceName + '\n\nFontes disponíveis:\n' + referenceData.sources.filter(function(s) { return s.ativo !== false; }).map(function(s) { return s.nome; }).join(', '));
 
     var lock = LockService.getScriptLock();
     lock.waitLock(10000);
@@ -5847,7 +5880,7 @@ var V55 = (function() {
           'Fonte: ' + stringValue_(source.nome),
           'Saldo: R$ ' + formatBrazilianMoney_(amount),
           '',
-          'Próximo passo',
+          '🧭 Próximo passo',
           'Use /resumo para ver a leitura do mês.',
         ].join('\n'),
         shouldApplyDomainMutation: true,
@@ -5899,7 +5932,7 @@ var V55 = (function() {
           '📌 Impacto',
           'Não é receita nem despesa. Entra como reserva/liquidez.',
           '',
-          'Próximo passo',
+          '🧭 Próximo passo',
           'Use /resumo para conferir a cobertura das faturas.',
         ].join('\n'),
         shouldApplyDomainMutation: true,
@@ -5914,11 +5947,11 @@ var V55 = (function() {
   function parsePilotAssetBalanceText_(text) {
     var str = stringValue_(text).trim();
     var match = str.match(/(?:atualizar\s+patrim[oô]nio:?\s*)?(caixinha|cofrinho)\s+(.+?)\s+(?:com\s+)?saldo\s+([\d.,]+)(?:\s+em\s+(\d{1,2}\/\d{1,2}(?:\/\d{4})?|\d{4}-\d{2}-\d{2}))?/i);
-    if (!match) return fail_('INVALID_ASSET_BALANCE_FORMAT', 'text', '⚠️ Não entendi o patrimônio.\n\nFormato:\ncaixinha/cofrinho <nome> saldo <valor>\n\nExemplo:\ncofrinho Mercado Pago Gustavo saldo 9482,99');
+    if (!match) return fail_('INVALID_ASSET_BALANCE_FORMAT', 'text', '⚠️ Não entendi o patrimônio.\n\n📌 Como corrigir\nUse caixinha/cofrinho + nome + saldo.\n\nExemplo:\ncofrinho Mercado Pago Gustavo saldo 9482,99');
     var amount = Number(match[3].replace(/\./g, '').replace(',', '.'));
-    if (!isFinite(amount) || amount < 0) return fail_('INVALID_ASSET_BALANCE_AMOUNT', 'valor', '⚠️ Valor de patrimônio inválido.');
+    if (!isFinite(amount) || amount < 0) return fail_('INVALID_ASSET_BALANCE_AMOUNT', 'valor', '⚠️ Valor de patrimônio inválido.\n\n📌 Como corrigir\nMande um valor positivo.');
     var date = normalizeAssetBalanceDate_(match[4]);
-    if (!isValidIsoDate_(date)) return fail_('INVALID_ASSET_BALANCE_DATE', 'data', '⚠️ Data inválida para patrimônio.');
+    if (!isValidIsoDate_(date)) return fail_('INVALID_ASSET_BALANCE_DATE', 'data', '⚠️ Data inválida para patrimônio.\n\n📌 Como corrigir\nUse uma data como 18/05 ou 2026-05-18.');
     var kind = capitalize_(match[1]);
     var ownerName = match[2].trim().replace(/[.]+$/, '');
     var name = kind + ' ' + ownerName;

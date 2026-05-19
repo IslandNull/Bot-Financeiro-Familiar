@@ -647,6 +647,7 @@ test('Apps Script help gives practical launch examples without mutating', () => 
     assert.match(result.responseText, /qual meu custo de vida mensal/);
     assert.match(result.responseText, /Comandos/);
     assert.match(result.responseText, /Regra de segurança|Regra de seguranca/);
+    assert.match(result.responseText, /\/ajuda: exemplos\n\n.*Regra de seguran/s);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
@@ -677,16 +678,56 @@ test('Apps Script UX messages use short summary-style sections', () => {
     assert.match(launch.responseText, /Valor: R\$ 10,00/);
     assert.match(launch.responseText, /📌 Impacto/);
     assert.match(launch.responseText, /Caixa familiar: saiu/);
-    assert.match(launch.responseText, /Próximo passo|Proximo passo/);
-    assert.doesNotMatch(launch.responseText, /📝 Descricao:/);
-    assert.doesNotMatch(launch.responseText, /🏷️ Tipo:/);
+    assert.match(launch.responseText, /🧭 Próximo passo|🧭 Proximo passo/);
+    assert.doesNotMatch(launch.responseText, /Descrição:|Descricao:/);
+    assert.doesNotMatch(launch.responseText, /Tipo:/);
+    assert.doesNotMatch(launch.responseText, /id_|FAT_|CARD_|FONTE_|OPEX_/);
 
     assert.strictEqual(balance.ok, true);
     assert.match(balance.responseText, /^📊 Saldo atualizado/m);
     assert.match(balance.responseText, /💰 Dinheiro disponível|💰 Dinheiro disponivel/);
     assert.match(balance.responseText, /Fonte: Nubank Gustavo/);
     assert.match(balance.responseText, /Saldo: R\$ 1.500,50/);
-    assert.match(balance.responseText, /Próximo passo|Proximo passo/);
+    assert.match(balance.responseText, /🧭 Próximo passo|🧭 Proximo passo/);
+});
+
+test('Apps Script UX messages hide internal invoice ids and explain card impact', () => {
+    const { context } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '3000',
+        descricao: 'Notebook 3000 em 3x no Nubank',
+        id_categoria: 'OPEX_ELETRONICOS_E_EQUIPAMENTOS',
+        id_fonte: '',
+        pessoa: '',
+        escopo: '',
+        visibilidade: '',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: '',
+        parcelas: 3,
+    });
+
+    const result = postPilotMessage(context, 'Comprei notebook 3000 em 3x no nubank categoria Eletronicos e equipamentos');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.match(result.responseText, /Compra no cartão anotada/);
+    assert.match(result.responseText, /Valor: R\$ 3000,00/);
+    assert.match(result.responseText, /Categoria: Eletronicos e equipamentos/);
+    assert.match(result.responseText, /Cartão: Nubank Gustavo/);
+    assert.match(result.responseText, /Fatura: Nubank abril/);
+    assert.match(result.responseText, /Não saiu do caixa agora|Nao saiu do caixa agora/);
+    assert.match(result.responseText, /Entra na fatura do cartão|Entra na fatura do cartao/);
+    assert.match(result.responseText, /Parcela estimada: R\$ 1000,00/);
+    assert.doesNotMatch(result.responseText, /Tipo:/);
+    assert.doesNotMatch(result.responseText, /FAT_|CARD_|FONTE_|OPEX_/);
 });
 
 test('Apps Script balance snapshot creates a row in Saldos_Fontes', () => {
@@ -2580,12 +2621,12 @@ test('Apps Script pilot expense canonicalizes fragile parser output before writi
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Gasto anotado/);
     assert.match(result.responseText, /Valor: R\$ 10,00/);
-    assert.match(result.responseText, /Data: 2026-04-30/);
-    assert.match(result.responseText, /Tipo: gasto/);
+    assert.match(result.responseText, /Data: 30\/04/);
+    assert.doesNotMatch(result.responseText, /Tipo:/);
     assert.match(result.responseText, /Categoria: Mercado da semana/);
     assert.match(result.responseText, /Fonte: Conta familia/);
     assert.match(result.responseText, /Impacto/);
-    assert.match(result.responseText, /Caixa familiar: saiu/);
+    assert.match(result.responseText, /Caixa familiar: saiu\./);
     assert.match(result.responseText, /Use \/resumo para revisar o m[eê]s\./);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
