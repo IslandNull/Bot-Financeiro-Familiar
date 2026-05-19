@@ -630,6 +630,12 @@ test('Apps Script runtime gates and narrows financial mutation', () => {
     assert.ok(code.includes('shouldApplyDomainMutation: false'));
 });
 
+test('Apps Script runtime schema knows every V55 sheet header used by local contracts', () => {
+    assert.ok(code.includes("TELEGRAM_SEND_LOG: 'Telegram_Send_Log'"));
+    assert.ok(code.includes("Telegram_Send_Log: ['id_notificacao', 'created_at', 'route', 'chat_id', 'phase', 'status', 'status_code', 'error', 'result_ref', 'id_lancamento', 'idempotency_key', 'text_preview', 'sent_at']"));
+    assert.ok(code.includes("'parcelas', 'created_at']"));
+});
+
 test('Apps Script help gives practical launch examples without mutating', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
 
@@ -644,6 +650,7 @@ test('Apps Script help gives practical launch examples without mutating', () => 
     assert.match(result.responseText, /farmacia 18 no nubank/);
     assert.match(result.responseText, /paguei fatura Mercado Pago 300/);
     assert.match(result.responseText, /Luana mandou 200 para caixa familiar/);
+    assert.match(result.responseText, /saldo Mercado Pago Gustavo 324,41 em 18\/05/);
     assert.match(result.responseText, /qual meu custo de vida mensal/);
     assert.match(result.responseText, /Comandos/);
     assert.match(result.responseText, /Regra de segurança|Regra de seguranca/);
@@ -744,6 +751,38 @@ test('Apps Script balance snapshot creates a row in Saldos_Fontes', () => {
     assert.strictEqual(sheets.Saldos_Fontes.rows[1][3], 'FONTE_NUBANK_GU'); // id_fonte
     assert.strictEqual(sheets.Saldos_Fontes.rows[1][5], 1500.5); // saldo_final
     assert.strictEqual(sheets.Saldos_Fontes.rows[1][6], 1500.5); // saldo_disponivel
+});
+
+test('Apps Script balance snapshot accepts reference date and prefers account source over card source', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        nome: 'Mercado Pago Gustavo',
+        tipo: 'cartao_credito',
+        titular: 'Gustavo',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU',
+        nome: 'Conta Mercado Pago Gustavo',
+        tipo: 'conta_corrente',
+        titular: 'Gustavo',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+
+    const result = postPilotMessage(context, '/saldo Mercado Pago Gustavo 324,41 em 18/05');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.match(result.responseText, /Saldo atualizado/);
+    assert.match(result.responseText, /Data: 18\/05/);
+    assert.strictEqual(sheets.Saldos_Fontes.rows.length, 2);
+    const snapshot = Object.fromEntries(saldosFontesHeaders.map((header, index) => [header, sheets.Saldos_Fontes.rows[1][index]]));
+    assert.strictEqual(snapshot.id_fonte, 'FONTE_CONTA_MERCADO_PAGO_GU');
+    assert.strictEqual(snapshot.competencia, '2026-05');
+    assert.strictEqual(snapshot.data_referencia, '2026-05-18');
+    assert.strictEqual(snapshot.saldo_disponivel, 324.41);
 });
 
 test('Apps Script asset balance updates caixinha and cofrinho as reserve liquidity', () => {
@@ -3417,6 +3456,58 @@ test('Apps Script pilot invoice payment infers Nubank April invoice and cash sou
     const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
     assert.strictEqual(invoice.valor_pago, 1997.73);
     assert.strictEqual(invoice.status, 'paga');
+});
+
+test('Apps Script invoice payment source uses explicit paying account instead of target card name', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'pagamento_fatura',
+        data: '2026-05-07',
+        competencia: '2026-05',
+        valor: '1997.73',
+        descricao: 'Paguei a fatura Nubank Gustavo de abril',
+        id_categoria: '',
+        id_fonte: '',
+        pessoa: '',
+        escopo: '',
+        visibilidade: '',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: true,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+    [
+        {
+            id_fonte: 'FONTE_CONTA_NUBANK_GU',
+            nome: 'Conta Nubank Gustavo',
+            tipo: 'conta_corrente',
+            titular: 'Gustavo',
+            moeda: 'BRL',
+            ativo: true,
+        },
+        {
+            id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU',
+            nome: 'Conta Mercado Pago Gustavo',
+            tipo: 'conta_corrente',
+            titular: 'Gustavo',
+            moeda: 'BRL',
+            ativo: true,
+        },
+    ].forEach((row) => sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => row[header] === undefined ? '' : row[header])));
+    appendFakeInvoice(sheets, { valor_previsto: 1997.73 });
+
+    const result = postPilotMessage(context, 'Paguei a fatura Nubank Gustavo de abril no valor de 1997,73 em 07/05 pela Conta Mercado Pago Gustavo. Nao e despesa nova, e pagamento de fatura.');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'pagamento_fatura');
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_MERCADO_PAGO_GU');
+    assert.strictEqual(launch.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
+    assert.strictEqual(launch.afeta_dre, false);
 });
 
 test('Apps Script pilot invoice payment infers Mercado Pago invoice and account from natural text', () => {

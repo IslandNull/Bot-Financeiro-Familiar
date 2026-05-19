@@ -13,7 +13,7 @@ var V55 = (function() {
     '- paguei fatura Mercado Pago 300',
     '- Luana mandou 200 para caixa familiar',
     '- transferi 1675 do Nubank Gustavo para Mercado Pago Gustavo',
-    '- saldo nubank 3500',
+    '- saldo Mercado Pago Gustavo 324,41 em 18/05',
     '- cofrinho Mercado Pago Gustavo saldo 9482,99',
     '',
     '🔎 Perguntas úteis',
@@ -46,6 +46,7 @@ var V55 = (function() {
     FECHAMENTO_FAMILIAR: 'Fechamento_Familiar',
     TRANSFERENCIAS_INTERNAS: 'Transferencias_Internas',
     IDEMPOTENCY_LOG: 'Idempotency_Log',
+    TELEGRAM_SEND_LOG: 'Telegram_Send_Log',
   };
   var HEADERS = {
     Cartoes: ['id_cartao', 'id_fonte', 'nome', 'titular', 'fechamento_dia', 'vencimento_dia', 'limite', 'ativo'],
@@ -60,6 +61,7 @@ var V55 = (function() {
     Saldos_Fontes: ['id_snapshot', 'competencia', 'data_referencia', 'id_fonte', 'saldo_inicial', 'saldo_final', 'saldo_disponivel', 'observacao', 'created_at'],
     Transferencias_Internas: ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'],
     Idempotency_Log: ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'],
+    Telegram_Send_Log: ['id_notificacao', 'created_at', 'route', 'chat_id', 'phase', 'status', 'status_code', 'error', 'result_ref', 'id_lancamento', 'idempotency_key', 'text_preview', 'sent_at'],
   };
   var PARSED_EVENT_FIELDS = ['tipo_evento', 'data', 'competencia', 'valor', 'descricao', 'id_categoria', 'id_fonte', 'pessoa', 'escopo', 'visibilidade', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'direcao_caixa_familiar', 'status', 'parcelas'];
   function doPost(e) {
@@ -4568,9 +4570,24 @@ var V55 = (function() {
     var normalized = normalizeAliasText_(text);
     if (!normalized) return null;
     var nubank = sourceById_(referenceData, 'FONTE_CONTA_NUBANK_GU');
-    if (nubank && (containsAliasPhrase_(normalized, 'nubank') || containsAliasPhrase_(normalized, 'conta nu'))) return nubank;
     var mercadoPago = sourceById_(referenceData, 'FONTE_CONTA_MERCADO_PAGO_GU');
-    if (mercadoPago && (containsAliasPhrase_(normalized, 'mercado pago') || containsAliasPhrase_(normalized, 'conta mp'))) return mercadoPago;
+    if (mercadoPago && (
+        containsAliasPhrase_(normalized, 'pela conta mercado pago') ||
+        containsAliasPhrase_(normalized, 'da conta mercado pago') ||
+        containsAliasPhrase_(normalized, 'conta mercado pago') ||
+        containsAliasPhrase_(normalized, 'pela conta mp') ||
+        containsAliasPhrase_(normalized, 'da conta mp') ||
+        containsAliasPhrase_(normalized, 'conta mp'))) return mercadoPago;
+    if (nubank && (
+        containsAliasPhrase_(normalized, 'pela conta nubank') ||
+        containsAliasPhrase_(normalized, 'da conta nubank') ||
+        containsAliasPhrase_(normalized, 'conta nubank') ||
+        containsAliasPhrase_(normalized, 'pela conta nu') ||
+        containsAliasPhrase_(normalized, 'da conta nu') ||
+        containsAliasPhrase_(normalized, 'conta nu'))) return nubank;
+    if (containsAliasPhrase_(normalized, 'fatura')) return null;
+    if (nubank && containsAliasPhrase_(normalized, 'nubank')) return nubank;
+    if (mercadoPago && (containsAliasPhrase_(normalized, 'mercado pago') || containsAliasPhrase_(normalized, 'mp'))) return mercadoPago;
     return null;
   }
 
@@ -5913,12 +5930,14 @@ var V55 = (function() {
 
   function handlePilotBalanceSnapshot_(update, message, text, config, referenceData) {
     var str = stringValue_(text).trim();
-    var match = str.match(/^\/?saldo\s+(.+?)\s+([\d.,]+)\s*$/i);
+    var match = str.match(/^\/?saldo\s+(.+?)\s+([\d.,]+)(?:\s+em\s+(\d{1,2}\/\d{1,2}(?:\/\d{4})?|\d{4}-\d{2}-\d{2}))?\s*$/i);
     if (!match) return fail_('INVALID_BALANCE_FORMAT', 'text', '⚠️ Não entendi o saldo.\n\n📌 Como corrigir\nUse o formato saldo + fonte + valor.\n\nExemplo:\n/saldo nubank 3500');
     var sourceName = match[1].trim();
     var rawAmount = match[2].replace(/\./g, '').replace(',', '.');
     var amount = Number(rawAmount);
     if (!isFinite(amount) || amount < 0) return fail_('INVALID_BALANCE_AMOUNT', 'valor', '⚠️ Valor de saldo inválido.\n\n📌 Como corrigir\nMande um valor positivo.\n\nExemplo:\n/saldo nubank 3500');
+    var referenceDate = normalizeTelegramReferenceDate_(match[3]);
+    if (!isValidIsoDate_(referenceDate)) return fail_('INVALID_BALANCE_DATE', 'data', '⚠️ Data inválida para saldo.\n\n📌 Como corrigir\nUse uma data como 18/05 ou 2026-05-18.');
 
     var source = findSourceByAlias_(sourceName, referenceData.sources);
     if (!source) return fail_('BALANCE_SOURCE_NOT_FOUND', 'id_fonte', '⚠️ Fonte não encontrada.\n\n📌 Fonte informada\n' + sourceName + '\n\nFontes disponíveis:\n' + referenceData.sources.filter(function(s) { return s.ativo !== false; }).map(function(s) { return s.nome; }).join(', '));
@@ -5930,13 +5949,12 @@ var V55 = (function() {
       var snapshotSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
       verifySheetHeaders_(snapshotSheet, SHEETS.SALDOS_FONTES);
       var now = isoNow_();
-      var today = todaySaoPaulo_();
-      var competencia = today.slice(0, 7);
-      var snapshotId = stableId_('SNAP', source.id_fonte + '|' + today + '|' + amount);
+      var competencia = referenceDate.slice(0, 7);
+      var snapshotId = stableId_('SNAP', source.id_fonte + '|' + referenceDate + '|' + amount);
       appendRow_(snapshotSheet, SHEETS.SALDOS_FONTES, {
         id_snapshot: snapshotId,
         competencia: competencia,
-        data_referencia: today,
+        data_referencia: referenceDate,
         id_fonte: source.id_fonte,
         saldo_inicial: '',
         saldo_final: roundMoney_(amount),
@@ -5952,6 +5970,7 @@ var V55 = (function() {
           '💰 Dinheiro disponível',
           'Fonte: ' + stringValue_(source.nome),
           'Saldo: R$ ' + formatBrazilianMoney_(amount),
+          'Data: ' + formatShortDate_(referenceDate),
           '',
           '🧭 Próximo passo',
           'Use /resumo para ver a leitura do mês.',
@@ -6023,7 +6042,7 @@ var V55 = (function() {
     if (!match) return fail_('INVALID_ASSET_BALANCE_FORMAT', 'text', '⚠️ Não entendi o patrimônio.\n\n📌 Como corrigir\nUse caixinha/cofrinho + nome + saldo.\n\nExemplo:\ncofrinho Mercado Pago Gustavo saldo 9482,99');
     var amount = Number(match[3].replace(/\./g, '').replace(',', '.'));
     if (!isFinite(amount) || amount < 0) return fail_('INVALID_ASSET_BALANCE_AMOUNT', 'valor', '⚠️ Valor de patrimônio inválido.\n\n📌 Como corrigir\nMande um valor positivo.');
-    var date = normalizeAssetBalanceDate_(match[4]);
+    var date = normalizeTelegramReferenceDate_(match[4]);
     if (!isValidIsoDate_(date)) return fail_('INVALID_ASSET_BALANCE_DATE', 'data', '⚠️ Data inválida para patrimônio.\n\n📌 Como corrigir\nUse uma data como 18/05 ou 2026-05-18.');
     var kind = capitalize_(match[1]);
     var ownerName = match[2].trim().replace(/[.]+$/, '');
@@ -6037,7 +6056,7 @@ var V55 = (function() {
     };
   }
 
-  function normalizeAssetBalanceDate_(value) {
+  function normalizeTelegramReferenceDate_(value) {
     var text = stringValue_(value);
     if (!text) return todaySaoPaulo_();
     if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
@@ -6081,14 +6100,24 @@ var V55 = (function() {
     var normalized = normalizeAliasText_(name);
     if (!normalized) return null;
     var active = (sources || []).filter(function(s) { return s.ativo !== false; });
-    for (var i = 0; i < active.length; i += 1) {
-      var sourceNormalized = normalizeAliasText_(active[i].nome || '');
-      if (sourceNormalized === normalized) return active[i];
+    var cashSources = active.filter(function(s) { return s.tipo !== 'cartao_credito'; });
+    for (var i = 0; i < cashSources.length; i += 1) {
+      var cashNormalized = normalizeAliasText_(cashSources[i].nome || '');
+      if (cashNormalized === normalized) return cashSources[i];
     }
-    for (var j = 0; j < active.length; j += 1) {
-      var srcNorm = normalizeAliasText_(active[j].nome || '');
-      if (srcNorm && srcNorm.indexOf(normalized) !== -1) return active[j];
-      if (normalized && normalized.indexOf(srcNorm) !== -1) return active[j];
+    for (var j = 0; j < cashSources.length; j += 1) {
+      var cashNorm = normalizeAliasText_(cashSources[j].nome || '');
+      if (cashNorm && cashNorm.indexOf(normalized) !== -1) return cashSources[j];
+      if (normalized && normalized.indexOf(cashNorm) !== -1) return cashSources[j];
+    }
+    for (var k = 0; k < active.length; k += 1) {
+      var sourceNormalized = normalizeAliasText_(active[k].nome || '');
+      if (sourceNormalized === normalized) return active[k];
+    }
+    for (var m = 0; m < active.length; m += 1) {
+      var srcNorm = normalizeAliasText_(active[m].nome || '');
+      if (srcNorm && srcNorm.indexOf(normalized) !== -1) return active[m];
+      if (normalized && normalized.indexOf(srcNorm) !== -1) return active[m];
     }
     return null;
   }
