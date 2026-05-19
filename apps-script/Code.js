@@ -545,6 +545,7 @@ var V55 = (function() {
       containsAliasPhrase_(normalized, 'quanto') ||
       containsAliasPhrase_(normalized, 'como') ||
       containsAliasPhrase_(normalized, 'quais') ||
+      containsAliasPhrase_(normalized, 'o que') ||
       containsAliasPhrase_(normalized, 'onde') ||
       containsAliasPhrase_(normalized, 'para onde') ||
       containsAliasPhrase_(normalized, 'posso') ||
@@ -557,6 +558,8 @@ var V55 = (function() {
       containsAliasPhrase_(normalized, 'onde foi') ||
       containsAliasPhrase_(normalized, 'maiores gastos') ||
       containsAliasPhrase_(normalized, 'categorias') ||
+      containsAliasPhrase_(normalized, 'despesa') ||
+      containsAliasPhrase_(normalized, 'gasto') ||
       containsAliasPhrase_(normalized, 'fatura') ||
       containsAliasPhrase_(normalized, 'faturas') ||
       containsAliasPhrase_(normalized, 'contas proximas') ||
@@ -594,7 +597,17 @@ var V55 = (function() {
     if (containsAliasPhrase_(normalized, 'para onde foi') ||
         containsAliasPhrase_(normalized, 'onde foi') ||
         containsAliasPhrase_(normalized, 'maiores gastos') ||
+        containsAliasPhrase_(normalized, 'despesa') ||
+        containsAliasPhrase_(normalized, 'gasto') ||
         containsAliasPhrase_(normalized, 'categorias')) {
+      var categoryAnswer = formatMentionedCategoryAnswer_(result.summary, text);
+      if (categoryAnswer) {
+        return {
+          ok: true,
+          responseText: categoryAnswer,
+          shouldApplyDomainMutation: false,
+        };
+      }
       return {
         ok: true,
         responseText: formatTopSpendingCategoriesAnswer_(result.summary),
@@ -2007,6 +2020,66 @@ var V55 = (function() {
     lines.push('Compras parceladas aparecem pelo valor da parcela nesta visão.');
     lines.push('Pagamento de fatura e transferência interna ficam fora para não duplicar despesa.');
     lines.push('Detalhes privados entram só no total da categoria.');
+    return lines.join('\n');
+  }
+
+  function formatMentionedCategoryAnswer_(summary, text) {
+    var normalizedText = normalizeAliasText_(text);
+    var byId = {};
+    (summary.categorias_previsao || []).forEach(function(item) {
+      var id = stringValue_(item.id_categoria);
+      if (!id) return;
+      if (!byId[id]) byId[id] = { id: id, nome: stringValue_(item.categoria), forecast: null, assumed: null };
+      byId[id].forecast = item;
+      if (!byId[id].nome) byId[id].nome = stringValue_(item.categoria);
+    });
+    (summary.categorias_gastos || []).forEach(function(item) {
+      var id = stringValue_(item.id_categoria);
+      if (!id) return;
+      if (!byId[id]) byId[id] = { id: id, nome: stringValue_(item.categoria), forecast: null, assumed: null };
+      byId[id].assumed = item;
+      if (!byId[id].nome) byId[id].nome = stringValue_(item.categoria);
+    });
+    var category = null;
+    Object.keys(byId).forEach(function(id) {
+      var item = byId[id];
+      var normalizedName = normalizeAliasText_(item.nome);
+      if (!normalizedName) return;
+      if (containsAliasPhrase_(normalizedText, normalizedName)) {
+        if (!category || normalizedName.length > category.matchLength) {
+          category = {
+            id: id,
+            nome: item.nome,
+            forecast: item.forecast || { valor: 0 },
+            assumed: item.assumed || { valor: 0 },
+            matchLength: normalizedName.length,
+          };
+        }
+      }
+    });
+    if (!category) return '';
+    var forecastValue = numberFromSheetValue_(category.forecast && category.forecast.valor);
+    var assumedValue = numberFromSheetValue_(category.assumed && category.assumed.valor);
+    var futureValue = roundMoney_(Math.max(0, assumedValue - forecastValue));
+    var lines = [
+      '🔎 ' + category.nome + ' em ' + friendlyCompetencia_(summary.competencia),
+      '',
+      '💰 Previsibilidade do mês',
+      'Impacto previsto no mês: ' + formatMoney_(forecastValue),
+      'Compromisso total assumido: ' + formatMoney_(assumedValue),
+    ];
+    if (futureValue > 0) lines.push('Parte que fica para faturas futuras: ' + formatMoney_(futureValue));
+    lines = lines.concat([
+      '',
+      '📌 Leitura',
+      'Para previsibilidade, olhe primeiro o impacto previsto no mês.',
+      'O compromisso total mostra a compra assumida inteira, inclusive parcelas futuras.',
+      'Pagamento de fatura e transferência interna ficam fora para não duplicar despesa.',
+      'Detalhes privados entram só no total da categoria.',
+      '',
+      '🧭 Próximo passo',
+      'Se essa categoria parece alta, confira a fatura futura antes de assumir gasto novo.',
+    ]);
     return lines.join('\n');
   }
 

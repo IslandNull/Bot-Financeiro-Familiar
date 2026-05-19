@@ -1285,6 +1285,53 @@ test('Apps Script category forecast uses installment amount for monthly predicta
     assert.match(result.responseText, /Compras parceladas aparecem pelo valor da parcela/);
 });
 
+test('Apps Script explains category spending with installments without inflating monthly forecast', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeLaunch(sheets, {
+        data: '2026-04-07',
+        valor: 179.9,
+        id_categoria: 'OPEX_LAZER_PESSOAL',
+        tipo_evento: 'compra_cartao',
+        afeta_caixa_familiar: false,
+        parcelas: 3,
+    });
+    appendFakeLaunch(sheets, {
+        data: '2026-04-07',
+        valor: 151.76,
+        id_categoria: 'OPEX_LAZER_PESSOAL',
+        tipo_evento: 'compra_cartao',
+        afeta_caixa_familiar: false,
+        parcelas: 3,
+    });
+    appendFakeLaunch(sheets, {
+        data: '2026-04-10',
+        valor: 53.9,
+        id_categoria: 'OPEX_LAZER_PESSOAL',
+        tipo_evento: 'compra_cartao',
+        afeta_caixa_familiar: false,
+        parcelas: 1,
+    });
+
+    const result = postPilotMessage(context, 'O que tem de despesa de lazer pessoal?');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Lazer pessoal em abril/i);
+    assert.match(result.responseText, /Impacto previsto no m[eêÃª]s: R\$ 164,46/);
+    assert.match(result.responseText, /Compromisso total assumido: R\$ 385,56/);
+    assert.match(result.responseText, /Parte que fica para faturas futuras: R\$ 221,10/);
+    assert.match(result.responseText, /Para previsibilidade, olhe primeiro o impacto previsto no m[eêÃª]s/);
+    assert.match(result.responseText, /O compromisso total mostra a compra assumida inteira/);
+    assert.doesNotMatch(result.responseText, /LAN_/);
+    assert.doesNotMatch(result.responseText, /OPEX_/);
+});
+
 test('Apps Script answers agenda command with dated invoices and obligations', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
