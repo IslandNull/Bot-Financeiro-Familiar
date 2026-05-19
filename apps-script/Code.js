@@ -144,6 +144,9 @@ var V55 = (function() {
     if (action === 'repair_duplicate_house_debts') {
       return json_(repairDuplicateHouseDebtsV55());
     }
+    if (action === 'repair_house_debts_restore_owner_reviewed_inactive') {
+      return json_(repairHouseDebtsRestoreOwnerReviewedInactiveV55());
+    }
     if (action === 'migrate_config_visibility') {
       return json_(migrateConfigVisibilityV55());
     }
@@ -562,6 +565,10 @@ var V55 = (function() {
       containsAliasPhrase_(normalized, 'categorias') ||
       containsAliasPhrase_(normalized, 'despesa') ||
       containsAliasPhrase_(normalized, 'gasto') ||
+      containsAliasPhrase_(normalized, 'alimentacao') ||
+      containsAliasPhrase_(normalized, 'mercado') ||
+      containsAliasPhrase_(normalized, 'lazer') ||
+      containsAliasPhrase_(normalized, 'transporte') ||
       containsAliasPhrase_(normalized, 'fatura') ||
       containsAliasPhrase_(normalized, 'faturas') ||
       containsAliasPhrase_(normalized, 'contas proximas') ||
@@ -596,12 +603,23 @@ var V55 = (function() {
         shouldApplyDomainMutation: false,
       };
     }
+    if (containsAliasPhrase_(normalized, 'fatura') || containsAliasPhrase_(normalized, 'faturas') || containsAliasPhrase_(normalized, 'contas proximas')) {
+      return {
+        ok: true,
+        responseText: formatUpcomingObligationsAnswer_(result.summary),
+        shouldApplyDomainMutation: false,
+      };
+    }
     if (containsAliasPhrase_(normalized, 'para onde foi') ||
         containsAliasPhrase_(normalized, 'onde foi') ||
         containsAliasPhrase_(normalized, 'maiores gastos') ||
         containsAliasPhrase_(normalized, 'despesa') ||
         containsAliasPhrase_(normalized, 'gasto') ||
-        containsAliasPhrase_(normalized, 'categorias')) {
+        containsAliasPhrase_(normalized, 'categorias') ||
+        containsAliasPhrase_(normalized, 'alimentacao') ||
+        containsAliasPhrase_(normalized, 'mercado') ||
+        containsAliasPhrase_(normalized, 'lazer') ||
+        containsAliasPhrase_(normalized, 'transporte')) {
       var categoryAnswer = formatMentionedCategoryAnswer_(result.summary, text);
       if (categoryAnswer) {
         return {
@@ -613,13 +631,6 @@ var V55 = (function() {
       return {
         ok: true,
         responseText: formatTopSpendingCategoriesAnswer_(result.summary),
-        shouldApplyDomainMutation: false,
-      };
-    }
-    if (containsAliasPhrase_(normalized, 'fatura') || containsAliasPhrase_(normalized, 'faturas') || containsAliasPhrase_(normalized, 'contas proximas')) {
-      return {
-        ok: true,
-        responseText: formatUpcomingObligationsAnswer_(result.summary),
         shouldApplyDomainMutation: false,
       };
     }
@@ -1456,6 +1467,7 @@ var V55 = (function() {
       eventos_detalhados_preview: buildSharedDetailedEventPreview_(launches, 5, categoriesById || {}),
       categorias_gastos: summarizePilotSpendingCategories_(launches, categoriesById || {}, competencia),
       categorias_previsao: summarizePilotForecastCategories_(launches, categoriesById || {}, competencia),
+      categorias_detalhe: summarizePilotCategoryDetails_(launches, categoriesById || {}, competencia),
       caixa_saida_pagamento_fatura: summarizePilotCashOutByType_(launches, competencia, 'pagamento_fatura'),
       caixa_saida_obrigacoes: summarizePilotCashOutByType_(launches, competencia, 'divida_pagamento'),
     };
@@ -1525,6 +1537,54 @@ var V55 = (function() {
       if (b.valor !== a.valor) return b.valor - a.valor;
       return a.categoria < b.categoria ? -1 : 1;
     });
+  }
+
+  function summarizePilotCategoryDetails_(launches, categoriesById, competencia) {
+    var byCategory = {};
+    (launches || []).forEach(function(row) {
+      if (normalizeSheetCompetencia_(row.competencia) !== competencia) return;
+      if (row.status && stringValue_(row.status) !== 'efetivado') return;
+      if (row.afeta_dre !== true) return;
+      var amount = numberFromSheetValue_(row.valor);
+      if (amount <= 0) return;
+      var id = stringValue_(row.id_categoria) || 'SEM_CATEGORIA';
+      var category = categoriesById[id] || {};
+      if (!byCategory[id]) {
+        byCategory[id] = {
+          id_categoria: id,
+          categoria: stringValue_(category.nome) || friendlyIdentifier_(id),
+          visible_items: [],
+          private_count: 0,
+          private_total: 0,
+        };
+      }
+      if (row.visibilidade === 'detalhada' && row.escopo === 'Familiar') {
+        byCategory[id].visible_items.push({
+          data: formatSheetDate_(row.data),
+          descricao: safeLaunchDescription_(row.descricao),
+          valor: amount,
+          parcelas: Number(row.parcelas) || 1,
+          tipo_evento: stringValue_(row.tipo_evento),
+        });
+      } else {
+        byCategory[id].private_count += 1;
+        byCategory[id].private_total = roundMoney_(byCategory[id].private_total + amount);
+      }
+    });
+    Object.keys(byCategory).forEach(function(id) {
+      byCategory[id].visible_items.sort(function(a, b) {
+        if (a.data !== b.data) return a.data < b.data ? -1 : 1;
+        if (b.valor !== a.valor) return b.valor - a.valor;
+        return a.descricao < b.descricao ? -1 : 1;
+      });
+    });
+    return byCategory;
+  }
+
+  function safeLaunchDescription_(value) {
+    var text = stringValue_(value);
+    if (!text) return 'Lancamento sem descricao';
+    return text.replace(/\s+/g, ' ').slice(0, 80);
   }
 
   function summarizePilotCashOutByType_(launches, competencia, tipoEvento) {
@@ -2063,6 +2123,9 @@ var V55 = (function() {
     var forecastValue = numberFromSheetValue_(category.forecast && category.forecast.valor);
     var assumedValue = numberFromSheetValue_(category.assumed && category.assumed.valor);
     var futureValue = roundMoney_(Math.max(0, assumedValue - forecastValue));
+    var detail = (summary.categorias_detalhe || {})[category.id] || {};
+    var visibleItems = detail.visible_items || [];
+    var privateCount = numberFromSheetValue_(detail.private_count);
     var lines = [
       '🔎 ' + category.nome + ' em ' + friendlyCompetencia_(summary.competencia),
       '',
@@ -2071,6 +2134,20 @@ var V55 = (function() {
       'Compromisso total assumido: ' + formatMoney_(assumedValue),
     ];
     if (futureValue > 0) lines.push('Parte que fica para faturas futuras: ' + formatMoney_(futureValue));
+    if (visibleItems.length > 0) {
+      lines.push('');
+      lines.push('🧾 Itens visiveis');
+      visibleItems.slice(0, 8).forEach(function(item) {
+        var suffix = item.tipo_evento === 'compra_cartao' && item.parcelas > 1 ? ' (' + item.parcelas + 'x)' : '';
+        lines.push(formatShortDate_(item.data) + ' ' + item.descricao + ' - ' + formatMoney_(item.valor) + suffix);
+      });
+      if (visibleItems.length > 8) lines.push('Mais ' + (visibleItems.length - 8) + ' itens nesta categoria.');
+    }
+    if (privateCount > 0) {
+      lines.push('');
+      lines.push('🔒 Privacidade');
+      lines.push(privateCount + (privateCount === 1 ? ' item privado ficou so no total.' : ' itens privados ficaram so no total.'));
+    }
     lines = lines.concat([
       '',
       '📌 Leitura',
@@ -2631,6 +2708,76 @@ var V55 = (function() {
       };
     } catch (_err) {
       return fail_('DUPLICATE_HOUSE_DEBT_REPAIR_FAILED', 'Dividas', GENERIC_RECORD_FAILURE);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  function repairHouseDebtsRestoreOwnerReviewedInactiveV55() {
+    var config = readConfig_();
+    var runtimeCheck = verifyReportingRuntimeConfig_(config);
+    if (!runtimeCheck.ok) return runtimeCheck;
+
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+      var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
+      verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
+      var rows = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS);
+      var reactivated = [];
+      var deactivated = [];
+      var restorePairs = [
+        {
+          canonicalId: 'DIV_FINANCIAMENTO_CAIXA_CASA',
+          isOwnerReviewedRow: function(row) {
+            return stringValue_(row.id_divida) !== 'DIV_FINANCIAMENTO_CAIXA_CASA' &&
+              normalizeAliasText_(row.nome) === 'financiamento caixa casa';
+          },
+        },
+        {
+          canonicalId: 'DIV_CONSTRUTORA_VASCO_CASA',
+          isOwnerReviewedRow: function(row) {
+            return stringValue_(row.id_divida) !== 'DIV_CONSTRUTORA_VASCO_CASA' &&
+              normalizeAliasText_(row.nome) === 'vasco';
+          },
+        },
+      ];
+
+      restorePairs.forEach(function(pair) {
+        var restoredAny = false;
+        for (var i = 0; i < rows.length; i += 1) {
+          var row = rows[i];
+          if (row.status !== 'inativa') continue;
+          if (!pair.isOwnerReviewedRow(row)) continue;
+          row.status = 'ativa';
+          row.observacao = appendObservation_(row.observacao, 'Reativada por revisao do dono: linha inativa era a obrigacao correta.');
+          writeRow_(debtSheet, i + 2, SHEETS.DIVIDAS, row);
+          reactivated.push(stringValue_(row.id_divida));
+          restoredAny = true;
+        }
+        if (!restoredAny) return;
+        for (var j = 0; j < rows.length; j += 1) {
+          var canonical = rows[j];
+          if (stringValue_(canonical.id_divida) !== pair.canonicalId || canonical.status !== 'ativa') continue;
+          canonical.status = 'inativa';
+          canonical.observacao = appendObservation_(canonical.observacao, 'Inativada por revisao do dono: obrigacao correta estava na linha legada reativada.');
+          writeRow_(debtSheet, j + 2, SHEETS.DIVIDAS, canonical);
+          deactivated.push(stringValue_(canonical.id_divida));
+        }
+      });
+
+      return {
+        ok: true,
+        action: 'repair_house_debts_restore_owner_reviewed_inactive',
+        reactivated_debts: reactivated,
+        reactivated_count: reactivated.length,
+        deactivated_debts: deactivated,
+        deactivated_count: deactivated.length,
+        shouldApplyDomainMutation: reactivated.length > 0 || deactivated.length > 0,
+      };
+    } catch (_err) {
+      return fail_('HOUSE_DEBT_RESTORE_FAILED', 'Dividas', GENERIC_RECORD_FAILURE);
     } finally {
       lock.releaseLock();
     }
@@ -5891,7 +6038,9 @@ var V55 = (function() {
       var debts = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.DIVIDAS), SHEETS.DIVIDAS);
       var recurringIncomes = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.RENDAS_RECORRENTES), SHEETS.RENDAS_RECORRENTES);
       var sourceBalances = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES), SHEETS.SALDOS_FONTES);
-      var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances);
+      var categoriesById = indexBy_(readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.CONFIG_CATEGORIAS), SHEETS.CONFIG_CATEGORIAS), 'id_categoria');
+      var cardsById = indexBy_(readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.CARTOES), SHEETS.CARTOES), 'id_cartao');
+      var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById);
       lines.push('- Competencia: ' + summary.competencia);
       lines.push('- DRE receitas: ' + summary.receitas_dre);
       lines.push('- DRE despesas: ' + summary.despesas_dre);

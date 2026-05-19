@@ -86,6 +86,7 @@ doGet(e)
 - Operational repair action: `repair_may_2026_cash_account_misclassified_card` cancels reviewed May account-paid rows that were accidentally recorded as Mercado Pago card purchases and appends corrected cash rows.
 - Operational repair action: `repair_may_2026_current_invoice_totals` records owner-confirmed current invoice totals as closed invoice authority rows.
 - Operational repair action: `repair_duplicate_house_debts` copies missing debt balance into canonical house obligations and inactivates legacy duplicated house-debt rows.
+- Operational repair action: `repair_house_debts_restore_owner_reviewed_inactive` reactivates owner-reviewed inactive house-financing debts and inactivates the generated canonical duplicates.
 - Operational rebuild action: `reset_april_2026_clean_rebuild` clears operational rows for a reviewed clean import while preserving config sheets.
 - Reviewed historical type: `fatura_prevista` writes `Faturas` exposure only, with no `Lancamentos` row and no DRE/cash effect.
 
@@ -107,5 +108,5 @@ Full headers in `SHEET_SCHEMA.md`.
 | `/agenda`, `/faturas`, `/proximas_contas` | No | Dated read-only view of open invoices and registered obligations |
 | `/revisar_mes` | No | Month-review checklist before closing; current/future months remain non-closable |
 | `/saldo <fonte> <valor> [em data]` | Yes | Source balance snapshot; prefers real account sources over credit-card sources and accepts an optional reference date |
-| Safe finance question | No | Deterministic read-only answers using the short `/resumo` layout: cost of life, installment-adjusted spending categories, category-specific forecast vs total commitment, upcoming invoices/commitments, reserve/liquidity, and conservative "posso comprar ... em Nx?" simulations |
+| Safe finance question | No | Deterministic read-only answers using the short `/resumo` layout: cost of life, installment-adjusted spending categories, visible category line-item drill-downs, upcoming invoices/commitments, reserve/liquidity, and conservative "posso comprar ... em Nx?" simulations |
 | Natural text | Yes | Parsed by OpenAI -> validated -> written to sheets; success and failure replies use the same short sectioned Telegram layout, hiding internal ids and explaining cash/card/invoice impact in user language |

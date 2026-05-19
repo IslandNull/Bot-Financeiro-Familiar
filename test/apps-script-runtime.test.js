@@ -1371,6 +1371,46 @@ test('Apps Script explains category spending with installments without inflating
     assert.doesNotMatch(result.responseText, /OPEX_/);
 });
 
+test('Apps Script category detail question lists visible launches without private line items', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeLaunch(sheets, {
+        data: '2026-04-01',
+        valor: 62.89,
+        id_categoria: 'OPEX_ALIMENTACAO_FORA',
+        descricao: 'iFood casal lanche',
+    });
+    appendFakeLaunch(sheets, {
+        data: '2026-04-16',
+        valor: 109.1,
+        id_categoria: 'OPEX_ALIMENTACAO_FORA',
+        descricao: 'janta iFood casal',
+    });
+    appendFakeLaunch(sheets, {
+        data: '2026-04-17',
+        valor: 44,
+        id_categoria: 'OPEX_ALIMENTACAO_FORA',
+        descricao: 'detalhe privado nao abrir',
+        visibilidade: 'privada',
+    });
+
+    const result = postPilotMessage(context, 'O que tem dentro de alimentacao fora?');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Alimentacao fora em abril/i);
+    assert.match(result.responseText, /Itens visiveis/i);
+    assert.match(result.responseText, /01\/04 iFood casal lanche - R\$ 62,89/);
+    assert.match(result.responseText, /16\/04 janta iFood casal - R\$ 109,10/);
+    assert.match(result.responseText, /1 item privado ficou so no total/i);
+    assert.doesNotMatch(result.responseText, /detalhe privado nao abrir/);
+});
+
 test('Apps Script answers agenda command with dated invoices and obligations', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
@@ -1810,6 +1850,40 @@ test('Apps Script repair action deactivates duplicated legacy house debts', () =
     assert.strictEqual(statuses.DIV_LEGACY_VASCO, 'inativa');
     const canonicalCaixa = sheets.Dividas.rows.find((row) => row[idIndex] === 'DIV_FINANCIAMENTO_CAIXA_CASA');
     assert.strictEqual(canonicalCaixa[dividasHeaders.indexOf('saldo_devedor')], 300000);
+});
+
+test('Apps Script repair action restores owner-reviewed inactive house financing debts', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const idIndex = dividasHeaders.indexOf('id_divida');
+    const statusIndex = dividasHeaders.indexOf('status');
+    runRemoteAction(context, 'ensure_april_2026_house_debts');
+    appendFakeDebt(sheets, {
+        id_divida: 'DIV_LEGACY_CAIXA_CASA',
+        nome: 'Financiamento Caixa Casa',
+        saldo_devedor: 300000,
+        valor_parcela: 1906.2,
+        status: 'inativa',
+        observacao: 'Owner review: esta linha e a correta.',
+    });
+    appendFakeDebt(sheets, {
+        id_divida: 'DIV_LEGACY_VASCO',
+        nome: 'Vasco',
+        saldo_devedor: 0,
+        valor_parcela: 862.12,
+        status: 'inativa',
+        observacao: 'Owner review: esta linha e a correta.',
+    });
+
+    const result = runRemoteAction(context, 'repair_house_debts_restore_owner_reviewed_inactive');
+
+    assert.strictEqual(result.ok, true);
+    assert.deepStrictEqual(result.reactivated_debts, ['DIV_LEGACY_CAIXA_CASA', 'DIV_LEGACY_VASCO']);
+    assert.deepStrictEqual(result.deactivated_debts, ['DIV_FINANCIAMENTO_CAIXA_CASA', 'DIV_CONSTRUTORA_VASCO_CASA']);
+    const statuses = Object.fromEntries(sheets.Dividas.rows.slice(1).map((row) => [row[idIndex], row[statusIndex]]));
+    assert.strictEqual(statuses.DIV_LEGACY_CAIXA_CASA, 'ativa');
+    assert.strictEqual(statuses.DIV_LEGACY_VASCO, 'ativa');
+    assert.strictEqual(statuses.DIV_FINANCIAMENTO_CAIXA_CASA, 'inativa');
+    assert.strictEqual(statuses.DIV_CONSTRUTORA_VASCO_CASA, 'inativa');
 });
 
 test('Apps Script reset_april_2026_clean_rebuild clears operational data but preserves config', () => {
