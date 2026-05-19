@@ -106,5 +106,5 @@ Full headers in `SHEET_SCHEMA.md`.
 | `/resumo` | No | Short read-only executive summary: current liquidity, current invoices, attention point, top forecast categories, next step, and drill-down commands |
 | `/agenda`, `/faturas`, `/proximas_contas` | No | Dated read-only view of open invoices and registered obligations |
 | `/revisar_mes` | No | Month-review checklist before closing; current/future months remain non-closable |
-| Safe finance question | No | Deterministic read-only answers for cost of life, installment-adjusted spending categories, upcoming invoices/commitments, reserve/liquidity, and conservative "posso comprar ... em Nx?" simulations |
-| Natural text | Yes | Parsed by OpenAI → validated → written to sheets |
+| Safe finance question | No | Deterministic read-only answers using the short `/resumo` layout: cost of life, installment-adjusted spending categories, upcoming invoices/commitments, reserve/liquidity, and conservative "posso comprar ... em Nx?" simulations |
+| Natural text | Yes | Parsed by OpenAI -> validated -> written to sheets; success and failure replies use the same short sectioned Telegram layout |

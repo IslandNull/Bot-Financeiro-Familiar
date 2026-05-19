@@ -638,16 +638,55 @@ test('Apps Script help gives practical launch examples without mutating', () => 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Bot financeiro familiar/);
-    assert.match(result.responseText, /Lancamentos:/);
-    assert.match(result.responseText, /Perguntas seguras:/);
+    assert.match(result.responseText, /Lançar agora|Lancamentos:/);
+    assert.match(result.responseText, /Perguntas úteis|Perguntas seguras:/);
     assert.match(result.responseText, /mercado 42 hoje/);
     assert.match(result.responseText, /farmacia 18 no nubank/);
     assert.match(result.responseText, /paguei fatura Mercado Pago 300/);
     assert.match(result.responseText, /Luana mandou 200 para caixa familiar/);
     assert.match(result.responseText, /qual meu custo de vida mensal/);
-    assert.match(result.responseText, /Comandos:/);
+    assert.match(result.responseText, /Comandos/);
+    assert.match(result.responseText, /Regra de segurança|Regra de seguranca/);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script UX messages use short summary-style sections', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-05-18',
+        competencia: '2026-05',
+        valor: 10,
+        descricao: 'mercado 10',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+    });
+
+    const launch = postPilotMessage(context, 'mercado 10 hoje');
+    const balance = postPilotMessage(context, '/saldo nubank 1500,50');
+
+    assert.strictEqual(launch.ok, true);
+    assert.match(launch.responseText, /^✅ .*anotado/m);
+    assert.match(launch.responseText, /💵 Lançamento|💵 Lancamento/);
+    assert.match(launch.responseText, /Valor: R\$ 10,00/);
+    assert.match(launch.responseText, /📌 Impacto/);
+    assert.match(launch.responseText, /Caixa familiar: saiu/);
+    assert.match(launch.responseText, /Próximo passo|Proximo passo/);
+    assert.doesNotMatch(launch.responseText, /📝 Descricao:/);
+    assert.doesNotMatch(launch.responseText, /🏷️ Tipo:/);
+
+    assert.strictEqual(balance.ok, true);
+    assert.match(balance.responseText, /^📊 Saldo atualizado/m);
+    assert.match(balance.responseText, /💰 Dinheiro disponível|💰 Dinheiro disponivel/);
+    assert.match(balance.responseText, /Fonte: Nubank Gustavo/);
+    assert.match(balance.responseText, /Saldo: R\$ 1.500,50/);
+    assert.match(balance.responseText, /Próximo passo|Proximo passo/);
 });
 
 test('Apps Script balance snapshot creates a row in Saldos_Fontes', () => {
@@ -657,7 +696,7 @@ test('Apps Script balance snapshot creates a row in Saldos_Fontes', () => {
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, true);
-    assert.match(result.responseText, /OK, saldo atualizado\./);
+    assert.match(result.responseText, /Saldo atualizado/);
     assert.match(result.responseText, /Fonte: Nubank Gustavo/);
     assert.match(result.responseText, /Saldo: R\$ 1.500,50/);
     assert.strictEqual(sheets.Saldos_Fontes.rows.length, 2); // 1 header + 1 row
@@ -675,9 +714,11 @@ test('Apps Script asset balance updates caixinha and cofrinho as reserve liquidi
     assert.strictEqual(mp.ok, true);
     assert.strictEqual(nu.ok, true);
     assert.strictEqual(mp.shouldApplyDomainMutation, true);
-    assert.match(mp.responseText, /OK, patrimonio atualizado\./);
+    assert.match(mp.responseText, /Patrim[oô]nio atualizado/);
     assert.match(mp.responseText, /Ativo: Cofrinho Mercado Pago Gustavo/);
     assert.match(mp.responseText, /Saldo: R\$ 9.482,99/);
+    assert.match(mp.responseText, /Reserva\/liquidez/);
+    assert.match(mp.responseText, /Não é receita nem despesa|Nao e receita nem despesa/);
     assert.match(nu.responseText, /Ativo: Caixinha Nubank Gustavo/);
     assert.match(nu.responseText, /Saldo: R\$ 5.189,84/);
     assert.strictEqual(sheets.Patrimonio_Ativos.rows.length, 3);
@@ -1120,9 +1161,11 @@ test('Apps Script answers cost-of-life question without calling the parser', () 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Custo de vida de abril/);
-    assert.match(result.responseText, /Gastos DRE registrados: R\$ 200,45/);
+    assert.match(result.responseText, /Gastos do mês|Gastos DRE registrados/);
+    assert.match(result.responseText, /R\$ 200,45/);
+    assert.match(result.responseText, /Leitura/);
     assert.match(result.responseText, /Inclui itens privados no total, sem abrir detalhes pessoais/);
-    assert.match(result.responseText, /Base: lancamentos ja registrados no bot/);
+    assert.match(result.responseText, /Base:/);
 });
 
 test('Apps Script answers top spending categories without opening private line items', () => {
@@ -1149,8 +1192,9 @@ test('Apps Script answers top spending categories without opening private line i
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Para onde foi o dinheiro em abril/);
-    assert.match(result.responseText, /Impacto previsto em fatura\/caixa: R\$ 250,00/);
-    assert.match(result.responseText, /Gasto assumido no mês: R\$ 250,00/);
+    assert.match(result.responseText, /Impacto no mês|Impacto previsto em fatura\/caixa/);
+    assert.match(result.responseText, /R\$ 250,00/);
+    assert.match(result.responseText, /Categorias principais|Mercado da semana/);
     assert.match(result.responseText, /Mercado da semana: R\$ 200,00/);
     assert.match(result.responseText, /Farmacia: R\$ 50,00/);
     assert.doesNotMatch(result.responseText, /remedio privado/);
@@ -1194,10 +1238,10 @@ test('Apps Script category forecast uses installment amount for monthly predicta
     const result = postPilotMessage(context, 'para onde foi meu dinheiro este mes?');
 
     assert.strictEqual(result.ok, true);
-    assert.match(result.responseText, /Impacto previsto em fatura\/caixa: R\$ 164,46/);
+    assert.match(result.responseText, /Fatura\/caixa previsto: R\$ 164,46/);
     assert.match(result.responseText, /lazer pessoal: R\$ 164,46/);
     assert.match(result.responseText, /Gasto assumido no mês: R\$ 385,56/);
-    assert.match(result.responseText, /Compra parcelada aparece pelo valor da parcela nesta leitura/);
+    assert.match(result.responseText, /Compras parceladas aparecem pelo valor da parcela/);
 });
 
 test('Apps Script answers agenda command with dated invoices and obligations', () => {
@@ -1233,10 +1277,13 @@ test('Apps Script answers agenda command with dated invoices and obligations', (
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Agenda financeira de abril/);
+    assert.match(result.responseText, /💳 Faturas/);
+    assert.match(result.responseText, /🏠 Compromissos/);
+    assert.match(result.responseText, /📌 Atenção/);
     assert.match(result.responseText, /07\/05 .*Nubank.*R\$ 300,00/);
     assert.match(result.responseText, /07\/06 .*Nubank.*R\$ 200,00/);
     assert.match(result.responseText, /Financiamento casa.*R\$ 878,41/);
-    assert.match(result.responseText, /Nao e tudo vencendo hoje/);
+    assert.match(result.responseText, /N[ãa]o [ée] tudo vencendo hoje/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
@@ -1257,7 +1304,9 @@ test('Apps Script simulates whether a new installment purchase fits safely', () 
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Simulacao conservadora/);
+    assert.match(result.responseText, /Simula[çc][ãa]o conservadora/);
+    assert.match(result.responseText, /💳 Compra simulada|Compra: R\$ 900,00 em 3x/);
+    assert.match(result.responseText, /📌 Leitura/);
     assert.match(result.responseText, /Compra: R\$ 900,00 em 3x/);
     assert.match(result.responseText, /Parcela estimada: R\$ 300,00/);
     assert.match(result.responseText, /Folga depois da compra: R\$ 1500,00/);
@@ -1281,9 +1330,12 @@ test('Apps Script monthly review explains current month is not closable', () => 
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Revisao de abril/);
-    assert.match(result.responseText, /Mes atual ainda aberto/);
-    assert.match(result.responseText, /Nao vou fechar este mes agora/);
+    assert.match(result.responseText, /Revis[ãa]o de abril/);
+    assert.match(result.responseText, /✅ Status|Status/);
+    assert.match(result.responseText, /📌 Conferência|Conferencia/);
+    assert.match(result.responseText, /🔎 Maiores impactos/);
+    assert.match(result.responseText, /M[eê]s atual ainda aberto/);
+    assert.match(result.responseText, /N[ãa]o vou fechar este m[eê]s agora/);
     assert.match(result.responseText, /Mercado da semana: R\$ 120,00/);
     assert.match(result.responseText, /Faturas atuais: R\$ 300,00/);
     assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 1);
@@ -1304,8 +1356,9 @@ test('Apps Script answers singular open-invoice question without mutating', () =
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Contas proximas/);
-    assert.match(result.responseText, /Faturas abertas registradas: R\$ 421,93/);
+    assert.match(result.responseText, /Contas pr[óo]ximas/);
+    assert.match(result.responseText, /Faturas abertas/);
+    assert.match(result.responseText, /Total: R\$ 421,93/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
 });
@@ -2525,15 +2578,15 @@ test('Apps Script pilot expense canonicalizes fragile parser output before writi
     const result = postPilotMessage(context, 'mercado 10');
 
     assert.strictEqual(result.ok, true);
-    assert.match(result.responseText, /OK, anotei gasto da familia\./);
+    assert.match(result.responseText, /Gasto anotado/);
     assert.match(result.responseText, /Valor: R\$ 10,00/);
     assert.match(result.responseText, /Data: 2026-04-30/);
-    assert.match(result.responseText, /Descricao: mercado 10/);
     assert.match(result.responseText, /Tipo: gasto/);
     assert.match(result.responseText, /Categoria: Mercado da semana/);
     assert.match(result.responseText, /Fonte: Conta familia/);
+    assert.match(result.responseText, /Impacto/);
     assert.match(result.responseText, /Caixa familiar: saiu/);
-    assert.match(result.responseText, /Proximo: use \/resumo para revisar o mes\./);
+    assert.match(result.responseText, /Use \/resumo para revisar o m[eê]s\./);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -2811,8 +2864,8 @@ test('Apps Script card purchase blocks unrelated fallback category and asks for 
 
     assert.strictEqual(result.ok, false);
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['CATEGORY_CONFIRMATION_REQUIRED']);
-    assert.match(result.responseText, /Nao anotei para nao chutar categoria/);
-    assert.match(result.responseText, /Reenvie com categoria no texto/);
+    assert.match(result.responseText, /N[ãa]o anotei para n[ãa]o chutar categoria/);
+    assert.match(result.responseText, /Reenvie com a categoria no texto/);
     assert.match(result.responseText, /Eletronicos e equipamentos/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     assert.strictEqual(sheets.Faturas.rows.length, 1);
@@ -3745,8 +3798,8 @@ test('Apps Script validation failures return actionable launch guidance', () => 
 
     assert.strictEqual(result.ok, false);
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_CATEGORY_BLOCKED']);
-    assert.match(result.responseText, /Nao anotei com seguranca/);
-    assert.match(result.responseText, /Inclua valor, data, fonte ou cartao, e categoria/);
+    assert.match(result.responseText, /N[ãa]o anotei com seguran[çc]a/);
+    assert.match(result.responseText, /Inclua categoria, valor, data e fonte\/cart[ãa]o/);
 });
 
 test('Apps Script generic launch writes receita with category and source defaults', () => {
@@ -3898,7 +3951,7 @@ test('Apps Script deterministic override records house financing payment without
     assert.strictEqual(launch.afeta_dre, false);
     assert.strictEqual(launch.afeta_patrimonio, true);
     assert.strictEqual(launch.afeta_caixa_familiar, true);
-    assert.match(result.responseText, /anotei pagamento de obrigacao/);
+    assert.match(result.responseText, /Obriga[çc][ãa]o anotada/);
     assert.doesNotMatch(result.responseText, /compra no cartao/);
 });
 

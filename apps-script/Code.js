@@ -1,11 +1,11 @@
 var V55 = (function() {
   var GENERIC_REQUEST_FAILURE = 'Nao foi possivel processar esta requisicao.';
   var GENERIC_MESSAGE_FAILURE = 'Nao foi possivel processar esta mensagem.';
-  var GENERIC_RECORD_FAILURE = '⚠️ Nao anotei com seguranca.\nInclua valor, data, fonte ou cartao, e categoria quando houver duvida.\nExemplo: mercado 42 em 18/05 categoria Mercado da semana.';
+  var GENERIC_RECORD_FAILURE = '⚠️ Não anotei com segurança.\n\n📌 O que falta\nValor, data, fonte/cartão ou categoria.\n\nExemplo:\nmercado 42 em 18/05 categoria Mercado da semana';
   var HELP_TEXT = [
     '💰 Bot financeiro familiar',
     '',
-    '✍️ Lancamentos:',
+    '✍️ Lançar agora',
     '- mercado 42 hoje',
     '- farmacia 18 no nubank',
     '- notebook 3000 em 3x no nubank categoria Eletronicos e equipamentos',
@@ -16,21 +16,21 @@ var V55 = (function() {
     '- saldo nubank 3500',
     '- cofrinho Mercado Pago Gustavo saldo 9482,99',
     '',
-    '❓ Perguntas seguras:',
+    '🔎 Perguntas úteis',
     '- qual meu custo de vida mensal?',
     '- para onde foi meu dinheiro este mes?',
     '- quais faturas tenho proximas?',
     '- posso comprar notebook 900 em 3x?',
     '- como esta minha reserva?',
     '',
-    '📌 Comandos:',
+    '📌 Comandos',
     '- /resumo: visao do mes sem alterar a planilha',
     '- /agenda: faturas e compromissos por data',
     '- /revisar_mes: checklist antes de fechamento',
     '- /ajuda: exemplos'
   ].join('\n');
-  var SUCCESS_TEXT = '✅ OK, anotei.';
-  var FAMILY_SUMMARY_HELP_TEXT = '🛡️ Regra de seguranca: se eu nao tiver certeza, eu nao chuto. Eu peco categoria, fonte ou contexto.';
+  var SUCCESS_TEXT = '✅ Anotado.\n\nPróximo passo:\nUse /resumo para revisar o mês.';
+  var FAMILY_SUMMARY_HELP_TEXT = '🛡️ Regra de segurança\nSe eu não tiver certeza, eu não chuto. Eu peço categoria, fonte ou contexto.';
   var DEFAULT_OPENAI_MODEL = 'gpt-5-nano';
   var OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
   var SHEETS = {
@@ -1955,12 +1955,16 @@ var V55 = (function() {
     return [
       '📊 Custo de vida de ' + friendlyCompetencia_(summary.competencia),
       '',
-      '🛒 Gastos DRE registrados: ' + formatMoney_(summary.despesas_dre),
-      '📈 Resultado DRE: ' + formatMoney_(summary.resultado_dre),
-      '💵 Sobra de caixa registrada: ' + formatMoney_(summary.sobra_caixa),
+      '💰 Mês registrado',
+      'Gastos do mês: ' + formatMoney_(summary.despesas_dre),
+      'Resultado DRE: ' + formatMoney_(summary.resultado_dre),
+      'Caixa registrado: ' + formatMoney_(summary.sobra_caixa),
       '',
+      '📌 Leitura',
       'Inclui itens privados no total, sem abrir detalhes pessoais.',
-      'Base: lancamentos ja registrados no bot. Nao e media historica ainda.',
+      '',
+      'Base:',
+      'Lançamentos já registrados no bot. Ainda não é média histórica.',
     ].join('\n');
   }
 
@@ -1973,57 +1977,69 @@ var V55 = (function() {
     var lines = [
       '🔎 Para onde foi o dinheiro em ' + friendlyCompetencia_(summary.competencia),
       '',
-      'Impacto previsto em fatura/caixa: ' + formatMoney_(forecastTotal),
+      '💰 Impacto no mês',
+      'Fatura/caixa previsto: ' + formatMoney_(forecastTotal),
     ];
     if (forecastCategories.length === 0) {
-      lines.push('Ainda nao ha gastos DRE registrados neste mes.');
       lines.push('');
-      lines.push('Base: categorias de gastos ja registradas. Pagamento de fatura nao entra aqui, porque nao e gasto novo.');
+      lines.push('📌 Leitura');
+      lines.push('Ainda não há gastos DRE registrados neste mês.');
+      lines.push('');
+      lines.push('Base: categorias de gastos já registradas. Pagamento de fatura não entra aqui, porque não é gasto novo.');
       return lines.join('\n');
     }
+    lines.push('');
+    lines.push('📌 Categorias principais');
     forecastCategories.slice(0, 6).forEach(function(item) {
-      lines.push('• ' + item.categoria + ': ' + formatMoney_(item.valor));
+      lines.push(item.categoria + ': ' + formatMoney_(item.valor));
     });
     lines.push('');
+    lines.push('📈 Compromisso assumido');
     lines.push('Gasto assumido no mês: ' + formatMoney_(summary.despesas_dre));
     if (assumedCategories.length > 0) {
-      lines.push('Maiores compromissos assumidos:');
+      lines.push('Maiores compromissos:');
       assumedCategories.slice(0, 3).forEach(function(item) {
-        lines.push('• ' + item.categoria + ': ' + formatMoney_(item.valor));
+        lines.push(item.categoria + ': ' + formatMoney_(item.valor));
       });
     }
     lines.push('');
-    lines.push('Base: impacto previsto usa valor da parcela em compras parceladas. Pagamento de fatura e transferencia interna ficam fora para nao duplicar despesa.');
-    lines.push('Compra parcelada aparece pelo valor da parcela nesta leitura; DRE continua reconhecendo o valor total assumido.');
-    lines.push('Detalhes privados nao sao abertos aqui; entram apenas no total da categoria.');
+    lines.push('📌 Leitura');
+    lines.push('Compras parceladas aparecem pelo valor da parcela nesta visão.');
+    lines.push('Pagamento de fatura e transferência interna ficam fora para não duplicar despesa.');
+    lines.push('Detalhes privados entram só no total da categoria.');
     return lines.join('\n');
   }
 
   function formatUpcomingObligationsAnswer_(summary) {
     var obligations = roundMoney_(summary.faturas_60d + summary.obrigacoes_60d);
     var lines = [
-      '🧾 Contas proximas de ' + friendlyCompetencia_(summary.competencia),
+      '🧾 Contas próximas de ' + friendlyCompetencia_(summary.competencia),
       '',
-      'Faturas abertas registradas: ' + formatMoney_(summary.faturas_60d),
+      '💳 Faturas abertas',
+      'Total: ' + formatMoney_(summary.faturas_60d),
     ];
     (summary.faturas_60d_detalhe || []).slice(0, 6).forEach(function(item) {
-      lines.push('- ' + item.cartao + ' ' + item.competencia + ': ' + formatMoney_(item.valor));
+      lines.push(shortCardName_(item.cartao) + ' ' + formatShortDate_(item.data_vencimento) + ': ' + formatMoney_(item.valor));
     });
     lines = lines.concat([
-      '🏠 Compromissos cadastrados: ' + formatMoney_(summary.obrigacoes_60d),
-      'Total registrado para pagar ate 60 dias: ' + formatMoney_(obligations),
-      '✅ Depois desses pagamentos: ' + formatMoney_(summary.margem_pos_obrigacoes),
       '',
-      'Base: faturas abertas e obrigacoes ativas registradas. Nao soma salario futuro ainda nao lancado.',
+      '🏠 Compromissos',
+      'Cadastrados: ' + formatMoney_(summary.obrigacoes_60d),
+      'Total em até 60 dias: ' + formatMoney_(obligations),
+      '',
+      '✅ Depois disso',
+      formatMoney_(summary.margem_pos_obrigacoes),
+      '',
+      'Base: faturas abertas e obrigações ativas registradas. Salário futuro ainda não lançado fica fora.',
     ]);
     return lines.join('\n');
   }
 
   function formatAgendaAnswer_(summary) {
     var lines = [
-      'Agenda financeira de ' + friendlyCompetencia_(summary.competencia),
+      '📅 Agenda financeira de ' + friendlyCompetencia_(summary.competencia),
       '',
-      'Faturas',
+      '💳 Faturas',
     ];
     var invoiceItems = (summary.faturas_60d_detalhe || []).slice().sort(function(a, b) {
       var aDate = stringValue_(a.data_vencimento);
@@ -2032,24 +2048,25 @@ var V55 = (function() {
       return stringValue_(a.cartao) < stringValue_(b.cartao) ? -1 : 1;
     });
     if (invoiceItems.length === 0) {
-      lines.push('- Nenhuma fatura aberta registrada.');
+      lines.push('Nenhuma fatura aberta registrada.');
     } else {
       invoiceItems.slice(0, 8).forEach(function(item) {
-        lines.push('- ' + formatShortDate_(item.data_vencimento) + ' ' + shortCardName_(item.cartao) + ': ' + formatMoney_(item.valor));
+        lines.push(formatShortDate_(item.data_vencimento) + ' ' + shortCardName_(item.cartao) + ': ' + formatMoney_(item.valor));
       });
     }
     lines.push('');
-    lines.push('Compromissos');
+    lines.push('🏠 Compromissos');
     var obligationItems = summary.obrigacoes_60d_detalhe || [];
     if (obligationItems.length === 0) {
-      lines.push('- Nenhum compromisso mensal cadastrado.');
+      lines.push('Nenhum compromisso mensal cadastrado.');
     } else {
       obligationItems.slice(0, 6).forEach(function(item) {
-        lines.push('- Sem data fixa: ' + item.nome + ' ' + formatMoney_(item.valor));
+        lines.push('Sem data fixa: ' + item.nome + ' ' + formatMoney_(item.valor));
       });
     }
     lines.push('');
-    lines.push('Nao e tudo vencendo hoje. Use esta agenda para separar dinheiro antes de assumir gasto novo.');
+    lines.push('📌 Atenção');
+    lines.push('Não é tudo vencendo hoje. Use esta agenda para separar dinheiro antes de assumir gasto novo.');
     return lines.join('\n');
   }
 
@@ -2057,9 +2074,11 @@ var V55 = (function() {
     var simulation = parseSpendingSimulation_(text);
     if (!simulation.ok) {
       return [
-        'Simulacao conservadora',
+        '🧭 Simulação conservadora',
         '',
-        'Nao consegui identificar valor e parcelas com seguranca.',
+        '📌 O que falta',
+        'Não consegui identificar valor e parcelas com segurança.',
+        '',
         'Exemplo: posso comprar notebook 900 em 3x?',
       ].join('\n');
     }
@@ -2072,12 +2091,14 @@ var V55 = (function() {
       ? 'A conta usa saldos e reserva cadastrados; salario futuro ainda nao registrado fica fora.'
       : 'Falta saldo real das contas, entao trate esta simulacao como incompleta.';
     return [
-      'Simulacao conservadora',
+      '🧭 Simulação conservadora',
       '',
+      '💳 Compra simulada',
       'Compra: ' + formatMoney_(simulation.valor) + ' em ' + simulation.parcelas + 'x',
       'Parcela estimada: ' + formatMoney_(installment),
       'Folga depois da compra: ' + formatMoney_(afterPurchase),
       '',
+      '📌 Leitura',
       status,
       caution,
     ].join('\n');
@@ -2102,35 +2123,36 @@ var V55 = (function() {
 
   function formatMonthlyReviewAnswer_(summary) {
     var lines = [
-      'Revisao de ' + friendlyCompetencia_(summary.competencia),
+      '🧾 Revisão de ' + friendlyCompetencia_(summary.competencia),
       '',
-      'Status',
+      '✅ Status',
     ];
     if (summary.competencia >= todaySaoPaulo_().slice(0, 7)) {
-      lines.push('- Mes atual ainda aberto.');
-      lines.push('- Nao vou fechar este mes agora.');
+      lines.push('Mês atual ainda aberto.');
+      lines.push('Não vou fechar este mês agora.');
     } else {
-      lines.push('- Mes anterior pode ser revisado para fechamento.');
+      lines.push('Mês anterior pode ser revisado para fechamento.');
     }
     lines = lines.concat([
       '',
-      'Conferencia',
-      '- Faturas atuais: ' + formatMoney_(summary.faturas_atuais),
-      '- Compromissos 60d: ' + formatMoney_(summary.obrigacoes_60d),
-      '- Caixa registrado: ' + formatMoney_(summary.sobra_caixa),
+      '📌 Conferência',
+      'Faturas atuais: ' + formatMoney_(summary.faturas_atuais),
+      'Compromissos 60d: ' + formatMoney_(summary.obrigacoes_60d),
+      'Caixa registrado: ' + formatMoney_(summary.sobra_caixa),
       '',
-      'Maiores impactos previstos',
+      '🔎 Maiores impactos',
     ]);
     var categories = summary.categorias_previsao || [];
     if (categories.length === 0) {
-      lines.push('- Ainda nao ha categorias de gasto registradas.');
+      lines.push('Ainda não há categorias de gasto registradas.');
     } else {
       categories.slice(0, 5).forEach(function(item) {
-        lines.push('- ' + item.categoria + ': ' + formatMoney_(item.valor));
+        lines.push(item.categoria + ': ' + formatMoney_(item.valor));
       });
     }
     lines.push('');
-    lines.push('Proximo passo: conferir faturas reais, saldos e reembolsaveis antes de fechar.');
+    lines.push('Próximo passo');
+    lines.push('Conferir faturas reais, saldos e reembolsáveis antes de fechar.');
     return lines.join('\n');
   }
 
@@ -2145,9 +2167,12 @@ var V55 = (function() {
     return [
       '🏦 Reserva e liquidez de ' + friendlyCompetencia_(summary.competencia),
       '',
-      'Reserva/liquidez registrada: ' + formatMoney_(summary.reserva_total),
-      '💵 Saldo disponivel informado: ' + formatMoney_(summary.saldos_fontes_disponivel),
-      '✅ Depois dos pagamentos registrados: ' + formatMoney_(summary.margem_pos_obrigacoes),
+      '💰 Dinheiro disponível',
+      'Contas: ' + formatMoney_(summary.saldos_fontes_disponivel),
+      'Reserva: ' + formatMoney_(summary.reserva_total),
+      '',
+      '✅ Depois dos pagamentos registrados',
+      formatMoney_(summary.margem_pos_obrigacoes),
       '',
       'Base: saldos e caixinhas/cofrinhos cadastrados no bot.',
     ].join('\n');
@@ -4177,12 +4202,18 @@ var V55 = (function() {
   function categoryClarificationText_(rawText, referenceData, eventType) {
     var suggestions = suggestCategoriesForText_(rawText, referenceData, eventType);
     var lines = [
-      '⚠️ Nao anotei para nao chutar categoria.',
-      'Reenvie com categoria no texto.',
-      'Exemplo: notebook 3000 em 3x no nubank categoria Eletronicos e equipamentos.',
+      '⚠️ Não anotei para não chutar categoria.',
+      '',
+      '📌 O que falta',
+      'Reenvie com a categoria no texto.',
+      '',
+      'Exemplo:',
+      'notebook 3000 em 3x no nubank categoria Eletronicos e equipamentos',
     ];
     if (suggestions.length) {
-      lines.push('Categorias provaveis: ' + suggestions.join(', ') + '.');
+      lines.push('');
+      lines.push('Categorias prováveis');
+      lines.push(suggestions.join(', '));
     }
     return lines.join('\n');
   }
@@ -4490,23 +4521,43 @@ var V55 = (function() {
   }
 
   function recordedEventText_(event, actionLabel, referenceData) {
+    var title = friendlyRecordedTitle_(event, actionLabel);
     var lines = [
-      '✅ OK, ' + lowerFirst_(actionLabel || 'anotei'),
-      '💵 Valor: ' + formatMoney_(event.valor),
+      title,
+      '',
+      '💵 Lançamento',
+      'Valor: ' + formatMoney_(event.valor),
     ];
-    if (event.data) lines.push('📅 Data: ' + formatSheetDate_(event.data));
-    if (event.descricao) lines.push('📝 Descricao: ' + event.descricao);
-    lines.push('🏷️ Tipo: ' + friendlyEventType_(event.tipo_evento));
+    if (event.data) lines.push('Data: ' + formatSheetDate_(event.data));
+    lines.push('Tipo: ' + friendlyEventType_(event.tipo_evento));
     var categoryName = friendlyCategoryName_(event.id_categoria, referenceData);
-    if (categoryName) lines.push('📂 Categoria: ' + categoryName);
+    if (categoryName) lines.push('Categoria: ' + categoryName);
+    lines.push('');
+    lines.push('📌 Impacto');
     var sourceName = friendlySourceName_(event.id_fonte, referenceData);
-    if (sourceName) lines.push('🏦 Fonte: ' + sourceName);
+    if (sourceName) lines.push('Fonte: ' + sourceName);
     var cardName = friendlyCardName_(event.id_cartao, referenceData);
-    if (cardName) lines.push('💳 Cartao: ' + cardName);
-    if (event.id_fatura) lines.push('🧾 Fatura: ' + friendlyIdentifier_(event.id_fatura));
-    lines.push('👨‍👩‍👧 Caixa familiar: ' + friendlyCashEffect_(event));
-    lines.push('📊 Proximo: use /resumo para revisar o mes.');
+    if (cardName) lines.push('Cartão: ' + cardName);
+    if (event.id_fatura) lines.push('Fatura: ' + friendlyIdentifier_(event.id_fatura));
+    lines.push('Caixa familiar: ' + friendlyCashEffect_(event));
+    lines.push('');
+    lines.push('Próximo passo');
+    lines.push('Use /resumo para revisar o mês.');
     return lines.join('\n');
+  }
+
+  function friendlyRecordedTitle_(event, actionLabel) {
+    var label = lowerFirst_(actionLabel || '');
+    if (event && event.tipo_evento === 'despesa') return '✅ Gasto anotado';
+    if (event && event.tipo_evento === 'compra_cartao') return '✅ Compra no cartão anotada';
+    if (event && event.tipo_evento === 'pagamento_fatura') return '✅ Pagamento de fatura anotado';
+    if (event && event.tipo_evento === 'transferencia_interna') return '✅ Transferência anotada';
+    if (event && event.tipo_evento === 'receita') return '✅ Entrada anotada';
+    if (event && event.tipo_evento === 'aporte') return '✅ Aporte anotado';
+    if (event && event.tipo_evento === 'divida_pagamento') return '✅ Obrigação anotada';
+    if (event && event.tipo_evento === 'ajuste') return '✅ Ajuste anotado';
+    if (label) return '✅ ' + capitalize_(label.replace(/\.$/, ''));
+    return '✅ Anotado';
   }
 
   function lowerFirst_(value) {
@@ -5539,46 +5590,46 @@ var V55 = (function() {
 
   function friendlyFailureText_(code) {
     if (code === 'INVALID_MONEY') {
-      return '⚠️ Nao entendi o valor.\nTente assim: mercado 42 hoje';
+      return '⚠️ Não entendi o valor.\n\n📌 Como corrigir\nMande valor e contexto na mesma frase.\n\nExemplo:\nmercado 42 hoje';
     }
     if (code === 'INVALID_DATE_EMPTY' || code === 'INVALID_DATE_TEXTUAL' || code === 'INVALID_DATE_UNPADDED_ISO' || code === 'INVALID_COMPETENCIA') {
-      return '⚠️ Nao entendi a data.\nUse hoje, ontem ou uma data como 2026-04-30.';
+      return '⚠️ Não entendi a data.\n\n📌 Como corrigir\nUse hoje, ontem ou uma data como 2026-04-30.';
     }
     if (code === 'CONFIG_CATEGORY_BLOCKED' || code === 'PILOT_TEXT_CATEGORY_MISMATCH') {
-      return '⚠️ Nao anotei com seguranca.\nInclua valor, data, fonte ou cartao, e categoria.';
+      return '⚠️ Não anotei com segurança.\n\n📌 O que falta\nInclua categoria, valor, data e fonte/cartão.';
     }
     if (code === 'CONFIG_SOURCE_BLOCKED') {
-      return '⚠️ Nao identifiquei a fonte do dinheiro.\nCite a conta ou mande de forma simples: mercado 42 hoje.';
+      return '⚠️ Não identifiquei a fonte do dinheiro.\n\n📌 Como corrigir\nCite a conta ou mande de forma simples.\n\nExemplo:\nmercado 42 hoje';
     }
     if (code === 'CONFIG_CARD_BLOCKED' || code === 'CONFIG_CARD_SOURCE_BLOCKED') {
-      return '⚠️ Nao identifiquei o cartao.\nTente assim: farmacia 18 no nubank.';
+      return '⚠️ Não identifiquei o cartão.\n\nExemplo:\nfarmacia 18 no nubank';
     }
     if (code === 'PILOT_INVOICE_BLOCKED' || code === 'PILOT_INVOICE_NOT_FOUND') {
-      return '⚠️ Nao encontrei uma fatura aberta para pagar.\nCite cartao e valor, por exemplo: paguei fatura nubank 300.';
+      return '⚠️ Não encontrei uma fatura aberta para pagar.\n\n📌 Como corrigir\nCite cartão e valor.\n\nExemplo:\npaguei fatura nubank 300';
     }
     if (code === 'PILOT_INVOICE_ALREADY_PAID') {
-      return 'ℹ️ Essa fatura ja aparece como paga.\nSe precisar corrigir, mande um ajuste revisado com o motivo.';
+      return 'ℹ️ Essa fatura já aparece como paga.\n\nPróximo passo\nSe precisar corrigir, mande um ajuste revisado com o motivo.';
     }
     if (code === 'PILOT_INVOICE_AMOUNT_MISMATCH') {
-      return '⚠️ O valor nao bate com a fatura aberta.\nConfira o valor ou registre um ajuste revisado.';
+      return '⚠️ O valor não bate com a fatura aberta.\n\nPróximo passo\nConfira o valor ou registre um ajuste revisado.';
     }
     if (code === 'PILOT_TRANSFER_PERSON_BLOCKED' || code === 'PILOT_TRANSFER_PERSON_MISMATCH' || code === 'PILOT_TRANSFER_DIRECTION_BLOCKED') {
-      return '⚠️ Nao entendi a entrada no caixa familiar.\nTente assim: Luana mandou 200 para caixa familiar.';
+      return '⚠️ Não entendi a entrada no caixa familiar.\n\nExemplo:\nLuana mandou 200 para caixa familiar';
     }
     if (code === 'PILOT_ASSET_BLOCKED') {
-      return '⚠️ Nao identifiquei o investimento ativo.\nTente assim: aporte CDB 1000.';
+      return '⚠️ Não identifiquei o ativo.\n\nExemplo:\naporte CDB 1000';
     }
     if (code === 'PILOT_DEBT_BLOCKED') {
-      return '⚠️ Nao identifiquei a obrigacao.\nTente assim: paguei financiamento 500.';
+      return '⚠️ Não identifiquei a obrigação.\n\nExemplo:\npaguei financiamento 500';
     }
     if (code === 'PILOT_ADJUSTMENT_REASON_BLOCKED') {
-      return '⚠️ Ajuste precisa de motivo.\nTente assim: ajuste revisado 10 erro de importacao.';
+      return '⚠️ Ajuste precisa de motivo.\n\nExemplo:\najuste revisado 10 erro de importacao';
     }
     if (code === 'DUPLICATE_PROCESSING') {
-      return '⏳ Essa mensagem ainda esta sendo processada.\nEspere alguns segundos antes de reenviar.';
+      return '⏳ Essa mensagem ainda está sendo processada.\n\nPróximo passo\nEspere alguns segundos antes de reenviar.';
     }
     if (code === 'OPENAI_FETCH_FAILED' || code === 'OPENAI_REJECTED' || code === 'OPENAI_OUTPUT_NOT_JSON' || code === 'OPENAI_RESPONSE_PROCESSING_FAILED') {
-      return '⚠️ Nao consegui interpretar agora.\nTente uma frase curta com valor, por exemplo: mercado 42 hoje.';
+      return '⚠️ Não consegui interpretar agora.\n\n📌 Como corrigir\nTente uma frase curta com valor.\n\nExemplo:\nmercado 42 hoje';
     }
     return GENERIC_RECORD_FAILURE;
   }
@@ -5757,14 +5808,14 @@ var V55 = (function() {
   function handlePilotBalanceSnapshot_(update, message, text, config, referenceData) {
     var str = stringValue_(text).trim();
     var match = str.match(/^\/?saldo\s+(.+?)\s+([\d.,]+)\s*$/i);
-    if (!match) return fail_('INVALID_BALANCE_FORMAT', 'text', '⚠️ Formato: saldo <fonte> <valor>\nExemplo: /saldo nubank 3500');
+    if (!match) return fail_('INVALID_BALANCE_FORMAT', 'text', '⚠️ Não entendi o saldo.\n\nFormato:\nsaldo <fonte> <valor>\n\nExemplo:\n/saldo nubank 3500');
     var sourceName = match[1].trim();
     var rawAmount = match[2].replace(/\./g, '').replace(',', '.');
     var amount = Number(rawAmount);
-    if (!isFinite(amount) || amount < 0) return fail_('INVALID_BALANCE_AMOUNT', 'valor', '⚠️ Valor de saldo invalido.');
+    if (!isFinite(amount) || amount < 0) return fail_('INVALID_BALANCE_AMOUNT', 'valor', '⚠️ Valor de saldo inválido.');
 
     var source = findSourceByAlias_(sourceName, referenceData.sources);
-    if (!source) return fail_('BALANCE_SOURCE_NOT_FOUND', 'id_fonte', '⚠️ Fonte nao encontrada: ' + sourceName + '\nFontes disponiveis: ' + referenceData.sources.filter(function(s) { return s.ativo !== false; }).map(function(s) { return s.nome; }).join(', '));
+    if (!source) return fail_('BALANCE_SOURCE_NOT_FOUND', 'id_fonte', '⚠️ Fonte não encontrada.\n\nFonte informada:\n' + sourceName + '\n\nFontes disponíveis:\n' + referenceData.sources.filter(function(s) { return s.ativo !== false; }).map(function(s) { return s.nome; }).join(', '));
 
     var lock = LockService.getScriptLock();
     lock.waitLock(10000);
@@ -5790,9 +5841,14 @@ var V55 = (function() {
       return {
         ok: true,
         responseText: [
-          '📊 OK, saldo atualizado.',
-          '🏦 Fonte: ' + stringValue_(source.nome),
-          '💵 Saldo: R$ ' + formatBrazilianMoney_(amount),
+          '📊 Saldo atualizado',
+          '',
+          '💰 Dinheiro disponível',
+          'Fonte: ' + stringValue_(source.nome),
+          'Saldo: R$ ' + formatBrazilianMoney_(amount),
+          '',
+          'Próximo passo',
+          'Use /resumo para ver a leitura do mês.',
         ].join('\n'),
         shouldApplyDomainMutation: true,
       };
@@ -5834,10 +5890,17 @@ var V55 = (function() {
       return {
         ok: true,
         responseText: [
-          '🏦 OK, patrimonio atualizado.',
+          '🏦 Patrimônio atualizado',
+          '',
+          '💰 Reserva/liquidez',
           'Ativo: ' + parsed.nome,
-          '💵 Saldo: R$ ' + formatBrazilianMoney_(parsed.valor),
-          'Impacto: nao e receita nem despesa; entra como reserva/liquidez.',
+          'Saldo: R$ ' + formatBrazilianMoney_(parsed.valor),
+          '',
+          '📌 Impacto',
+          'Não é receita nem despesa. Entra como reserva/liquidez.',
+          '',
+          'Próximo passo',
+          'Use /resumo para conferir a cobertura das faturas.',
         ].join('\n'),
         shouldApplyDomainMutation: true,
       };
@@ -5851,11 +5914,11 @@ var V55 = (function() {
   function parsePilotAssetBalanceText_(text) {
     var str = stringValue_(text).trim();
     var match = str.match(/(?:atualizar\s+patrim[oô]nio:?\s*)?(caixinha|cofrinho)\s+(.+?)\s+(?:com\s+)?saldo\s+([\d.,]+)(?:\s+em\s+(\d{1,2}\/\d{1,2}(?:\/\d{4})?|\d{4}-\d{2}-\d{2}))?/i);
-    if (!match) return fail_('INVALID_ASSET_BALANCE_FORMAT', 'text', '⚠️ Formato: caixinha/cofrinho <nome> saldo <valor>\nExemplo: cofrinho Mercado Pago Gustavo saldo 9482,99');
+    if (!match) return fail_('INVALID_ASSET_BALANCE_FORMAT', 'text', '⚠️ Não entendi o patrimônio.\n\nFormato:\ncaixinha/cofrinho <nome> saldo <valor>\n\nExemplo:\ncofrinho Mercado Pago Gustavo saldo 9482,99');
     var amount = Number(match[3].replace(/\./g, '').replace(',', '.'));
-    if (!isFinite(amount) || amount < 0) return fail_('INVALID_ASSET_BALANCE_AMOUNT', 'valor', '⚠️ Valor de patrimonio invalido.');
+    if (!isFinite(amount) || amount < 0) return fail_('INVALID_ASSET_BALANCE_AMOUNT', 'valor', '⚠️ Valor de patrimônio inválido.');
     var date = normalizeAssetBalanceDate_(match[4]);
-    if (!isValidIsoDate_(date)) return fail_('INVALID_ASSET_BALANCE_DATE', 'data', '⚠️ Data invalida para patrimonio.');
+    if (!isValidIsoDate_(date)) return fail_('INVALID_ASSET_BALANCE_DATE', 'data', '⚠️ Data inválida para patrimônio.');
     var kind = capitalize_(match[1]);
     var ownerName = match[2].trim().replace(/[.]+$/, '');
     var name = kind + ' ' + ownerName;
