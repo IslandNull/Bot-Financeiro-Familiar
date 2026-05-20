@@ -147,22 +147,9 @@ Validado depois do deploy no lote anterior:
 - `npm run selftest` retornou `ok: true`.
 - `npm run snapshot` retornou `ok: true` e atualizou o snapshot redigido.
 
-### 11. Alguma action `repair_*`, `reset_*` ou `migrate*` ficou mais perigosa?
+### 11. Alguma action historica ficou no runtime?
 
-No lote 1: nao. Nenhuma dessas actions foi alterada.
-
-Na branch contra `main`: precisa revisao. Foram adicionadas/expostas actions operacionais que tocam dados reais:
-
-- `repair_may_2026_cash_account_misclassified_card`
-- `repair_may_2026_current_invoice_totals`
-- `record_may_2026_brenda_house_inspection`
-- `repair_may_2026_duplicate_brenda_house_inspection`
-- `record_may_2026_mp_cofrinho_after_brenda`
-- `repair_duplicate_house_debts`
-- `repair_house_debts_restore_ownerReviewedInactive` no nome interno equivalente `repairHouseDebtsRestoreOwnerReviewedInactiveV55`
-- `migrate_config_visibility`
-
-Risco principal: actions de reparo continuam disponiveis por `doGet` com secret. Sao uteis, mas acumulam poder operacional dentro do runtime.
+Nao neste lote de limpeza. As actions historicas de reparo/setup foram removidas de `doGet`, exports, wrappers globais e testes acoplados. O registro resumido esta em `docs/archive/HISTORICAL_REPAIR_ACTIONS.md`.
 
 ### 12. Alguma documentacao criada afirma algo que o codigo ainda nao garante?
 
@@ -217,7 +204,7 @@ Motivo: o PR contra `main` inclui a branch inteira, com mudancas operacionais gr
 Obrigatorio antes de merge pronto:
 
 1. Separar escopo do PR: lote 1 isolado ou branch inteira.
-2. Se for branch inteira, revisar explicitamente actions operacionais `repair_*`, `record_*`, `reset_*`, `migrate_config_visibility`.
+2. Se for branch inteira, revisar explicitamente que as actions historicas seguem fora do runtime.
 3. Atualizar `scripts/clasp-run.js` usage para listar todas as actions remotas atuais ou deixar claro que e lista parcial.
 4. Criar auditor read-only para planilha antes de qualquer limpeza real.
 5. Adicionar check local/runtime para ciclo de fatura, evitando divergencia entre `src/card-cycle.js` e `assignPilotInvoiceCycle_`.

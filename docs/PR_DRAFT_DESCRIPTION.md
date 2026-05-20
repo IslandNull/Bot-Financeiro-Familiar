@@ -6,7 +6,7 @@ Base comparada: `main...codex/v55-bot-ux-refactor`
 
 ## 1. Titulo sugerido do PR
 
-Draft: endurecer UX financeira V55, reparos operacionais e auditoria tecnica
+Draft: endurecer UX financeira V55 e limpar runtime historico
 
 ## 2. Resumo executivo
 
@@ -14,11 +14,11 @@ Este PR deve abrir como draft. Ele nao e um refatoramento completo e nao prova q
 
 O delta total da branch contra `main` e amplo: 18 arquivos alterados, 4373 insercoes e 359 remocoes. O principal ponto de revisao e `apps-script/Code.js`, com 1995 insercoes e 234 remocoes no comparativo amplo.
 
-A branch inclui melhorias reais de UX Telegram, perguntas financeiras deterministicas, validacoes de saldo/fonte, ajustes de faturas, actions operacionais de reparo/registro/migracao, testes locais e documentacao de auditoria. Ao mesmo tempo, ela aumenta a responsabilidade concentrada no runtime Apps Script e ainda depende de revisao humana para confirmar que os fluxos remotos continuam seguros.
+A branch inclui melhorias reais de UX Telegram, perguntas financeiras deterministicas, validacoes de saldo/fonte, testes locais, documentacao de auditoria e uma limpeza posterior que removeu actions historicas do runtime Apps Script.
 
 ## 3. O que mudou
 
-- `apps-script/Code.js`: adiciona e altera fluxos de UX Telegram, resumo familiar, perguntas seguras, drill-downs de categorias, agenda/revisao mensal, validacoes de saldo/fonte, tratamento de faturas atuais, reparos de maio, restauracao de obrigacoes da casa, migracao de visibilidade e wrappers/actions remotos.
+- `apps-script/Code.js`: mantem os fluxos vivos de Telegram, resumo familiar, perguntas seguras, agenda/revisao mensal, validacoes de saldo/fonte, faturas, saldos e fechamento; remove actions historicas de reparo/setup do runtime.
 - `test/apps-script-runtime.test.js`: amplia bastante o harness local do runtime Apps Script e congela varios textos/fluxos operacionais.
 - `test/domain.test.js`: adiciona testes locais para fevereiro bissexto, parcelamento atravessando ano, dado invalido vindo da planilha e valor negativo indevido.
 - `test/seed.test.js`: garante que o seed canonico nao crie categorias ativas com visibilidade `resumo`.
@@ -40,7 +40,7 @@ A branch inclui melhorias reais de UX Telegram, perguntas financeiras determinis
 - Nao ha prova de equivalencia plena entre runtime Apps Script em producao e testes locais.
 - Nao ha modularizacao completa de `apps-script/Code.js`.
 - Nao ha implementacao completa de orcamentos/envelopes por categoria.
-- Nao ha remocao de actions operacionais sensiveis.
+- Actions historicas de reparo/setup foram removidas do runtime; o registro ficou em `docs/archive/HISTORICAL_REPAIR_ACTIONS.md`.
 - Nao ha garantia automatizada de formulas, validacoes de dados ou celulas extras fora do snapshot.
 
 ## 5. Escopo real da branch
@@ -59,10 +59,10 @@ Conclusao: o PR da branch inteira nao e apenas o lote de auditoria/refatoramento
 ## 6. Por que o PR deve ser draft
 
 - `apps-script/Code.js` cresceu muito e continua concentrando HTTP, parser, regras financeiras, formatacao Telegram, acesso a Sheets, reparos e migracoes.
-- As actions `repair_*`, `record_*`, `reset_*` e `migrate_config_visibility` precisam de revisao obrigatoria antes de PR pronto.
+- As actions historicas de reparo/setup foram removidas do runtime nesta limpeza.
 - Os testes locais sao relevantes, mas usam harness/fakes e nao provam equivalencia total com Google Apps Script, Google Sheets, Telegram e OpenAI reais.
 - A documentacao nova e util como diagnostico, mas parte dela depende de snapshot e leitura humana, nao de auditoria automatica continua.
-- O script `scripts/clasp-run.js` lista actions de forma parcial, enquanto `doGet` expoe mais actions.
+- O script `scripts/clasp-run.js` lista apenas as actions remotas vivas expostas por `doGet`.
 - A branch altera regras de visibilidade de categorias e comportamento de resumo/perguntas, o que impacta privacidade e leitura financeira.
 
 ## 7. Arquivos de maior risco
@@ -70,17 +70,14 @@ Conclusao: o PR da branch inteira nao e apenas o lote de auditoria/refatoramento
 - `apps-script/Code.js`: principal ponto de revisao. Contem a maior parte do comportamento operacional e das actions remotas.
 - `test/apps-script-runtime.test.js`: cobertura importante, mas grande, textual e acoplada ao harness local.
 - `src/seed.js`: altera visibilidade padrao de categorias, com impacto em privacidade e detalhamento de relatorios.
-- `scripts/clasp-run.js`: usage nao acompanha todas as actions realmente aceitas por `doGet`.
+- `scripts/clasp-run.js`: usage acompanha as actions vivas aceitas por `doGet`.
 - `docs/SPREADSHEET_SNAPSHOT.md`: evidencia redigida do estado real, nao contrato permanente.
 - `docs/PLANILHA_DIAGNOSTICO.md`: diagnostico depende de snapshot e referencias em codigo; nao substitui auditoria de celulas/formulas.
 
 ## 8. Checklist antes de marcar como ready for review
 
-- Revisar `apps-script/Code.js` por blocos: `doGet`, `doPost`, comandos Telegram, perguntas seguras, resumo, faturas, saldos, reparos e migracoes.
-- Revisar obrigatoriamente todas as actions `repair_*`, `record_*`, `reset_*` e `migrate_config_visibility`.
-- Confirmar que actions operacionais nao podem ser chamadas sem `WEBHOOK_SECRET` valido.
-- Confirmar que cada action sensivel e idempotente ou claramente limitada ao caso historico revisado.
-- Atualizar `scripts/clasp-run.js` ou documentar que a lista de usage e parcial.
+- Revisar `apps-script/Code.js` por blocos: `doGet`, `doPost`, comandos Telegram, perguntas seguras, resumo, faturas, saldos e fechamento.
+- Confirmar que as actions vivas de `doGet` exigem `WEBHOOK_SECRET` valido.
 - Verificar se `migrateV55Parcelas()` deve continuar como wrapper global manual.
 - Revisar textos dos docs para separar evidencia verificada, inferencia e risco residual.
 - Comparar regras de ciclo de fatura entre `src/card-cycle.js` e `assignPilotInvoiceCycle_`/helpers do Apps Script.
@@ -90,7 +87,7 @@ Conclusao: o PR da branch inteira nao e apenas o lote de auditoria/refatoramento
 ## 9. Checklist antes de merge
 
 - Concluir revisao tecnica do PR draft ou fatiar a branch em PRs menores.
-- Ter decisao explicita sobre manter, remover ou isolar actions historicas ja aplicadas.
+- Manter as actions historicas fora do runtime, salvo nova decisao explicita.
 - Nao fazer limpeza de planilha real sem backup, dry-run e plano reversivel.
 - Rodar `npm run check` com sucesso.
 - Se houver novo deploy para validacao operacional, rodar `npm run push`, `clasp deploy -i $DEPLOY_ID`, `npm run snapshot`, `npm run summary` e `npm run selftest`.
@@ -113,7 +110,7 @@ Observacao: estes comandos nao provam equivalencia plena entre Apps Script real 
 
 - Risco de regressao operacional em `apps-script/Code.js` por tamanho, acoplamento e volume de mudancas.
 - Risco de falso positivo em testes locais por uso de harness/fakes.
-- Risco de actions historicas permanecerem disponiveis alem do periodo em que foram necessarias.
+- Risco residual de alguma manutencao futura precisar de script auditado em vez de action remota ja removida.
 - Risco de divergencia entre schema documentado, snapshot redigido e estado real futuro da planilha.
 - Risco de docs serem lidos como garantia automatica, quando parte do conteudo e diagnostico manual.
 - Risco de privacidade se alguma categoria pessoal ficar com visibilidade incorreta.
@@ -123,9 +120,7 @@ Observacao: estes comandos nao provam equivalencia plena entre Apps Script real 
 ## 12. Perguntas abertas
 
 - A branch deve ser revisada inteira em um PR draft ou fatiada antes de review formal?
-- As actions historicas de reparo devem continuar no runtime depois de aplicadas?
 - `migrateV55Parcelas()` deve ser mantido como wrapper global manual, movido para action auditada ou removido apos decisao humana?
-- `scripts/clasp-run.js` deve listar todas as actions remotas ou aceitar action livre com documentacao melhor?
 - O projeto precisa de um auditor read-only de planilha antes de qualquer proxima limpeza?
 - `Telegram_Send_Log` deve ser ativado no runtime real ou removido de escopo futuro?
 - Qual convencao formal deve separar fatura prevista por parcela, fatura fechada autoritativa, fatura paga e linha cancelada por revisao?
@@ -140,7 +135,7 @@ Sugestao de fatias:
 
 1. UX/read-only Telegram: comandos, textos, `/resumo`, `/agenda`, `/revisar_mes` e perguntas seguras.
 2. Regras operacionais financeiras: faturas, saldos/fonte, validacao de caixa, exposicao de cartao e resumo.
-3. Actions de reparo/migracao: `repair_*`, `record_*`, `reset_*`, `migrate_config_visibility` e `migrateV55Parcelas()`.
+3. Limpeza runtime: actions historicas removidas e decisao separada sobre `migrateV55Parcelas()`.
 4. Schema/seed/docs/testes: `parcelas`, visibilidade, diagnosticos, plano e auditoria.
 
 Se a branch nao for fatiada, o PR draft deve exigir revisao integral de `apps-script/Code.js` antes de ficar ready for review.
@@ -149,4 +144,4 @@ Se a branch nao for fatiada, o PR draft deve exigir revisao integral de `apps-sc
 
 A) pode abrir PR como draft.
 
-Nao recomendo marcar como ready for review nem fazer merge enquanto `apps-script/Code.js` e as actions `repair_*`, `record_*`, `reset_*` e `migrate_config_visibility` nao forem revisadas explicitamente.
+Nao recomendo marcar como ready for review nem fazer merge sem nova revisao de `apps-script/Code.js` e do resumo em `docs/CODE_CLEANUP_SUMMARY.md`.

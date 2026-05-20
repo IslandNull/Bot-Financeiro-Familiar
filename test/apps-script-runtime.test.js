@@ -390,6 +390,19 @@ function appendRuntimeConfigRows(sheets) {
             visibilidade_padrao: 'resumo',
             ativo: true,
         },
+        {
+            id_categoria: 'OPEX_DESENVOLVIMENTO_PROFISSIONAL',
+            nome: 'Desenvolvimento profissional',
+            grupo: 'Carreira',
+            tipo_evento_padrao: 'compra_cartao',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Gustavo',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: false,
+            visibilidade_padrao: 'privada',
+            ativo: true,
+        },
     ].forEach((row) => sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => row[header] === undefined ? '' : row[header])));
 
     [
@@ -397,18 +410,33 @@ function appendRuntimeConfigRows(sheets) {
         { id_fonte: 'FONTE_NUBANK_GU', nome: 'Nubank Gustavo', tipo: 'cartao_credito', titular: 'Gustavo', moeda: 'BRL', ativo: true },
         { id_fonte: 'FONTE_EXTERNA_GUSTAVO', nome: 'Gustavo externa', tipo: 'externa', titular: 'Gustavo', moeda: 'BRL', ativo: true },
         { id_fonte: 'FONTE_EXTERNA_LUANA', nome: 'Luana externa', tipo: 'externa', titular: 'Luana', moeda: 'BRL', ativo: true },
+        { id_fonte: 'FONTE_MERCADO_PAGO_GU', nome: 'Mercado Pago Gustavo', tipo: 'cartao_credito', titular: 'Gustavo', moeda: 'BRL', ativo: true },
+        { id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU', nome: 'Conta Mercado Pago Gustavo', tipo: 'conta_corrente', titular: 'Gustavo', moeda: 'BRL', ativo: true },
+        { id_fonte: 'FONTE_CONTA_NUBANK_GU', nome: 'Conta Nubank Gustavo', tipo: 'conta_corrente', titular: 'Gustavo', moeda: 'BRL', ativo: true },
     ].forEach((row) => sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => row[header] === undefined ? '' : row[header])));
 
-    sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
-        id_cartao: 'CARD_NUBANK_GU',
-        id_fonte: 'FONTE_NUBANK_GU',
-        nome: 'Nubank Gustavo',
-        titular: 'Gustavo',
-        fechamento_dia: 30,
-        vencimento_dia: 7,
-        limite: 5000,
-        ativo: true,
-    })[header] ?? ''));
+    [
+        {
+            id_cartao: 'CARD_NUBANK_GU',
+            id_fonte: 'FONTE_NUBANK_GU',
+            nome: 'Nubank Gustavo',
+            titular: 'Gustavo',
+            fechamento_dia: 30,
+            vencimento_dia: 7,
+            limite: 5000,
+            ativo: true,
+        },
+        {
+            id_cartao: 'CARD_MERCADO_PAGO_GU',
+            id_fonte: 'FONTE_MERCADO_PAGO_GU',
+            nome: 'Mercado Pago Gustavo',
+            titular: 'Gustavo',
+            fechamento_dia: 5,
+            vencimento_dia: 10,
+            limite: '',
+            ativo: true,
+        },
+    ].forEach((row) => sheets.Cartoes.appendRow(cartoesHeaders.map((header) => row[header] === undefined ? '' : row[header])));
 
 }
 
@@ -594,9 +622,6 @@ test('Apps Script runtime exposes webhook and self-test functions', () => {
     assert.ok(code.includes('function exportPilotFamilySummaryV55()'));
     assert.ok(code.includes('function writeDraftFamilyClosingV55()'));
     assert.ok(code.includes('function closeReviewedFamilyClosingV55('));
-    assert.ok(code.includes('function repairPrematureCurrentFamilyClosingV55()'));
-    assert.ok(code.includes('function repairNotebookInstallmentPilotV55()'));
-    assert.ok(code.includes('function resetApril2026CleanRebuildV55()'));
     assert.ok(code.includes('function runTelegramWebhookSetupDryRun()'));
     assert.ok(code.includes('function runTelegramWebhookSetupApply()'));
 });
@@ -693,7 +718,7 @@ test('Apps Script UX messages use short summary-style sections', () => {
     assert.strictEqual(balance.ok, true);
     assert.match(balance.responseText, /^📊 Saldo atualizado/m);
     assert.match(balance.responseText, /💰 Dinheiro disponível|💰 Dinheiro disponivel/);
-    assert.match(balance.responseText, /Fonte: Nubank Gustavo/);
+    assert.match(balance.responseText, /Fonte: Conta Nubank Gustavo/);
     assert.match(balance.responseText, /Saldo: R\$ 1.500,50/);
     assert.match(balance.responseText, /🧭 Próximo passo|🧭 Proximo passo/);
 });
@@ -745,10 +770,10 @@ test('Apps Script balance snapshot creates a row in Saldos_Fontes', () => {
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, true);
     assert.match(result.responseText, /Saldo atualizado/);
-    assert.match(result.responseText, /Fonte: Nubank Gustavo/);
+    assert.match(result.responseText, /Fonte: Conta Nubank Gustavo/);
     assert.match(result.responseText, /Saldo: R\$ 1.500,50/);
     assert.strictEqual(sheets.Saldos_Fontes.rows.length, 2); // 1 header + 1 row
-    assert.strictEqual(sheets.Saldos_Fontes.rows[1][3], 'FONTE_NUBANK_GU'); // id_fonte
+    assert.strictEqual(sheets.Saldos_Fontes.rows[1][3], 'FONTE_CONTA_NUBANK_GU'); // id_fonte
     assert.strictEqual(sheets.Saldos_Fontes.rows[1][5], 1500.5); // saldo_final
     assert.strictEqual(sheets.Saldos_Fontes.rows[1][6], 1500.5); // saldo_disponivel
 });
@@ -1603,354 +1628,8 @@ test('Apps Script snapshot includes family closing status without financial deta
     assert.strictEqual(result.snapshot.includes('existing'), false);
 });
 
-test('Apps Script ensure_remaining_mutation_config appends missing category defaults once', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    const idIndex = configCategoriasHeaders.indexOf('id_categoria');
-    const adjustmentRowIndex = sheets.Config_Categorias.rows.findIndex((row) => row[idIndex] === 'AJUSTE_REVISAO');
-    assert.ok(adjustmentRowIndex > 0);
-    sheets.Config_Categorias.rows.splice(adjustmentRowIndex, 1);
-    const beforeCount = sheets.Config_Categorias.rows.length;
-
-    const first = runRemoteAction(context, 'ensure_remaining_mutation_config');
-    const second = runRemoteAction(context, 'ensure_remaining_mutation_config');
-
-    assert.strictEqual(first.ok, true);
-    assert.strictEqual(first.appended_count, 1);
-    assert.deepStrictEqual(first.appended.map((row) => row.tipo_evento_padrao), ['ajuste']);
-    assert.strictEqual(sheets.Config_Categorias.rows.length, beforeCount + 1);
-    assert.strictEqual(second.ok, true);
-    assert.strictEqual(second.appended_count, 0);
-});
-
-test('Apps Script ensure_remaining_mutation_config appends required ids even when event type already exists', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    const idIndex = configCategoriasHeaders.indexOf('id_categoria');
-    const debtRowIndex = sheets.Config_Categorias.rows.findIndex((row) => row[idIndex] === 'OBR_PAGAMENTO_DIVIDA');
-    assert.ok(debtRowIndex > 0);
-    sheets.Config_Categorias.rows.splice(debtRowIndex, 1);
-    sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => ({
-        id_categoria: 'OBR_OUTRA_CATEGORIA',
-        nome: 'Outra obrigacao',
-        grupo: 'Obrigacoes',
-        tipo_evento_padrao: 'divida_pagamento',
-        classe_dre: 'nao_dre',
-        escopo_padrao: 'Familiar',
-        afeta_dre_padrao: false,
-        afeta_patrimonio_padrao: true,
-        afeta_caixa_familiar_padrao: true,
-        visibilidade_padrao: 'resumo',
-        ativo: true,
-    })[header] ?? ''));
-
-    const result = runRemoteAction(context, 'ensure_remaining_mutation_config');
-
-    assert.strictEqual(result.ok, true);
-    assert.ok(result.appended.some((row) => row.id_categoria === 'OBR_PAGAMENTO_DIVIDA'));
-    assert.ok(sheets.Config_Categorias.rows.some((row) => row[idIndex] === 'OBR_PAGAMENTO_DIVIDA'));
-});
-
-test('Apps Script visibility migration removes resumo defaults conservatively', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    const idIndex = configCategoriasHeaders.indexOf('id_categoria');
-    const visibilityIndex = configCategoriasHeaders.indexOf('visibilidade_padrao');
-    const activeIndex = configCategoriasHeaders.indexOf('ativo');
-
-    const result = runRemoteAction(context, 'migrate_config_visibility');
-
-    assert.strictEqual(result.ok, true);
-    assert.ok(result.updated_count > 0);
-    const byId = Object.fromEntries(sheets.Config_Categorias.rows.slice(1).map((row) => [row[idIndex], row]));
-    assert.strictEqual(byId.OPEX_TRANSPORTE_TRABALHO_GUSTAVO_DINHEIRO[visibilityIndex], 'privada');
-    assert.strictEqual(byId.MOV_CAIXA_FAMILIAR[visibilityIndex], 'detalhada');
-    assert.strictEqual(byId.OBR_PAGAMENTO_DIVIDA[visibilityIndex], 'detalhada');
-    const activeVisibility = sheets.Config_Categorias.rows.slice(1)
-        .filter((row) => row[activeIndex] !== false)
-        .map((row) => row[visibilityIndex]);
-    assert.ok(!activeVisibility.includes('resumo'));
-});
-
-test('Apps Script ensure_april_2026_config appends reviewed config rows once', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => ({
-        id_categoria: 'OPEX_CARREIRA_PROCESSO_SELETIVO',
-        nome: 'Carreira e processo seletivo',
-        grupo: 'Carreira',
-        tipo_evento_padrao: 'compra_cartao',
-        classe_dre: 'despesa_operacional',
-        escopo_padrao: 'Gustavo',
-        afeta_dre_padrao: true,
-        afeta_patrimonio_padrao: false,
-        afeta_caixa_familiar_padrao: false,
-        visibilidade_padrao: 'resumo',
-        ativo: true,
-    })[header] ?? ''));
-    const beforeCategories = sheets.Config_Categorias.rows.length;
-    const beforeSources = sheets.Config_Fontes.rows.length;
-    const beforeCards = sheets.Cartoes.rows.length;
-
-    const first = runRemoteAction(context, 'ensure_april_2026_config');
-    const second = runRemoteAction(context, 'ensure_april_2026_config');
-
-    assert.strictEqual(first.ok, true);
-    assert.strictEqual(first.shouldApplyDomainMutation, false);
-    assert.strictEqual(first.appended.categories.length, 29);
-    assert.ok(first.appended.categories.includes('OPEX_MERCADO_SEMANA_CARTAO'));
-    assert.ok(first.appended.categories.includes('OPEX_DESENVOLVIMENTO_PROFISSIONAL'));
-    assert.ok(first.appended.categories.includes('OPEX_DESENVOLVIMENTO_PROFISSIONAL_DINHEIRO'));
-    assert.ok(first.appended.categories.includes('OPEX_ALIMENTACAO_PESSOAL_GUSTAVO'));
-    assert.ok(first.appended.categories.includes('OPEX_TRANSPORTE_PESSOAL_LUANA'));
-    assert.ok(first.appended.categories.includes('OPEX_TRANSPORTE_LAZER_FAMILIAR'));
-    assert.ok(first.appended.categories.includes('OPEX_LAZER_FAMILIAR'));
-    assert.ok(first.appended.categories.includes('OPEX_LAZER_PESSOAL_DINHEIRO'));
-    assert.ok(first.appended.categories.includes('OPEX_VESTUARIO_ACESSORIOS'));
-    assert.ok(first.appended.categories.includes('OPEX_VESTUARIO_LUANA'));
-    assert.ok(first.appended.categories.includes('OPEX_SAUDE_BEM_ESTAR'));
-    assert.ok(sheets.Config_Categorias.rows.some((row) => row[configCategoriasHeaders.indexOf('id_categoria')] === 'OPEX_ELETRONICOS_E_EQUIPAMENTOS'));
-    assert.ok(first.appended.categories.includes('OPEX_CASA_DOCUMENTACAO_SERVICOS'));
-    assert.ok(first.appended.categories.includes('OPEX_TELEFONIA_INTERNET'));
-    assert.ok(first.appended.categories.includes('OPEX_TELEFONIA_GUSTAVO'));
-    assert.ok(first.appended.categories.includes('OPEX_PET'));
-    assert.ok(first.appended.categories.includes('REC_RENDIMENTOS_FINANCEIROS'));
-    assert.ok(first.appended.categories.includes('REC_REEMBOLSO_DESENVOLVIMENTO_PROFISSIONAL'));
-    assert.ok(first.appended.categories.includes('REC_REEMBOLSO_PESSOAL'));
-    assert.ok(first.appended.categories.includes('REC_RECEITA_PROFISSIONAL'));
-    assert.ok(!first.appended.categories.includes('OPEX_CARREIRA_PROCESSO_SELETIVO'));
-    assert.deepStrictEqual(first.deactivated.categories, ['OPEX_CARREIRA_PROCESSO_SELETIVO']);
-    assert.deepStrictEqual(first.appended.sources, [
-        'FONTE_MERCADO_PAGO_GU',
-        'FONTE_CONTA_MERCADO_PAGO_GU',
-        'FONTE_CONTA_NUBANK_GU',
-    ]);
-    assert.deepStrictEqual(first.appended.cards, ['CARD_MERCADO_PAGO_GU']);
-    assert.strictEqual(first.appended_count, 33);
-    assert.strictEqual(sheets.Config_Categorias.rows.length, beforeCategories + 29);
-    assert.strictEqual(sheets.Config_Fontes.rows.length, beforeSources + 3);
-    assert.strictEqual(sheets.Cartoes.rows.length, beforeCards + 1);
-    assert.strictEqual(second.ok, true);
-    assert.strictEqual(second.appended_count, 0);
-    assert.deepStrictEqual(second.deactivated.categories, []);
-    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    assert.strictEqual(sheets.Faturas.rows.length, 1);
-});
-
-test('Apps Script repairs Mercado Pago invoice cycle from source statement dates', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
-        id_cartao: 'CARD_MERCADO_PAGO_GU',
-        id_fonte: 'FONTE_MERCADO_PAGO_GU',
-        nome: 'Mercado Pago Gustavo',
-        titular: 'Gustavo',
-        fechamento_dia: 30,
-        vencimento_dia: 7,
-        limite: '',
-        ativo: true,
-    })[header] ?? ''));
-    sheets.Faturas.appendRow(faturasHeaders.map((header) => ({
-        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_04',
-        id_cartao: 'CARD_MERCADO_PAGO_GU',
-        competencia: '2026-04',
-        data_fechamento: '2026-04-30',
-        data_vencimento: '2026-05-07',
-        valor_previsto: 84.9,
-        valor_fechado: '',
-        valor_pago: '',
-        status: 'prevista',
-    })[header] ?? ''));
-    sheets.Faturas.appendRow(faturasHeaders.map((header) => ({
-        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_04',
-        id_cartao: 'CARD_MERCADO_PAGO_GU',
-        competencia: '2026-04',
-        data_fechamento: '2026-04-30',
-        data_vencimento: '2026-05-07',
-        valor_previsto: 42.5,
-        valor_fechado: 42.5,
-        valor_pago: 42.5,
-        status: 'paga',
-    })[header] ?? ''));
-    sheets.Lancamentos.appendRow(lancamentosHeaders.map((header) => ({
-        id_lancamento: 'LAN_MP_TEST',
-        data: '2026-04-09',
-        competencia: '2026-04',
-        tipo_evento: 'compra_cartao',
-        id_categoria: 'OPEX_ALIMENTACAO_FORA',
-        valor: 84.9,
-        id_fonte: 'FONTE_MERCADO_PAGO_GU',
-        pessoa: 'Gustavo',
-        escopo: 'Familiar',
-        id_cartao: 'CARD_MERCADO_PAGO_GU',
-        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_04',
-        afeta_dre: true,
-        afeta_patrimonio: false,
-        afeta_caixa_familiar: false,
-        visibilidade: 'detalhada',
-        status: 'efetivado',
-        descricao: 'historico abril revisado',
-        created_at: '2026-04-30T15:00:00Z',
-    })[header] ?? ''));
-
-    const result = runRemoteAction(context, 'repair_april_2026_mp_invoice_cycle');
-
-    assert.strictEqual(result.ok, true);
-    assert.deepStrictEqual(result.updated.cards, ['CARD_MERCADO_PAGO_GU']);
-    assert.strictEqual(result.updated.faturas, 1);
-    assert.strictEqual(result.updated.lancamentos, 1);
-    const cardRow = sheets.Cartoes.rows.find((row) => row[cartoesHeaders.indexOf('id_cartao')] === 'CARD_MERCADO_PAGO_GU');
-    const card = Object.fromEntries(cartoesHeaders.map((header, index) => [header, cardRow[index]]));
-    assert.strictEqual(card.fechamento_dia, 5);
-    assert.strictEqual(card.vencimento_dia, 10);
-    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
-    assert.strictEqual(invoice.id_fatura, 'FAT_CARD_MERCADO_PAGO_GU_2026_05');
-    assert.strictEqual(invoice.competencia, '2026-05');
-    assert.strictEqual(invoice.data_fechamento, '2026-05-05');
-    assert.strictEqual(invoice.data_vencimento, '2026-05-11');
-    const paidInvoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[2][index]]));
-    assert.strictEqual(paidInvoice.id_fatura, 'FAT_CARD_MERCADO_PAGO_GU_2026_04');
-    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
-    assert.strictEqual(launch.id_fatura, 'FAT_CARD_MERCADO_PAGO_GU_2026_05');
-});
-
-test('Apps Script ensure_april_2026_house_debts appends separate active house debts once', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    const idIndex = dividasHeaders.indexOf('id_divida');
-    const statusIndex = dividasHeaders.indexOf('status');
-    const parcelaIndex = dividasHeaders.indexOf('valor_parcela');
-    const beforeDebts = sheets.Dividas.rows.length;
-
-    const first = runRemoteAction(context, 'ensure_april_2026_house_debts');
-    const second = runRemoteAction(context, 'ensure_april_2026_house_debts');
-
-    assert.strictEqual(first.ok, true);
-    assert.strictEqual(first.shouldApplyDomainMutation, false);
-    assert.deepStrictEqual(first.appended.debts, [
-        'DIV_FINANCIAMENTO_CAIXA_CASA',
-        'DIV_CONSTRUTORA_VASCO_CASA',
-        'DIV_OBRIGACOES_CASA',
-    ]);
-    assert.strictEqual(first.appended_count, 3);
-    assert.strictEqual(second.ok, true);
-    assert.strictEqual(second.appended_count, 0);
-    assert.strictEqual(sheets.Dividas.rows.length, beforeDebts + 3);
-    const caixa = sheets.Dividas.rows.find((row) => row[idIndex] === 'DIV_FINANCIAMENTO_CAIXA_CASA');
-    const vasco = sheets.Dividas.rows.find((row) => row[idIndex] === 'DIV_CONSTRUTORA_VASCO_CASA');
-    const obrigacoesCasa = sheets.Dividas.rows.find((row) => row[idIndex] === 'DIV_OBRIGACOES_CASA');
-    assert.strictEqual(caixa[statusIndex], 'ativa');
-    assert.strictEqual(vasco[statusIndex], 'ativa');
-    assert.strictEqual(obrigacoesCasa[statusIndex], 'ativa');
-    assert.strictEqual(caixa[parcelaIndex], 2120);
-    assert.strictEqual(vasco[parcelaIndex], 862.12);
-    assert.strictEqual(obrigacoesCasa[parcelaIndex], 0);
-});
-
-test('Apps Script repair action deactivates duplicated legacy house debts', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    const idIndex = dividasHeaders.indexOf('id_divida');
-    const statusIndex = dividasHeaders.indexOf('status');
-    runRemoteAction(context, 'ensure_april_2026_house_debts');
-    appendFakeDebt(sheets, {
-        id_divida: 'DIV_LEGACY_CAIXA_CASA',
-        nome: 'Financiamento Caixa Casa',
-        saldo_devedor: 300000,
-        valor_parcela: 1906.2,
-        status: 'ativa',
-    });
-    appendFakeDebt(sheets, {
-        id_divida: 'DIV_LEGACY_VASCO',
-        nome: 'Vasco',
-        saldo_devedor: 0,
-        valor_parcela: 862.12,
-        status: 'ativa',
-    });
-
-    const result = runRemoteAction(context, 'repair_duplicate_house_debts');
-
-    assert.strictEqual(result.ok, true);
-    assert.deepStrictEqual(result.deactivated_debts, ['DIV_LEGACY_CAIXA_CASA', 'DIV_LEGACY_VASCO']);
-    assert.deepStrictEqual(result.updated_debt_balances, ['DIV_FINANCIAMENTO_CAIXA_CASA']);
-    const statuses = Object.fromEntries(sheets.Dividas.rows.slice(1).map((row) => [row[idIndex], row[statusIndex]]));
-    assert.strictEqual(statuses.DIV_FINANCIAMENTO_CAIXA_CASA, 'ativa');
-    assert.strictEqual(statuses.DIV_CONSTRUTORA_VASCO_CASA, 'ativa');
-    assert.strictEqual(statuses.DIV_LEGACY_CAIXA_CASA, 'inativa');
-    assert.strictEqual(statuses.DIV_LEGACY_VASCO, 'inativa');
-    const canonicalCaixa = sheets.Dividas.rows.find((row) => row[idIndex] === 'DIV_FINANCIAMENTO_CAIXA_CASA');
-    assert.strictEqual(canonicalCaixa[dividasHeaders.indexOf('saldo_devedor')], 300000);
-});
-
-test('Apps Script repair action restores owner-reviewed inactive house financing debts', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    const idIndex = dividasHeaders.indexOf('id_divida');
-    const statusIndex = dividasHeaders.indexOf('status');
-    runRemoteAction(context, 'ensure_april_2026_house_debts');
-    appendFakeDebt(sheets, {
-        id_divida: 'DIV_LEGACY_CAIXA_CASA',
-        nome: 'Financiamento Caixa Casa',
-        saldo_devedor: 300000,
-        valor_parcela: 1906.2,
-        status: 'inativa',
-        observacao: 'Owner review: esta linha e a correta.',
-    });
-    appendFakeDebt(sheets, {
-        id_divida: 'DIV_LEGACY_VASCO',
-        nome: 'Vasco',
-        saldo_devedor: 0,
-        valor_parcela: 862.12,
-        status: 'inativa',
-        observacao: 'Owner review: esta linha e a correta.',
-    });
-
-    const result = runRemoteAction(context, 'repair_house_debts_restore_owner_reviewed_inactive');
-
-    assert.strictEqual(result.ok, true);
-    assert.deepStrictEqual(result.reactivated_debts, ['DIV_LEGACY_CAIXA_CASA', 'DIV_LEGACY_VASCO']);
-    assert.deepStrictEqual(result.deactivated_debts, ['DIV_FINANCIAMENTO_CAIXA_CASA', 'DIV_CONSTRUTORA_VASCO_CASA']);
-    const statuses = Object.fromEntries(sheets.Dividas.rows.slice(1).map((row) => [row[idIndex], row[statusIndex]]));
-    assert.strictEqual(statuses.DIV_LEGACY_CAIXA_CASA, 'ativa');
-    assert.strictEqual(statuses.DIV_LEGACY_VASCO, 'ativa');
-    assert.strictEqual(statuses.DIV_FINANCIAMENTO_CAIXA_CASA, 'inativa');
-    assert.strictEqual(statuses.DIV_CONSTRUTORA_VASCO_CASA, 'inativa');
-});
-
-test('Apps Script reset_april_2026_clean_rebuild clears operational data but preserves config', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    appendFakeLaunch(sheets);
-    appendFakeInvoice(sheets);
-    appendFakeTransfer(sheets);
-    appendFakeSourceBalance(sheets);
-    appendFakeClosing(sheets, { status: 'closed', closed_at: '2026-05-01T10:00:00Z' });
-    sheets.Idempotency_Log.appendRow(idempotencyHeaders.map((header) => ({
-        idempotency_key: 'historical:old',
-        source: 'historical_jsonl',
-        status: 'completed',
-    })[header] ?? ''));
-    const beforeCategories = sheets.Config_Categorias.rows.length;
-    const beforeSources = sheets.Config_Fontes.rows.length;
-    const beforeCards = sheets.Cartoes.rows.length;
-    const beforeDebts = sheets.Dividas.rows.length;
-
-    const result = runRemoteAction(context, 'reset_april_2026_clean_rebuild');
-
-    assert.strictEqual(result.ok, true);
-    assert.strictEqual(result.shouldApplyDomainMutation, true);
-    assert.strictEqual(result.cleared.Lancamentos, 1);
-    assert.strictEqual(result.cleared.Faturas, 1);
-    assert.strictEqual(result.cleared.Transferencias_Internas, 1);
-    assert.strictEqual(result.cleared.Saldos_Fontes, 1);
-    assert.strictEqual(result.cleared.Fechamento_Familiar, 1);
-    assert.strictEqual(result.cleared.Idempotency_Log, 1);
-    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    assert.strictEqual(sheets.Faturas.rows.length, 1);
-    assert.strictEqual(sheets.Transferencias_Internas.rows.length, 1);
-    assert.strictEqual(sheets.Saldos_Fontes.rows.length, 1);
-    assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 1);
-    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
-    assert.strictEqual(sheets.Config_Categorias.rows.length, beforeCategories);
-    assert.strictEqual(sheets.Config_Fontes.rows.length, beforeSources);
-    assert.strictEqual(sheets.Cartoes.rows.length, beforeCards);
-    assert.strictEqual(sheets.Dividas.rows.length, beforeDebts);
-});
-
 test('Apps Script reviewed historical import dry-run validates without writing private details', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    runRemoteAction(context, 'ensure_april_2026_config');
 
     const result = postHistoricalImport(context, [{
         lineNumber: 7,
@@ -1985,7 +1664,6 @@ test('Apps Script reviewed historical import dry-run validates without writing p
 
 test('Apps Script reviewed historical import applies narrowly and suppresses duplicates', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    runRemoteAction(context, 'ensure_april_2026_config');
     const entries = [{
         lineNumber: 7,
         event: {
@@ -2024,7 +1702,6 @@ test('Apps Script reviewed historical import applies narrowly and suppresses dup
 
 test('Apps Script reviewed historical import records invoice exposure without DRE launch', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    runRemoteAction(context, 'ensure_april_2026_config');
     const entries = [{
         lineNumber: 1,
         event: {
@@ -2061,7 +1738,6 @@ test('Apps Script reviewed historical import records invoice exposure without DR
 
 test('Apps Script reviewed historical import allows future invoice exposure in April rebuild', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    runRemoteAction(context, 'ensure_april_2026_config');
     const result = postHistoricalImport(context, [{
         lineNumber: 1,
         event: {
@@ -2092,7 +1768,6 @@ test('Apps Script reviewed historical import allows future invoice exposure in A
 
 test('Apps Script reviewed historical import accepts reviewed private visibility override', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    runRemoteAction(context, 'ensure_april_2026_config');
     const result = postHistoricalImport(context, [{
         lineNumber: 1,
         event: {
@@ -2120,7 +1795,6 @@ test('Apps Script reviewed historical import accepts reviewed private visibility
 
 test('Apps Script reviewed historical import validates whole batch before writing', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    runRemoteAction(context, 'ensure_april_2026_config');
 
     const result = postHistoricalImport(context, [
         {
@@ -2417,176 +2091,6 @@ test('Apps Script closing_close action blocks already closed rows', () => {
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['CLOSING_NOT_DRAFT']);
     assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('status')], 'closed');
     assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('closed_at')], '2026-04-01T10:00:00Z');
-});
-
-test('Apps Script repair action reopens only premature current family closing', () => {
-    const { context, sheets } = createAppsScriptHarness(null, {
-        failOnFetch: true,
-        properties: {
-            PILOT_FINANCIAL_MUTATION_ENABLED: '',
-            OPENAI_API_KEY: '',
-        },
-    });
-    appendFakeClosing(sheets, {
-        competencia: '2026-04',
-        status: 'closed',
-        closed_at: '2026-04-15T10:00:00Z',
-    });
-
-    const result = runRemoteAction(context, 'repair_premature_current_closing');
-
-    assert.strictEqual(result.ok, true);
-    assert.strictEqual(result.status, 'reopened');
-    assert.strictEqual(result.competencia, '2026-04');
-    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('status')], 'draft');
-    assert.strictEqual(sheets.Fechamento_Familiar.rows[1][fechamentoFamiliarHeaders.indexOf('closed_at')], '');
-});
-
-test('Apps Script repair action cancels duplicated wrong notebook pilot rows without deleting history', () => {
-    const { context, sheets } = createAppsScriptHarness(null, {
-        failOnFetch: true,
-        properties: {
-            PILOT_FINANCIAL_MUTATION_ENABLED: '',
-            OPENAI_API_KEY: '',
-        },
-    });
-    appendFakeLaunch(sheets, {
-        id_lancamento: 'LAN_NOTEBOOK_SINGLE',
-        data: '2026-05-15',
-        competencia: '2026-05',
-        tipo_evento: 'compra_cartao',
-        id_categoria: 'OPEX_FARMACIA',
-        valor: 3000,
-        id_fonte: 'FONTE_NUBANK_GU',
-        id_cartao: 'CARD_NUBANK_GU',
-        id_fatura: 'FAT_CARD_NUBANK_GU_2026_05',
-        descricao: 'Notebook 3000 em 3x no Nubank',
-        status: 'efetivado',
-    });
-    appendFakeLaunch(sheets, {
-        id_lancamento: 'LAN_NOTEBOOK_PARCELADO',
-        data: '2026-05-15',
-        competencia: '2026-05',
-        tipo_evento: 'compra_cartao',
-        id_categoria: 'OPEX_FARMACIA',
-        valor: 3000,
-        id_fonte: 'FONTE_NUBANK_GU',
-        id_cartao: 'CARD_NUBANK_GU',
-        id_fatura: 'FAT_CARD_NUBANK_GU_2026_05',
-        descricao: 'Notebook 3000 em 3x no Nubank',
-        parcelas: 3,
-        status: 'efetivado',
-    });
-    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_05', competencia: '2026-05', valor_previsto: 3000 });
-    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_05', competencia: '2026-05', valor_previsto: 1000 });
-    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_06', competencia: '2026-06', valor_previsto: 1000 });
-    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_07', competencia: '2026-07', valor_previsto: 1000 });
-
-    const result = runRemoteAction(context, 'repair_notebook_installment_pilot');
-
-    assert.strictEqual(result.ok, true);
-    assert.strictEqual(result.canceled_launches, 2);
-    assert.strictEqual(result.canceled_invoices, 4);
-    assert.deepStrictEqual(sheets.Lancamentos.rows.slice(1).map((row) => row[lancamentosHeaders.indexOf('status')]), ['cancelado_revisao', 'cancelado_revisao']);
-    assert.deepStrictEqual(sheets.Faturas.rows.slice(1).map((row) => row[faturasHeaders.indexOf('status')]), ['cancelado_revisao', 'cancelado_revisao', 'cancelado_revisao', 'cancelado_revisao']);
-});
-
-test('Apps Script repair action fixes May benefit conversion source without duplicating cash', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    sheets.Lancamentos.appendRow(lancamentosHeaders.map((header) => ({
-        id_lancamento: 'LAN_BENEFIT',
-        data: '2026-05-08',
-        competencia: '2026-05',
-        tipo_evento: 'receita',
-        id_categoria: 'REC_CONVERSAO_BENEFICIO_CAIXA',
-        valor: 750,
-        id_fonte: 'FONTE_CONTA_FAMILIA',
-        pessoa: 'Gustavo',
-        escopo: 'Familiar',
-        afeta_dre: false,
-        afeta_patrimonio: false,
-        afeta_caixa_familiar: true,
-        visibilidade: 'resumo',
-        status: 'efetivado',
-        descricao: 'Conversao beneficio em caixa',
-        created_at: '2026-05-17T23:55:00Z',
-    })[header] ?? ''));
-
-    const result = runRemoteAction(context, 'repair_may_2026_benefit_conversion_source');
-
-    assert.strictEqual(result.ok, true, JSON.stringify(result));
-    assert.strictEqual(result.updated_count, 1);
-    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
-    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
-    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_NUBANK_GU');
-});
-
-test('Apps Script repair action fixes May cash account rows recorded as card purchases', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    appendFakeLaunch(sheets, {
-        id_lancamento: 'LAN_WRONG_PRESENT',
-        data: '2026-05-15',
-        competencia: '2026-05',
-        tipo_evento: 'compra_cartao',
-        id_categoria: 'OPEX_LAZER_FAMILIAR',
-        valor: 50,
-        id_fonte: 'FONTE_MERCADO_PAGO_GU',
-        id_cartao: 'CARD_MERCADO_PAGO_GU',
-        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_06',
-        afeta_caixa_familiar: false,
-        descricao: 'Paguei presente para cunhada familiar 50 pela Conta Mercado Pago Gustavo',
-        status: 'efetivado',
-    });
-    appendFakeLaunch(sheets, {
-        id_lancamento: 'LAN_WRONG_PARKING',
-        data: '2026-05-05',
-        competencia: '2026-05',
-        tipo_evento: 'compra_cartao',
-        id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO',
-        valor: 90,
-        id_fonte: 'FONTE_MERCADO_PAGO_GU',
-        id_cartao: 'CARD_MERCADO_PAGO_GU',
-        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_05',
-        afeta_caixa_familiar: false,
-        descricao: 'Paguei estacionamento aeroporto Gustavo trabalho 90 pela Conta Mercado Pago Gustavo',
-        status: 'efetivado',
-    });
-    appendFakeInvoice(sheets, {
-        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_06',
-        id_cartao: 'CARD_MERCADO_PAGO_GU',
-        competencia: '2026-06',
-        valor_previsto: 50,
-        status: 'prevista',
-    });
-    appendFakeInvoice(sheets, {
-        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_05',
-        id_cartao: 'CARD_MERCADO_PAGO_GU',
-        competencia: '2026-05',
-        valor_previsto: 90,
-        status: 'prevista',
-    });
-    appendFakeInvoice(sheets, {
-        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_04',
-        id_cartao: 'CARD_MERCADO_PAGO_GU',
-        competencia: '2026-04',
-        valor_previsto: 4219.93,
-        valor_pago: 4219.93,
-        status: 'paga',
-    });
-
-    const result = runRemoteAction(context, 'repair_may_2026_cash_account_misclassified_card');
-
-    assert.strictEqual(result.ok, true, JSON.stringify(result));
-    assert.strictEqual(result.canceled_launches, 2);
-    assert.strictEqual(result.canceled_invoices, 2);
-    assert.strictEqual(result.appended_launches, 3);
-    const launches = sheets.Lancamentos.rows.slice(1).map((row) => Object.fromEntries(lancamentosHeaders.map((header, index) => [header, row[index]])));
-    assert.strictEqual(launches.filter((row) => row.status === 'cancelado_revisao').length, 2);
-    assert.ok(launches.some((row) => row.tipo_evento === 'despesa' && row.valor === 50 && row.id_fonte === 'FONTE_CONTA_MERCADO_PAGO_GU' && row.afeta_caixa_familiar === true));
-    assert.ok(launches.some((row) => row.tipo_evento === 'despesa' && row.valor === 90 && row.id_categoria === 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_DINHEIRO'));
-    assert.ok(launches.some((row) => row.tipo_evento === 'pagamento_fatura' && row.valor === 4219.93 && row.id_fonte === 'FONTE_CONTA_MERCADO_PAGO_GU'));
-    const invoices = sheets.Faturas.rows.slice(1).map((row) => Object.fromEntries(faturasHeaders.map((header, index) => [header, row[index]])));
-    assert.strictEqual(invoices.filter((row) => row.status === 'cancelado_revisao').length, 2);
 });
 
 test('Apps Script closing_close action requires closed_at metadata', () => {
@@ -4335,125 +3839,6 @@ test('Apps Script cash outflow asks for another source when selected source bala
     assert.match(result.responseText, /R\$ 400,00/);
     assert.match(result.responseText, /cofrinho|caixinha|fonte/i);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-});
-
-test('Apps Script operational action records Brenda house inspection obligation idempotently', () => {
-    const { context, sheets } = createAppsScriptHarness({
-        tipo_evento: 'despesa',
-        data: '2026-05-19',
-        competencia: '2026-05',
-        valor: '400',
-        descricao: 'fallback should not be used',
-        id_categoria: 'OPEX_MERCADO_SEMANA',
-        id_fonte: 'FONTE_CONTA_FAMILIA',
-        pessoa: '',
-        escopo: 'Familiar',
-        visibilidade: 'detalhada',
-        id_cartao: '',
-        id_fatura: '',
-        id_divida: '',
-        id_ativo: '',
-        afeta_dre: true,
-        afeta_patrimonio: false,
-        afeta_caixa_familiar: true,
-        direcao_caixa_familiar: '',
-        status: 'efetivado',
-    });
-    appendFakeDebt(sheets, {
-        id_divida: 'DIV_FINANCIAMENTO_CAIXA_CASA',
-        nome: 'Financiamento Caixa da casa',
-        credor: 'Caixa Economica Federal',
-        tipo: 'financiamento_imobiliario',
-    });
-    appendFakeDebt(sheets, {
-        id_divida: 'DIV_OBRIGACOES_CASA',
-        nome: 'Obrigacoes pontuais da casa',
-        credor: 'Casa',
-        tipo: 'obrigacao_pontual_imovel',
-    });
-
-    const first = JSON.parse(context.doGet({
-        parameter: {
-            action: 'record_may_2026_brenda_house_inspection',
-            secret: 'test_secret',
-        },
-    }).getContentText());
-    const second = JSON.parse(context.doGet({
-        parameter: {
-            action: 'record_may_2026_brenda_house_inspection',
-            secret: 'test_secret',
-        },
-    }).getContentText());
-
-    assert.strictEqual(first.ok, true, JSON.stringify(first.errors));
-    assert.strictEqual(second.ok, true, JSON.stringify(second.errors));
-    assert.strictEqual(second.status, 'duplicate_completed');
-    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
-    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
-    assert.strictEqual(launch.data, '2026-05-19');
-    assert.strictEqual(launch.competencia, '2026-05');
-    assert.strictEqual(launch.tipo_evento, 'divida_pagamento');
-    assert.strictEqual(launch.id_categoria, 'OBR_PAGAMENTO_DIVIDA');
-    assert.strictEqual(launch.valor, 400);
-    assert.strictEqual(launch.id_divida, 'DIV_OBRIGACOES_CASA');
-    assert.strictEqual(launch.afeta_dre, false);
-    assert.strictEqual(launch.afeta_patrimonio, true);
-    assert.strictEqual(launch.afeta_caixa_familiar, true);
-});
-
-test('Apps Script repair action cancels duplicated Brenda house inspection launch without deleting history', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    appendFakeLaunch(sheets, {
-        id_lancamento: 'LAN_ORIGINAL_BRENDA',
-        data: '2026-05-19',
-        competencia: '2026-05',
-        tipo_evento: 'divida_pagamento',
-        id_categoria: 'OBR_PAGAMENTO_DIVIDA',
-        valor: 400,
-        id_divida: 'DIV_OBRIGACOES_CASA',
-        descricao: 'Transferência de 400 para Brenda Gantus - pagamento de vistoria da casa',
-        status: 'efetivado',
-    });
-    appendFakeLaunch(sheets, {
-        id_lancamento: 'LAN_987FC10AB5F9',
-        data: '2026-05-19',
-        competencia: '2026-05',
-        tipo_evento: 'divida_pagamento',
-        id_categoria: 'OBR_PAGAMENTO_DIVIDA',
-        valor: 400,
-        id_divida: 'DIV_OBRIGACOES_CASA',
-        descricao: 'Transferi 400 para Brenda Gantus pagamento vistoria da casa',
-        status: 'efetivado',
-    });
-
-    const result = runRemoteAction(context, 'repair_may_2026_duplicate_brenda_house_inspection');
-
-    assert.strictEqual(result.ok, true, JSON.stringify(result));
-    assert.strictEqual(result.canceled_launches, 1);
-    const launches = sheets.Lancamentos.rows.slice(1).map((row) => Object.fromEntries(lancamentosHeaders.map((header, index) => [header, row[index]])));
-    assert.strictEqual(launches.find((row) => row.id_lancamento === 'LAN_ORIGINAL_BRENDA').status, 'efetivado');
-    assert.strictEqual(launches.find((row) => row.id_lancamento === 'LAN_987FC10AB5F9').status, 'cancelado_revisao');
-});
-
-test('Apps Script operational action updates MP cofrinho after Brenda payment', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    appendFakeAsset(sheets, {
-        id_ativo: 'ATIVO_COF_MP',
-        nome: 'Cofrinho Mercado Pago Gustavo',
-        instituicao: 'Mercado Pago',
-        saldo_atual: 281.46,
-        conta_reserva_emergencia: true,
-    });
-
-    const result = runRemoteAction(context, 'record_may_2026_mp_cofrinho_after_brenda');
-
-    assert.strictEqual(result.ok, true, JSON.stringify(result));
-    assert.strictEqual(result.shouldApplyDomainMutation, true);
-    assert.strictEqual(sheets.Patrimonio_Ativos.rows.length, 2);
-    const asset = Object.fromEntries(patrimonioAtivosHeaders.map((header, index) => [header, sheets.Patrimonio_Ativos.rows[1][index]]));
-    assert.strictEqual(asset.id_ativo, 'ATIVO_COF_MP');
-    assert.strictEqual(asset.saldo_atual, 103.01);
-    assert.strictEqual(asset.data_referencia, '2026-05-19');
 });
 
 test('Apps Script generic launch writes reviewed adjustment without financial references', () => {

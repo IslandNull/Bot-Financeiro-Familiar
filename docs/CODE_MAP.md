@@ -6,7 +6,7 @@ Codebase navigation guide for V55.
 
 | Path | Purpose |
 |------|---------|
-| `apps-script/Code.js` | Production Apps Script runtime (~6000 lines). Deploy via `npm run push`. |
+| `apps-script/Code.js` | Production Apps Script runtime (~4600 lines). Deploy via `npm run push`. |
 | `apps-script/appsscript.json` | Apps Script manifest with scopes. |
 | `val-town/telegram-proxy.ts` | Val Town edge proxy: acknowledges Telegram, forwards to Apps Script. |
 | `src/*.js` | Pure Node.js domain contracts (schema, validation, parsing, planning, idempotency, reporting). |
@@ -67,12 +67,6 @@ doGet(e)
        ├─ summary → exportPilotFamilySummaryV55()
        ├─ closing_draft → writeDraftFamilyClosingV55()
        ├─ closing_close → closeReviewedFamilyClosingV55()
-       ├─ ensure_remaining_mutation_config → ensureRemainingMutationConfigV55()
-       ├─ ensure_april_2026_config → ensureApril2026ConfigV55()
-       ├─ ensure_april_2026_house_debts → ensureApril2026HouseDebtConfigV55()
-      ├─ repair_april_2026_mp_invoice_cycle → repairApril2026MercadoPagoInvoiceCycleV55()
-       ├─ reset_april_2026_clean_rebuild → resetApril2026CleanRebuildV55()
-       +- migrate_config_visibility -> migrateConfigVisibilityV55()
        └─ selftest → runHelpSmokeSelfTest()
 ```
 
@@ -81,13 +75,7 @@ doGet(e)
 - Idempotency: write `Idempotency_Log` before financial rows, suppress completed duplicates
 - LockService for concurrent mutation protection
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed competencias from sheets
-- Operational repair action: `repair_premature_current_closing` reopens only a prematurely closed current competencia.
-- Operational repair action: `repair_notebook_installment_pilot` cancels the duplicated wrong notebook pilot rows without deleting history.
-- Operational repair action: `repair_may_2026_cash_account_misclassified_card` cancels reviewed May account-paid rows that were accidentally recorded as Mercado Pago card purchases and appends corrected cash rows.
-- Operational repair action: `repair_may_2026_current_invoice_totals` records owner-confirmed current invoice totals as closed invoice authority rows.
-- Operational repair action: `repair_duplicate_house_debts` copies missing debt balance into canonical house obligations and inactivates legacy duplicated house-debt rows.
-- Operational repair action: `repair_house_debts_restore_owner_reviewed_inactive` reactivates owner-reviewed inactive house-financing debts and inactivates the generated canonical duplicates.
-- Operational rebuild action: `reset_april_2026_clean_rebuild` clears operational rows for a reviewed clean import while preserving config sheets.
+- Historical repair/setup actions are archived in `docs/archive/HISTORICAL_REPAIR_ACTIONS.md`, not exposed by runtime `doGet`.
 - Reviewed historical type: `fatura_prevista` writes `Faturas` exposure only, with no `Lancamentos` row and no DRE/cash effect.
 
 ## Google Sheets (V55) — 13 sheets

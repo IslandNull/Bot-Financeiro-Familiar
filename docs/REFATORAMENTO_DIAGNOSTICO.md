@@ -37,11 +37,11 @@ Telegram -> Val Town proxy -> Apps Script doPost -> OpenAI parser -> Google Shee
 - Lancamento historico revisado: JSONL local -> `scripts/historical-validate.js` -> POST `historical_import_reviewed` -> validacao completa antes de escrita.
 - Fechamento mensal: `closing_draft` grava draft em `Fechamento_Familiar`; `closing_close` fecha apenas draft revisado e bloqueia mes atual/futuro.
 - Snapshot: `exportSnapshotV55()` le a planilha e gera evidencia redigida em Markdown.
-- Reparos operacionais: varias actions `repair_*`, `ensure_*`, `reset_*` no `doGet`.
+- Reparos historicos: removidos do `doGet` neste lote; ver `docs/archive/HISTORICAL_REPAIR_ACTIONS.md`.
 
 ## 3. Pontos de entrada
 
-- Apps Script globais: `doGet(e)`, `doPost(e)`, `runHelpSmokeSelfTest()`, `runTelegramWebhookSetupApply()`, `runTelegramWebhookSetupDryRun()`, `runWebhookSecretNegativeSelfTest()`, `exportSnapshotV55()`, `ensureApril2026ConfigV55()`, `repair*`, `record*`, `resetApril2026CleanRebuildV55()`, `writeDraftFamilyClosingV55()`, `migrateV55Parcelas()`.
+- Apps Script globais: `doGet(e)`, `doPost(e)`, `runHelpSmokeSelfTest()`, `runTelegramWebhookSetupApply()`, `runTelegramWebhookSetupDryRun()`, `runWebhookSecretNegativeSelfTest()`, `exportSnapshotV55()`, `exportPilotFamilySummaryV55()`, `writeDraftFamilyClosingV55()`, `migrateV55Parcelas()`.
 - Node scripts: `npm run check`, `npm run snapshot`, `npm run summary`, `npm run selftest`, `npm run historical:validate`, `npm run historical:write`, `npm run push`.
 - Val Town: default exported async function in `val-town/telegram-proxy.ts`.
 
