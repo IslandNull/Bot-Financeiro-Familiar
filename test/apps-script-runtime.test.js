@@ -2823,8 +2823,109 @@ test('Apps Script validation failures return actionable launch guidance', () => 
 
     assert.strictEqual(result.ok, false);
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_CATEGORY_BLOCKED']);
-    assert.match(result.responseText, /N[ãa]o anotei com seguran[çc]a/);
-    assert.match(result.responseText, /Inclua categoria, valor, data e fonte\/cart[ãa]o/);
+    assert.match(result.responseText, /O que falta/);
+    assert.match(result.responseText, /Categoria/);
+    assert.match(result.responseText, /categoria Mercado da semana/);
+});
+
+test('Apps Script guided registration asks only for missing source', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '10',
+        descricao: 'mercado 10',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const result = postPilotMessage(context, 'mercado 10');
+
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_SOURCE_BLOCKED']);
+    assert.match(result.responseText, /O que falta/);
+    assert.match(result.responseText, /Fonte/);
+    assert.match(result.responseText, /pela Conta familia/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script guided registration asks only for missing card', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '18',
+        descricao: 'farmacia 18',
+        id_categoria: 'OPEX_FARMACIA',
+        id_fonte: '',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: 'CARD_INEXISTENTE',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const result = postPilotMessage(context, 'farmacia 18');
+
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_CARD_BLOCKED']);
+    assert.match(result.responseText, /O que falta/);
+    assert.match(result.responseText, /Cartao/);
+    assert.match(result.responseText, /no Nubank Gustavo/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Faturas.rows.length, 1);
+});
+
+test('Apps Script guided registration asks only for missing invoice', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'pagamento_fatura',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '42',
+        descricao: 'paguei fatura 42',
+        id_categoria: '',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const result = postPilotMessage(context, 'paguei fatura 42');
+
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['PILOT_INVOICE_BLOCKED']);
+    assert.match(result.responseText, /O que falta/);
+    assert.match(result.responseText, /Fatura/);
+    assert.match(result.responseText, /paguei fatura Nubank/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
 test('Apps Script generic launch writes receita with category and source defaults', () => {

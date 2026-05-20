@@ -1395,13 +1395,13 @@ function validatePilotExpenseEvent_(event, referenceData) {
   if (event.tipo_evento !== 'despesa') return fail_('PILOT_EVENT_TYPE_BLOCKED', 'tipo_evento', 'Piloto financeiro aceita apenas despesa familiar simples nesta etapa.');
   if (event.status !== 'efetivado') return fail_('PILOT_STATUS_BLOCKED', 'status', GENERIC_RECORD_FAILURE);
   var category = categoryForEvent_(referenceData, event.id_categoria, 'despesa');
-  if (!category) return fail_('CONFIG_CATEGORY_BLOCKED', 'id_categoria', GENERIC_RECORD_FAILURE);
+  if (!category) return fail_('CONFIG_CATEGORY_BLOCKED', 'id_categoria', guidedMissingFieldText_('categoria', event, referenceData, 'despesa'));
   var textCategoryCheck = validateTextMatchesCategory_(event, category, referenceData, 'despesa');
   if (!textCategoryCheck.ok) return textCategoryCheck;
   if (shouldEnforceCategoryDefaults_(event) && event.escopo !== category.escopo_padrao) return fail_('CONFIG_SCOPE_BLOCKED', 'escopo', GENERIC_RECORD_FAILURE);
   if (shouldEnforceCategoryDefaults_(event) && event.visibilidade !== effectiveCategoryVisibility_(category) && event.visibilidade !== category.visibilidade_padrao) return fail_('CONFIG_VISIBILITY_BLOCKED', 'visibilidade', GENERIC_RECORD_FAILURE);
   var source = sourceForEvent_(referenceData, event.id_fonte);
-  if (!source || source.tipo === 'cartao_credito') return fail_('CONFIG_SOURCE_BLOCKED', 'id_fonte', GENERIC_RECORD_FAILURE);
+  if (!source || source.tipo === 'cartao_credito') return fail_('CONFIG_SOURCE_BLOCKED', 'id_fonte', guidedMissingFieldText_('fonte', event, referenceData, 'despesa'));
   if (event.id_cartao || event.id_fatura || event.id_divida || event.id_ativo) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
   var flagCheck = validateCategoryFlags_(event, category);
   if (!flagCheck.ok) return flagCheck;
@@ -1412,15 +1412,15 @@ function validatePilotCardPurchaseEvent_(event, referenceData) {
   if (event.tipo_evento !== 'compra_cartao') return fail_('PILOT_EVENT_TYPE_BLOCKED', 'tipo_evento', GENERIC_RECORD_FAILURE);
   if (event.status !== 'efetivado') return fail_('PILOT_STATUS_BLOCKED', 'status', GENERIC_RECORD_FAILURE);
   var category = categoryForEvent_(referenceData, event.id_categoria, 'compra_cartao');
-  if (!category) return fail_('CONFIG_CATEGORY_BLOCKED', 'id_categoria', GENERIC_RECORD_FAILURE);
+  if (!category) return fail_('CONFIG_CATEGORY_BLOCKED', 'id_categoria', guidedMissingFieldText_('categoria', event, referenceData, 'compra_cartao'));
   var textCategoryCheck = validateTextMatchesCategory_(event, category, referenceData, 'compra_cartao');
   if (!textCategoryCheck.ok) return textCategoryCheck;
   if (shouldEnforceCategoryDefaults_(event) && event.escopo !== category.escopo_padrao) return fail_('CONFIG_SCOPE_BLOCKED', 'escopo', GENERIC_RECORD_FAILURE);
   if (shouldEnforceCategoryDefaults_(event) && event.visibilidade !== effectiveCategoryVisibility_(category) && event.visibilidade !== category.visibilidade_padrao) return fail_('CONFIG_VISIBILITY_BLOCKED', 'visibilidade', GENERIC_RECORD_FAILURE);
   var card = cardForEvent_(referenceData, event.id_cartao);
-  if (!card) return fail_('CONFIG_CARD_BLOCKED', 'id_cartao', GENERIC_RECORD_FAILURE);
+  if (!card) return fail_('CONFIG_CARD_BLOCKED', 'id_cartao', guidedMissingFieldText_('cartao', event, referenceData, 'compra_cartao'));
   if (event.id_fonte !== card.id_fonte) return fail_('CONFIG_CARD_SOURCE_BLOCKED', 'id_fonte', GENERIC_RECORD_FAILURE);
-  if (!sourceForEvent_(referenceData, event.id_fonte)) return fail_('CONFIG_SOURCE_BLOCKED', 'id_fonte', GENERIC_RECORD_FAILURE);
+  if (!sourceForEvent_(referenceData, event.id_fonte)) return fail_('CONFIG_SOURCE_BLOCKED', 'id_fonte', guidedMissingFieldText_('fonte', event, referenceData, 'compra_cartao'));
   if (event.id_fatura || event.id_divida || event.id_ativo) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
   var flagCheck = validateCategoryFlags_(event, category);
   if (!flagCheck.ok) return flagCheck;
@@ -1431,10 +1431,10 @@ function validatePilotInvoicePaymentEvent_(event, referenceData) {
   if (event.tipo_evento !== 'pagamento_fatura') return fail_('PILOT_EVENT_TYPE_BLOCKED', 'tipo_evento', GENERIC_RECORD_FAILURE);
   if (event.escopo !== 'Familiar') return fail_('PILOT_SCOPE_BLOCKED', 'escopo', GENERIC_RECORD_FAILURE);
   if (event.status !== 'efetivado') return fail_('PILOT_STATUS_BLOCKED', 'status', GENERIC_RECORD_FAILURE);
-  if (!event.id_fatura) return fail_('PILOT_INVOICE_BLOCKED', 'id_fatura', GENERIC_RECORD_FAILURE);
-  if (!referenceData.invoicesById[stringValue_(event.id_fatura)]) return fail_('PILOT_INVOICE_NOT_FOUND', 'id_fatura', GENERIC_RECORD_FAILURE);
+  if (!event.id_fatura) return fail_('PILOT_INVOICE_BLOCKED', 'id_fatura', guidedMissingFieldText_('fatura', event, referenceData, 'pagamento_fatura'));
+  if (!referenceData.invoicesById[stringValue_(event.id_fatura)]) return fail_('PILOT_INVOICE_NOT_FOUND', 'id_fatura', guidedMissingFieldText_('fatura', event, referenceData, 'pagamento_fatura'));
   var source = sourceForEvent_(referenceData, event.id_fonte);
-  if (!source || source.tipo === 'cartao_credito') return fail_('CONFIG_SOURCE_BLOCKED', 'id_fonte', GENERIC_RECORD_FAILURE);
+  if (!source || source.tipo === 'cartao_credito') return fail_('CONFIG_SOURCE_BLOCKED', 'id_fonte', guidedMissingFieldText_('fonte', event, referenceData, 'pagamento_fatura'));
   if (event.id_cartao || event.id_divida || event.id_ativo) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
   if (event.afeta_dre !== false || event.afeta_patrimonio !== false || event.afeta_caixa_familiar !== true) {
     return fail_('PILOT_FLAGS_BLOCKED', 'flags', GENERIC_RECORD_FAILURE);
@@ -1445,8 +1445,8 @@ function validatePilotInvoicePaymentEvent_(event, referenceData) {
 function validatePilotInvoiceExposureEvent_(event, referenceData) {
   if (event.tipo_evento !== 'fatura_prevista') return fail_('PILOT_EVENT_TYPE_BLOCKED', 'tipo_evento', GENERIC_RECORD_FAILURE);
   if (event.status !== 'efetivado') return fail_('PILOT_STATUS_BLOCKED', 'status', GENERIC_RECORD_FAILURE);
-  if (!event.id_cartao || !cardForEvent_(referenceData, event.id_cartao)) return fail_('CONFIG_CARD_BLOCKED', 'id_cartao', GENERIC_RECORD_FAILURE);
-  if (!event.id_fatura) return fail_('PILOT_INVOICE_BLOCKED', 'id_fatura', GENERIC_RECORD_FAILURE);
+  if (!event.id_cartao || !cardForEvent_(referenceData, event.id_cartao)) return fail_('CONFIG_CARD_BLOCKED', 'id_cartao', guidedMissingFieldText_('cartao', event, referenceData, 'fatura_prevista'));
+  if (!event.id_fatura) return fail_('PILOT_INVOICE_BLOCKED', 'id_fatura', guidedMissingFieldText_('fatura', event, referenceData, 'fatura_prevista'));
   if (event.id_categoria || event.id_fonte || event.id_divida || event.id_ativo) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
   if (event.afeta_dre !== false || event.afeta_patrimonio !== false || event.afeta_caixa_familiar !== false) {
     return fail_('PILOT_FLAGS_BLOCKED', 'flags', GENERIC_RECORD_FAILURE);
@@ -1458,7 +1458,7 @@ function validatePilotInternalTransferEvent_(event, referenceData) {
   if (event.tipo_evento !== 'transferencia_interna') return fail_('PILOT_EVENT_TYPE_BLOCKED', 'tipo_evento', GENERIC_RECORD_FAILURE);
   if (event.status !== 'efetivado') return fail_('PILOT_STATUS_BLOCKED', 'status', GENERIC_RECORD_FAILURE);
   var category = categoryForEvent_(referenceData, event.id_categoria, 'transferencia_interna');
-  if (!category) return fail_('CONFIG_CATEGORY_BLOCKED', 'id_categoria', GENERIC_RECORD_FAILURE);
+  if (!category) return fail_('CONFIG_CATEGORY_BLOCKED', 'id_categoria', guidedMissingFieldText_('categoria', event, referenceData, 'transferencia_interna'));
   if (shouldEnforceCategoryDefaults_(event) && event.escopo !== category.escopo_padrao) return fail_('CONFIG_SCOPE_BLOCKED', 'escopo', GENERIC_RECORD_FAILURE);
   if (shouldEnforceCategoryDefaults_(event) && event.visibilidade !== effectiveCategoryVisibility_(category) && event.visibilidade !== category.visibilidade_padrao) return fail_('CONFIG_VISIBILITY_BLOCKED', 'visibilidade', GENERIC_RECORD_FAILURE);
   if (!isPilotInternalTransferText_(event.raw_text || event.descricao)) return fail_('PILOT_TEXT_CATEGORY_MISMATCH', 'text', GENERIC_RECORD_FAILURE);
@@ -1486,15 +1486,15 @@ function validatePilotGenericLaunchEvent_(event, referenceData) {
   if (!isGenericLaunchEventType_(event.tipo_evento)) return fail_('PILOT_EVENT_TYPE_BLOCKED', 'tipo_evento', GENERIC_RECORD_FAILURE);
   if (event.status !== 'efetivado') return fail_('PILOT_STATUS_BLOCKED', 'status', GENERIC_RECORD_FAILURE);
   var category = categoryForEvent_(referenceData, event.id_categoria, event.tipo_evento);
-  if (!category) return fail_('CONFIG_CATEGORY_BLOCKED', 'id_categoria', GENERIC_RECORD_FAILURE);
+  if (!category) return fail_('CONFIG_CATEGORY_BLOCKED', 'id_categoria', guidedMissingFieldText_('categoria', event, referenceData, event.tipo_evento));
   if (shouldEnforceCategoryDefaults_(event) && event.escopo !== category.escopo_padrao) return fail_('CONFIG_SCOPE_BLOCKED', 'escopo', GENERIC_RECORD_FAILURE);
   if (shouldEnforceCategoryDefaults_(event) && event.visibilidade !== effectiveCategoryVisibility_(category) && event.visibilidade !== category.visibilidade_padrao) return fail_('CONFIG_VISIBILITY_BLOCKED', 'visibilidade', GENERIC_RECORD_FAILURE);
   if (event.id_cartao || event.id_fatura) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
   var source = event.id_fonte ? sourceForEvent_(referenceData, event.id_fonte) : null;
   if (category.afeta_caixa_familiar_padrao === true && (!source || source.tipo === 'cartao_credito')) {
-    return fail_('CONFIG_SOURCE_BLOCKED', 'id_fonte', GENERIC_RECORD_FAILURE);
+    return fail_('CONFIG_SOURCE_BLOCKED', 'id_fonte', guidedMissingFieldText_('fonte', event, referenceData, event.tipo_evento));
   }
-  if (source && source.tipo === 'cartao_credito') return fail_('CONFIG_SOURCE_BLOCKED', 'id_fonte', GENERIC_RECORD_FAILURE);
+  if (source && source.tipo === 'cartao_credito') return fail_('CONFIG_SOURCE_BLOCKED', 'id_fonte', guidedMissingFieldText_('fonte', event, referenceData, event.tipo_evento));
   if (event.tipo_evento === 'receita' && (event.id_divida || event.id_ativo)) return fail_('PILOT_REFERENCES_BLOCKED', 'references', GENERIC_RECORD_FAILURE);
   if (event.tipo_evento === 'aporte') {
     if (!event.id_ativo || !assetForEvent_(referenceData, event.id_ativo) || event.id_divida) {
@@ -1571,6 +1571,114 @@ function validateTextMatchesCategory_(event, category, referenceData, eventType)
   if (!rawText) return { ok: true };
   if (categoryMatchesText_(category, rawText)) return { ok: true };
   return fail_('CATEGORY_CONFIRMATION_REQUIRED', 'id_categoria', categoryClarificationText_(rawText, referenceData, eventType));
+}
+
+function guidedMissingFieldText_(field, event, referenceData, eventType) {
+  var labelByField = {
+    categoria: 'Categoria',
+    fonte: 'Fonte',
+    cartao: 'Cartao',
+    fatura: 'Fatura',
+  };
+  var example = guidedMissingFieldExample_(field, event, referenceData, eventType);
+  var lines = [
+    '⚠️ Não anotei para não chutar.',
+    '',
+    '📌 O que falta',
+    labelByField[field] || 'Dado faltante',
+    '',
+    'Responda reenviando a frase com esse dado.',
+  ];
+  if (example) {
+    lines.push('');
+    lines.push('Exemplo:');
+    lines.push(example);
+  }
+  var suggestions = guidedMissingFieldSuggestions_(field, event, referenceData, eventType);
+  if (suggestions.length) {
+    lines.push('');
+    lines.push('Opções prováveis');
+    suggestions.forEach(function(item) { lines.push('- ' + item); });
+  }
+  return lines.join('\n');
+}
+
+function guidedMissingFieldExample_(field, event, referenceData, eventType) {
+  var amount = numberFromSheetValue_(event && event.valor) || 42;
+  var category = firstSuggestedCategory_(event, referenceData, eventType);
+  var source = firstCashSource_(referenceData);
+  var card = firstActiveCard_(referenceData);
+  if (field === 'categoria') {
+    var categoryName = stringValue_(category && category.nome) || 'Mercado da semana';
+    if (eventType === 'compra_cartao') return 'farmacia ' + amount + ' no Nubank categoria ' + categoryName;
+    return 'mercado ' + amount + ' categoria ' + categoryName;
+  }
+  if (field === 'fonte') {
+    var sourceName = stringValue_(source && source.nome) || 'Conta familia';
+    if (eventType === 'pagamento_fatura') return 'paguei fatura Nubank ' + amount + ' pela ' + sourceName;
+    return 'mercado ' + amount + ' pela ' + sourceName;
+  }
+  if (field === 'cartao') {
+    var cardName = stringValue_(card && card.nome) || 'Nubank Gustavo';
+    return 'farmacia ' + amount + ' no ' + cardName;
+  }
+  if (field === 'fatura') {
+    var invoiceCardName = friendlyInvoicePromptCardName_(referenceData) || 'Nubank';
+    return 'paguei fatura ' + invoiceCardName + ' ' + amount;
+  }
+  return '';
+}
+
+function guidedMissingFieldSuggestions_(field, event, referenceData, eventType) {
+  if (field === 'categoria') {
+    return suggestCategoriesForText_(stringValue_(event && (event.raw_text || event.descricao)), referenceData, eventType).slice(0, 3);
+  }
+  if (field === 'fonte') {
+    return (referenceData.sources || []).filter(function(source) {
+      return source.tipo !== 'cartao_credito';
+    }).slice(0, 3).map(function(source) { return stringValue_(source.nome); }).filter(Boolean);
+  }
+  if (field === 'cartao') {
+    return (referenceData.cards || []).slice(0, 3).map(function(card) { return stringValue_(card.nome); }).filter(Boolean);
+  }
+  if (field === 'fatura') {
+    return (referenceData.invoices || []).slice(0, 3).map(function(invoice) {
+      return friendlyInvoiceName_(invoice.id_fatura, referenceData);
+    }).filter(Boolean);
+  }
+  return [];
+}
+
+function firstSuggestedCategory_(event, referenceData, eventType) {
+  var text = stringValue_(event && (event.raw_text || event.descricao));
+  var suggested = suggestCategoriesForText_(text, referenceData, eventType);
+  if (suggested.length) {
+    for (var i = 0; i < referenceData.categories.length; i += 1) {
+      if (suggested[0] === stringValue_(referenceData.categories[i].nome)) return referenceData.categories[i];
+    }
+  }
+  return defaultCategoryForType_(referenceData, eventType) || null;
+}
+
+function firstCashSource_(referenceData) {
+  for (var i = 0; i < referenceData.sources.length; i += 1) {
+    if (referenceData.sources[i].tipo !== 'cartao_credito') return referenceData.sources[i];
+  }
+  return null;
+}
+
+function firstActiveCard_(referenceData) {
+  return (referenceData.cards || [])[0] || null;
+}
+
+function friendlyInvoicePromptCardName_(referenceData) {
+  var invoice = (referenceData.invoices || [])[0] || null;
+  if (invoice) {
+    var card = referenceData.cardsById[stringValue_(invoice.id_cartao)] || {};
+    return shortCardName_(stringValue_(card.nome) || invoice.id_cartao);
+  }
+  var cardFallback = firstActiveCard_(referenceData);
+  return cardFallback ? shortCardName_(cardFallback.nome) : '';
 }
 
 function categoryClarificationText_(rawText, referenceData, eventType) {
@@ -2336,4 +2444,3 @@ function formatUtcDate_(date) {
 function formatUtcCompetencia_(date) {
   return date.getUTCFullYear() + '-' + pad2_(date.getUTCMonth() + 1);
 }
-
