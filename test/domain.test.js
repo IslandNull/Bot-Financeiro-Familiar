@@ -212,11 +212,11 @@ test('family closing computes surplus and destination', () => {
     assert.strictEqual(closing.resultado_dre, 3800);
     assert.strictEqual(closing.sobra_caixa, 3800);
     assert.strictEqual(closing.faturas_60d, 600);
-    assert.strictEqual(closing.obrigacoes_60d, 800);
+    assert.strictEqual(closing.obrigacoes_60d, 1600);
     assert.strictEqual(closing.reserva_total, 1000);
     assert.strictEqual(closing.patrimonio_liquido, -9000);
     assert.strictEqual(closing.destino_sugerido, 'reforcar_reserva');
-    assert.strictEqual(closing.margem_pos_obrigacoes, 2400);
+    assert.strictEqual(closing.margem_pos_obrigacoes, 1600);
     assert.strictEqual(closing.capacidade_aporte_segura, 0);
     assert.strictEqual(closing.pode_avaliar_amortizacao, false);
     assert.strictEqual(closing.motivo_bloqueio_amortizacao, 'reserva_abaixo_da_meta');
@@ -241,7 +241,7 @@ test('destination prioritizes immediate obligations before reserve target', () =
     });
 
     assert.strictEqual(closing.destino_sugerido, 'manter_caixa');
-    assert.strictEqual(closing.margem_pos_obrigacoes, -1300);
+    assert.strictEqual(closing.margem_pos_obrigacoes, -2100);
     assert.strictEqual(closing.capacidade_aporte_segura, 0);
 });
 
@@ -338,4 +338,28 @@ test('idempotency blocks duplicate completed events', () => {
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.strictEqual(result.result_ref, 'LAN_1');
+});
+
+test('strict parser contract rejects year bounds, far future dates, and max amount', () => {
+    const invalidYearLow = validateParsedEvent(baseEvent({ data: '1999-12-31', competencia: '1999-12' }));
+    assert.strictEqual(invalidYearLow.ok, false);
+    assert.ok(invalidYearLow.errors.some((item) => item.code === 'INVALID_YEAR'));
+
+    const invalidYearHigh = validateParsedEvent(baseEvent({ data: '2101-01-01', competencia: '2101-01' }));
+    assert.strictEqual(invalidYearHigh.ok, false);
+    assert.ok(invalidYearHigh.errors.some((item) => item.code === 'INVALID_YEAR'));
+
+    const farFuture = validateParsedEvent(baseEvent({ data: '2028-12-31', competencia: '2028-12' }));
+    assert.strictEqual(farFuture.ok, false);
+    assert.ok(farFuture.errors.some((item) => item.code === 'FUTURE_DATE_LIMIT'));
+
+    const farFutureAllowed = validateParsedEvent(baseEvent({ tipo_evento: 'fatura_prevista', data: '2028-12-31', competencia: '2028-12', afeta_dre: false, afeta_patrimonio: false, afeta_caixa_familiar: false, id_cartao: 'CARD_NUBANK_GU', id_fatura: 'FAT_CARD_NUBANK_GU_2028_12' }));
+    assert.strictEqual(farFutureAllowed.ok, true, JSON.stringify(farFutureAllowed.errors));
+
+    const tooExpensive = validateParsedEvent(baseEvent({ valor: '1000000.01' }));
+    assert.strictEqual(tooExpensive.ok, false);
+    assert.ok(tooExpensive.errors.some((item) => item.code === 'VALUE_EXCEEDS_LIMIT'));
+
+    const maxAllowed = validateParsedEvent(baseEvent({ valor: '1000000.00' }));
+    assert.strictEqual(maxAllowed.ok, true, JSON.stringify(maxAllowed.errors));
 });

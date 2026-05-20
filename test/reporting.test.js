@@ -96,7 +96,7 @@ test('family closing hardens DRE cash exposure obligations reserve net worth and
     assert.strictEqual(closing.caixa_saidas, 300);
     assert.strictEqual(closing.sobra_caixa, 6700);
     assert.strictEqual(closing.faturas_60d, 800);
-    assert.strictEqual(closing.obrigacoes_60d, 600);
+    assert.strictEqual(closing.obrigacoes_60d, 1200);
     assert.strictEqual(closing.reserva_total, 3000);
     assert.strictEqual(closing.patrimonio_liquido, 7000);
     assert.strictEqual(closing.destino_sugerido, 'investir_ou_amortizar_revisar');
@@ -195,7 +195,7 @@ test('draft family closing row matches Fechamento_Familiar schema', () => {
     assert.strictEqual(row.receitas_dre, 5000);
     assert.strictEqual(row.despesas_dre, 120);
     assert.strictEqual(row.faturas_60d, 300);
-    assert.strictEqual(row.obrigacoes_60d, 300);
+    assert.strictEqual(row.obrigacoes_60d, 600);
     assert.strictEqual(row.closed_at, '');
 });
 

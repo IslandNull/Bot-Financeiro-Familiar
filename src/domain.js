@@ -103,7 +103,15 @@ function sumActiveDebtObligations(debts) {
     return roundMoney(
         (debts || [])
             .filter((debt) => debt.status === 'ativa')
-            .reduce((sum, debt) => sum + Number(debt.valor_parcela || 0), 0)
+            .reduce((sum, debt) => {
+                let remainingInstallments = Number(debt.parcelas_total) - Number(debt.parcela_atual) + 1;
+                if (isNaN(remainingInstallments) || remainingInstallments < 1) {
+                    remainingInstallments = 2; // Default to 2 months if unspecified
+                }
+                const monthsDue = Math.min(2, remainingInstallments);
+                const exposure = Number(debt.valor_parcela || 0) * monthsDue;
+                return sum + exposure;
+            }, 0)
     );
 }
 

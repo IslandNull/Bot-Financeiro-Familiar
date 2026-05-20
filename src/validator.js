@@ -93,6 +93,21 @@ function validateParsedEvent(entry) {
     normalized.data = requireString(entry, 'data', errors);
     if (normalized.data && !isIsoDate(normalized.data)) {
         errors.push(error('INVALID_DATE', 'data', 'data must be YYYY-MM-DD'));
+    } else if (normalized.data) {
+        const year = Number(normalized.data.slice(0, 4));
+        if (year < 2000 || year > 2100) {
+            errors.push(error('INVALID_YEAR', 'data', 'year must be between 2000 and 2100'));
+        }
+        const now = new Date();
+        const offset = -3;
+        const spTime = new Date(now.getTime() + (offset * 60 * 60 * 1000) + (now.getTimezoneOffset() * 60 * 1000));
+        const todayStr = spTime.toISOString().slice(0, 10);
+        const tDate = new Date(todayStr + 'T00:00:00Z');
+        const nDate = new Date(normalized.data + 'T00:00:00Z');
+        const diffDays = (nDate.getTime() - tDate.getTime()) / (1000 * 60 * 60 * 24);
+        if (diffDays > 365 && normalized.tipo_evento !== 'fatura_prevista') {
+            errors.push(error('FUTURE_DATE_LIMIT', 'data', 'data is more than 365 days in the future'));
+        }
     }
 
     normalized.competencia = requireString(entry, 'competencia', errors);
@@ -103,6 +118,8 @@ function validateParsedEvent(entry) {
     const value = parseMoney(entry.valor);
     if (value === null) {
         errors.push(error('INVALID_MONEY', 'valor', 'valor must be positive dot-decimal money'));
+    } else if (value > 1000000.00) {
+        errors.push(error('VALUE_EXCEEDS_LIMIT', 'valor', 'valor must not exceed 1000000.00'));
     } else {
         normalized.valor = value;
     }

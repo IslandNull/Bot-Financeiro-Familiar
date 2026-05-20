@@ -12,7 +12,11 @@ function test(name, fn) {
 }
 
 const root = path.resolve(__dirname, '..');
-const code = fs.readFileSync(path.join(root, 'apps-script', 'Code.js'), 'utf8');
+const appsScriptDir = path.join(root, 'apps-script');
+const code = fs.readdirSync(appsScriptDir)
+    .filter(file => file.endsWith('.js'))
+    .map(file => fs.readFileSync(path.join(appsScriptDir, file), 'utf8'))
+    .join('\n');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'apps-script', 'appsscript.json'), 'utf8'));
 
 const {
@@ -49,8 +53,8 @@ test('Apps Script runtime exposes webhook and self-test functions', () => {
     assert.ok(code.includes('function doGet(e)'));
     assert.ok(code.includes('function runWebhookSecretNegativeSelfTest()'));
     assert.ok(code.includes('function runHelpSmokeSelfTest()'));
-    assert.ok(code.includes('function exportPilotFamilySummaryV55()'));
-    assert.ok(code.includes('function writeDraftFamilyClosingV55()'));
+    assert.ok(code.includes('function exportPilotFamilySummaryV55('));
+    assert.ok(code.includes('function writeDraftFamilyClosingV55('));
     assert.ok(code.includes('function closeReviewedFamilyClosingV55('));
     assert.ok(code.includes('function runTelegramWebhookSetupDryRun()'));
     assert.ok(code.includes('function runTelegramWebhookSetupApply()'));
@@ -927,7 +931,7 @@ test('Apps Script answers agenda command with dated invoices and obligations', (
     assert.match(result.responseText, /📌 Atenção/);
     assert.match(result.responseText, /07\/05 .*Nubank.*R\$ 300,00/);
     assert.match(result.responseText, /07\/06 .*Nubank.*R\$ 200,00/);
-    assert.match(result.responseText, /Financiamento casa.*R\$ 878,41/);
+    assert.match(result.responseText, /Financiamento casa.*R\$ 1756,82/);
     assert.match(result.responseText, /N[ãa]o [ée] tudo vencendo hoje/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
@@ -954,7 +958,7 @@ test('Apps Script simulates whether a new installment purchase fits safely', () 
     assert.match(result.responseText, /📌 Leitura/);
     assert.match(result.responseText, /Compra: R\$ 900,00 em 3x/);
     assert.match(result.responseText, /Parcela estimada: R\$ 300,00/);
-    assert.match(result.responseText, /Folga depois da compra: R\$ 1500,00/);
+    assert.match(result.responseText, /Folga depois da compra: R\$ 1100,00/);
     assert.match(result.responseText, /Cabe nos dados registrados/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
@@ -1590,7 +1594,7 @@ test('Apps Script parser prompt uses V54-learned hard output and quoted raw text
     assert.ok(code.includes('Allowed payable invoice ids'));
     assert.ok(code.includes('# PILOT CANONICAL EXAMPLES'));
     assert.ok(code.includes('Never invent ids'));
-    assert.ok(code.includes('Do not use comma money strings'));
+    assert.ok(code.includes('STRICTLY PROHIBIT comma money formats'));
     assert.ok(code.includes('Use real JSON booleans true/false'));
     assert.ok(code.includes('farmacia 10 no nubank'));
     assert.ok(code.includes('OPEX_ELETRONICOS_E_EQUIPAMENTOS'));
@@ -1708,6 +1712,107 @@ test('Apps Script parser output rejects unknown fields and ambiguous money fallb
     assert.deepStrictEqual(ambiguousResult.errors.map((error) => error.code), ['INVALID_MONEY']);
     assert.strictEqual(unknown.sheets.Lancamentos.rows.length, 1);
     assert.strictEqual(ambiguous.sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script parser output rejects year bounds, far future dates, and max amount limits', () => {
+    const lowYear = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '1999-12-31',
+        competencia: '1999-12',
+        valor: '10.00',
+        descricao: 'ano baixo',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    const highYear = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2101-01-01',
+        competencia: '2101-01',
+        valor: '10.00',
+        descricao: 'ano alto',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    const farFuture = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2028-12-31',
+        competencia: '2028-12',
+        valor: '10.00',
+        descricao: 'futuro distante',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    const tooExpensive = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '1000000.01',
+        descricao: 'muito caro',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const lowYearResult = postPilotMessage(lowYear.context, 'mercado 10');
+    const highYearResult = postPilotMessage(highYear.context, 'mercado 10');
+    const farFutureResult = postPilotMessage(farFuture.context, 'mercado 10');
+    const tooExpensiveResult = postPilotMessage(tooExpensive.context, 'mercado 10');
+
+    assert.strictEqual(lowYearResult.ok, false);
+    assert.deepStrictEqual(lowYearResult.errors.map(e => e.code), ['INVALID_YEAR']);
+    assert.strictEqual(highYearResult.ok, false);
+    assert.deepStrictEqual(highYearResult.errors.map(e => e.code), ['INVALID_YEAR']);
+    assert.strictEqual(farFutureResult.ok, false);
+    assert.deepStrictEqual(farFutureResult.errors.map(e => e.code), ['FUTURE_DATE_LIMIT']);
+    assert.strictEqual(tooExpensiveResult.ok, false);
+    assert.deepStrictEqual(tooExpensiveResult.errors.map(e => e.code), ['VALUE_EXCEEDS_LIMIT']);
 });
 
 test('Apps Script pilot expense canonicalizes fragile parser output before writing', () => {
