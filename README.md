@@ -33,6 +33,7 @@ Read `EXECUTION_PLAN.md` before choosing the next task. It is the operational au
 
 ```powershell
 npm run check
+npm run smoke
 npm run snapshot
 npm run summary
 npm run selftest
