@@ -3,6 +3,7 @@
 const assert = require('assert');
 const {
     applyDebtPayment,
+    assignInstallmentCycles,
     assignInvoiceCycle,
     eventCashDelta,
     eventDreDelta,
@@ -284,6 +285,31 @@ test('invoice cycle keeps due date in closing month when due day is after closin
     });
 });
 
+test('invoice cycle clamps leap-year February closing and due dates', () => {
+    assert.deepStrictEqual(assignInvoiceCycle('2028-02-29', {
+        id_cartao: 'CARD_LEAP',
+        fechamento_dia: 31,
+        vencimento_dia: 31,
+    }), {
+        id_fatura: 'FAT_CARD_LEAP_2028_02',
+        id_cartao: 'CARD_LEAP',
+        competencia: '2028-02',
+        data_fechamento: '2028-02-29',
+        data_vencimento: '2028-03-31',
+    });
+});
+
+test('installment card purchase crosses year with monthly invoice cycles', () => {
+    const cycles = assignInstallmentCycles('2026-12-20', {
+        id_cartao: 'CARD_YEAR',
+        fechamento_dia: 25,
+        vencimento_dia: 5,
+    }, 3);
+
+    assert.deepStrictEqual(cycles.map((cycle) => cycle.competencia), ['2026-12', '2027-01', '2027-02']);
+    assert.deepStrictEqual(cycles.map((cycle) => cycle.data_vencimento), ['2027-01-05', '2027-02-05', '2027-03-05']);
+});
+
 test('strict parser contract rejects loose fields and comma money', () => {
     const unknown = validateParsedEvent(baseEvent({ freestyle: true }));
     assert.strictEqual(unknown.ok, false);
@@ -292,6 +318,16 @@ test('strict parser contract rejects loose fields and comma money', () => {
     const comma = validateParsedEvent(baseEvent({ valor: '10,50' }));
     assert.strictEqual(comma.ok, false);
     assert.ok(comma.errors.some((item) => item.code === 'INVALID_MONEY'));
+});
+
+test('strict parser contract rejects missing sheet data and improper negative values', () => {
+    const missingCategory = validateParsedEvent(baseEvent({ id_categoria: 42 }));
+    assert.strictEqual(missingCategory.ok, false);
+    assert.ok(missingCategory.errors.some((item) => item.code === 'INVALID_STRING' && item.field === 'id_categoria'));
+
+    const negative = validateParsedEvent(baseEvent({ valor: '-10.00' }));
+    assert.strictEqual(negative.ok, false);
+    assert.ok(negative.errors.some((item) => item.code === 'INVALID_MONEY'));
 });
 
 test('idempotency blocks duplicate completed events', () => {

@@ -6,7 +6,7 @@ Codebase navigation guide for V55.
 
 | Path | Purpose |
 |------|---------|
-| `apps-script/Code.js` | Production Apps Script runtime (~2000 lines). Deploy via `npm run push`. |
+| `apps-script/Code.js` | Production Apps Script runtime (~4700 lines), locally sectioned as INFRA, PARSER, DOMAIN, READ_ONLY, and MUTATION. Deploy via `npm run push`. |
 | `apps-script/appsscript.json` | Apps Script manifest with scopes. |
 | `val-town/telegram-proxy.ts` | Val Town edge proxy: acknowledges Telegram, forwards to Apps Script. |
 | `src/*.js` | Pure Node.js domain contracts (schema, validation, parsing, planning, idempotency, reporting). |
@@ -67,22 +67,23 @@ doGet(e)
        ├─ summary → exportPilotFamilySummaryV55()
        ├─ closing_draft → writeDraftFamilyClosingV55()
        ├─ closing_close → closeReviewedFamilyClosingV55()
-       ├─ ensure_remaining_mutation_config → ensureRemainingMutationConfigV55()
-       ├─ ensure_april_2026_config → ensureApril2026ConfigV55()
-       ├─ ensure_april_2026_house_debts → ensureApril2026HouseDebtConfigV55()
-      ├─ repair_april_2026_mp_invoice_cycle → repairApril2026MercadoPagoInvoiceCycleV55()
-       ├─ reset_april_2026_clean_rebuild → resetApril2026CleanRebuildV55()
        └─ selftest → runHelpSmokeSelfTest()
 ```
+
+**Internal helper sections:**
+- `INFRA`: HTTP entry points, Apps Script wrappers, config/auth, routing, shared runtime utilities.
+- `PARSER`: command/question classifiers, OpenAI parser boundary, balance/asset command parsing.
+- `DOMAIN`: canonicalization, inference, validation, invoice-cycle and pure summary calculations.
+- `READ_ONLY`: summary/reporting views, sheet snapshot export, sheet row readers and formatters.
+- `MUTATION`: reviewed historical apply mode, closing draft/close, Telegram financial writes, balance/asset upserts, and low-level row/status writes.
 
 **Key patterns:**
 - All config from `PropertiesService.getScriptProperties()` (never hardcoded secrets)
 - Idempotency: write `Idempotency_Log` before financial rows, suppress completed duplicates
 - LockService for concurrent mutation protection
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed competencias from sheets
-- Operational repair action: `repair_premature_current_closing` reopens only a prematurely closed current competencia.
-- Operational repair action: `repair_notebook_installment_pilot` cancels the duplicated wrong notebook pilot rows without deleting history.
-- Operational rebuild action: `reset_april_2026_clean_rebuild` clears operational rows for a reviewed clean import while preserving config sheets.
+- Read-only report helpers do not call sheet write primitives; mutation helpers are marked with `MUTATION` comments where they write or update spreadsheet rows.
+- Historical repair/setup actions are archived in `docs/archive/HISTORICAL_REPAIR_ACTIONS.md`, not exposed by runtime `doGet`.
 - Reviewed historical type: `fatura_prevista` writes `Faturas` exposure only, with no `Lancamentos` row and no DRE/cash effect.
 
 ## Google Sheets (V55) — 13 sheets
@@ -99,5 +100,9 @@ Full headers in `SHEET_SCHEMA.md`.
 | Command | Mutation | Description |
 |---------|----------|-------------|
 | `/help`, `/start` | No | Bot info |
-| `/resumo` | No | Read-only family summary (DRE, cash, exposure, reserve, net worth, destination) |
-| Natural text | Yes | Parsed by OpenAI → validated → written to sheets |
+| `/resumo` | No | Short read-only executive summary: current liquidity, current invoices, attention point, top forecast categories, next step, and drill-down commands |
+| `/agenda`, `/faturas`, `/proximas_contas` | No | Dated read-only view of open invoices and registered obligations |
+| `/revisar_mes` | No | Month-review checklist before closing; current/future months remain non-closable |
+| `/saldo <fonte> <valor> [em data]` | Yes | Source balance snapshot; prefers real account sources over credit-card sources and accepts an optional reference date |
+| Safe finance question | No | Deterministic read-only answers using the short `/resumo` layout: cost of life, installment-adjusted spending categories, visible category line-item drill-downs, upcoming invoices/commitments, reserve/liquidity, and conservative "posso comprar ... em Nx?" simulations |
+| Natural text | Yes | Parsed by OpenAI -> validated -> written to sheets; success and failure replies use the same short sectioned Telegram layout, hiding internal ids and explaining cash/card/invoice impact in user language |

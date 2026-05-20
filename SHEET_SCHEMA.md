@@ -24,7 +24,7 @@ For the current redacted state of the real spreadsheet, use `docs/SPREADSHEET_SN
 
 ### Lancamentos
 
-`id_lancamento | data | competencia | tipo_evento | id_categoria | valor | id_fonte | pessoa | escopo | id_cartao | id_fatura | id_divida | id_ativo | afeta_dre | afeta_patrimonio | afeta_caixa_familiar | visibilidade | status | descricao | created_at`
+`id_lancamento | data | competencia | tipo_evento | id_categoria | valor | id_fonte | pessoa | escopo | id_cartao | id_fatura | id_divida | id_ativo | afeta_dre | afeta_patrimonio | afeta_caixa_familiar | visibilidade | status | descricao | parcelas | created_at`
 
 ### Transferencias_Internas
 

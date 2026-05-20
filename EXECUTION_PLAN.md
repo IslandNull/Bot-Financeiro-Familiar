@@ -2,7 +2,7 @@
 
 Operational authority for Bot Financeiro Familiar V55.
 
-## Current State (2026-05-18)
+## Current State (2026-05-19)
 
 ### Verified
 
@@ -16,33 +16,35 @@ Operational authority for Bot Financeiro Familiar V55.
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed family closings from sheets.
 - Reviewed historical JSONL import is narrow: max 5 events per request, full validation before writes, `historical_jsonl` idempotency, no private-detail output. Normal launches stay in 2026-04; `fatura_prevista` may add reviewed future invoice exposure through 2027 for April rebuilds.
 - April 2026 clean rebuild was applied on @80 from final local source documents in `private/abril-2026/`: 151 reviewed events, 89 `Lancamentos`, 116 `Faturas`, and 2026-04 `Fechamento_Familiar` closed after owner aggregate review.
-- Version @90 deployed on 2026-05-18 with audit, pilot, clean rebuild, May launch hardening, `/resumo` exposure hardening, and caixinha/cofrinho patrimonio updates:
-  - strict calendar-date validation, including February/leap-year cases;
-  - stricter money parsing and ambiguous-number fallback blocking;
-  - no money fallback in reviewed historical import;
-  - payable invoice allowlist in parser prompt and invoice-payment validation;
-  - partial invoice payment uses only outstanding balance;
+- Version @119+ deployed on 2026-05-19 with audit, pilot, clean rebuild, May launch hardening, `/resumo` exposure hardening, caixinha/cofrinho patrimonio updates, and Telegram decision-UX hardening:
+  - strict calendar-date and money parsing; no money fallback in reviewed historical import;
+  - payable invoice allowlist; partial invoice payment uses only outstanding balance;
   - closed competencias block mutations unless event type is `ajuste`;
   - current/future competencias cannot be closed by `closing_close`;
-  - premature current-month closing repair action is available and was applied for 2026-05;
   - parser blocks unrelated fallback categories and asks for category confirmation;
-  - notebook pilot repair action can cancel the duplicated wrong pilot rows without deleting history;
   - `fatura_prevista` records invoice exposure without DRE launch for inherited/future parcels;
-  - `reset_april_2026_clean_rebuild` clears operational data while preserving config;
   - benefit conversion can enter cash without creating DRE revenue;
   - own-source transfers such as Nubank -> Mercado Pago are internal movements with no DRE or family-cash effect;
   - deterministic overrides correct LLM category/source guesses for benefit conversion, own-source transfers, reimbursable client card costs, and explicit invoice payments by card/competencia;
-  - explicit reviewed invoice payment can reconcile a small overage in known invoice exposure without creating retroactive DRE;
-  - invoice payment competence is forced to the payment date month, not the paid invoice month.
-- `/resumo` counts open invoice exposure only through the next 60 days, shows invoice/obligation breakdown, and avoids saying "Falta para cobrir tudo" when no real source-balance snapshot exists.
+  - `/saldo <fonte> <valor> [em data]` records dated source snapshots, prefers account sources over card sources, and invoice payments use the explicit paying account rather than the target card name;
+  - explicit reviewed invoice payment can reconcile a small overage in known invoice exposure without creating retroactive DRE, using payment-date competence;
+  - explicit `categoria <nome>` plus card text overrides parser category guesses and parser expense/card-purchase type mistakes;
+  - `pela Conta ...` with explicit category is treated as cash expense, not card purchase; singular fatura questions are read-only;
+  - category questions can drill into visible line items while keeping private items aggregate-only;
+  - `/resumo` nets effective invoice-payment launches against invoice rows that still look open and avoids "Falta para cobrir tudo" when source balances are absent.
+- Third-party transfers for house inspection/laudo are treated as `divida_pagamento` against `DIV_OBRIGACOES_CASA`, not internal transfer or house financing.
+- Cash outflows with an informed source snapshot are blocked when the selected source balance is insufficient; bot asks which source/reserve will cover before writing.
+- Natural reserve update phrases like "tirei ... do cofrinho MP e agora saldo ..." update `Patrimonio_Ativos` as liquidity, not DRE.
+- Current confirmed June invoice totals were registered from owner review: Nubank R$ 1260.47 and Mercado Pago R$ 2100.97.
 - `/resumo` uses informed source balances plus reserve/liquidity assets to evaluate obligation coverage; caixinha/cofrinho Telegram text updates `Patrimonio_Ativos` without DRE/category effects.
-- Latest validation after @90: `npm run check`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-18.
+- Decision-UX @119 has the short `/resumo` pattern across help, launches, balances, agenda, review, validation failures, `/agenda`, `/revisar_mes`, deterministic "posso comprar ... em Nx?", and category-specific drill-downs.
+- Latest validation after @123: `npm run check`, `npm run push`, `clasp deploy -i $DEPLOY_ID`, `npm run snapshot`, `npm run summary`, and `npm run selftest` passed on 2026-05-19.
+- May Brenda duplicate repair was applied: one duplicate house-inspection obligation launch canceled by review; MP cofrinho balance updated to R$ 103.01.
+- Historical repair/setup actions applied through 2026-05 were removed from runtime on this cleanup branch. See `docs/archive/HISTORICAL_REPAIR_ACTIONS.md`.
 - Current real closing state in snapshot: 2026-04 closed; 2026-05 open with initial May launches in progress.
 
 ### Unverified
-
-- Full production readiness beyond owner pilot usage.
-- UX readiness with Luana using real Telegram messages after prior UX passes.
+- Full production readiness beyond owner pilot usage; UX readiness with Luana using real Telegram messages after prior UX passes.
 
 ## Execution Rules
 
@@ -61,13 +63,7 @@ Operational authority for Bot Financeiro Familiar V55.
 The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>` for remote function calls.
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env`.
 
-Available actions: `snapshot`, `summary`, `closing_draft`, `closing_close`,
-`repair_premature_current_closing`,
-`repair_notebook_installment_pilot`,
-`repair_may_2026_benefit_conversion_source`,
-`reset_april_2026_clean_rebuild`,
-`ensure_remaining_mutation_config`, `ensure_april_2026_config`,
-`ensure_april_2026_house_debts`, `repair_april_2026_mp_invoice_cycle`, and `selftest`.
+Available actions: `snapshot`, `summary`, `closing_draft`, `closing_close`, and `selftest`.
 
 Reviewed historical imports use POST action `historical_import_reviewed` via
 `npm run historical:write`; dry-run is default, `--apply` writes after local validation.
@@ -86,14 +82,9 @@ Telegram -> Val Town proxy -> Apps Script doPost -> OpenAI parser -> Google Shee
 
 Script Properties only; never commit values.
 
-Required keys: `WEBHOOK_SECRET`, `AUTHORIZED_USER_IDS`, `AUTHORIZED_CHAT_IDS`,
-`SPREADSHEET_ID`, `OPENAI_API_KEY`, `PILOT_FINANCIAL_MUTATION_ENABLED`.
-
-Optional/operational keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`.
+Required keys: `WEBHOOK_SECRET`, `AUTHORIZED_USER_IDS`, `AUTHORIZED_CHAT_IDS`, `SPREADSHEET_ID`, `OPENAI_API_KEY`, `PILOT_FINANCIAL_MUTATION_ENABLED`; optional/operational keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`.
 
 ## Next Work
 
-1. Register current May source balances before relying on `/resumo` for cash destination decisions.
-2. [x] Add installment-purchase tracking for future invoice forecasts beyond current monthly parcel imports.
-3. Start May real-time usage; April is now closed and any April correction must be an `ajuste`.
-4. Before broad production usage, remove operational dependence on `visibilidade=resumo`; keep only `detalhada` and `privada`.
+1. Continue May real-time usage; April is closed and any April correction must be an `ajuste`.
+2. Design budget/envelope config before implementing category limits; do not infer limits from category names.

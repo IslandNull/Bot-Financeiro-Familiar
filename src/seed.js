@@ -79,7 +79,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -92,7 +92,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -105,7 +105,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -118,7 +118,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -131,7 +131,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -144,7 +144,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -157,7 +157,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -170,7 +170,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'detalhada',
             ativo: true,
         },
         {
@@ -235,7 +235,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'detalhada',
             ativo: true,
         },
         {
@@ -248,7 +248,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'detalhada',
             ativo: true,
         },
         {
@@ -261,7 +261,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'detalhada',
             ativo: true,
         },
         {
@@ -287,7 +287,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'detalhada',
             ativo: true,
         },
         {
@@ -300,7 +300,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'detalhada',
             ativo: true,
         },
         {
@@ -313,7 +313,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -339,7 +339,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -352,7 +352,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -365,7 +365,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -378,7 +378,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -391,7 +391,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -404,7 +404,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -417,7 +417,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -430,7 +430,7 @@ const canonicalSeed = {
             afeta_dre_padrao: true,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'privada',
             ativo: true,
         },
         {
@@ -443,7 +443,7 @@ const canonicalSeed = {
             afeta_dre_padrao: false,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'detalhada',
             ativo: true,
         },
         {
@@ -469,7 +469,7 @@ const canonicalSeed = {
             afeta_dre_padrao: false,
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
-            visibilidade_padrao: 'resumo',
+            visibilidade_padrao: 'detalhada',
             ativo: true,
         },
         {

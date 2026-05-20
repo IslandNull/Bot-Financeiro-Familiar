@@ -23,14 +23,16 @@ The product is centered on family solvency, cash safety, net worth, obligations,
 
 ## Current Operational Boundary
 
-- Google Sheets mutation, Telegram webhook routing, OpenAI parsing, and reviewed historical import are now pilot-runtime features.
+- Google Sheets mutation, Telegram webhook routing, OpenAI parsing, deterministic read-only questions, and reviewed historical import are now pilot-runtime features.
 - The LLM is only a parser boundary. Sheet config, schema validation, idempotency, closed-period guards, and Apps Script checks remain the source of truth for mutations.
+- `/resumo`, `/agenda`, `/revisar_mes`, category-spending questions, invoice questions, reserve questions, and "posso comprar ... em Nx?" simulations are decision-support views. They must use deterministic calculations, not free-form LLM advice.
+- Budget/envelope limits are not active until a reviewed config/schema exists.
 - Historical V53/V54 compatibility remains out of scope. V55 may use old repos only as technical reference.
 - Person-to-person settlement remains out of scope. The system must not answer who owes money to whom.
 
-## MVP Phases
+## Next Product Direction
 
-1. Specs and schema.
-2. Local pure contracts and tests.
-3. Minimal Apps Script adapters after the contracts are stable.
+1. Make daily decisions easier: faturas, agenda, safe spending capacity, and review checklist.
+2. Add reviewed budget/envelope config for category limits.
+3. Improve month closing around reconciliation of real bank/card totals.
 

@@ -40,6 +40,15 @@ test('canonical seed includes ids needed by event examples', () => {
     assert.ok(cardIds.includes('CARD_NUBANK_GU'));
 });
 
+test('canonical seed does not create active resumo visibility categories', () => {
+    const seed = getCanonicalSeed();
+    const activeCategoryVisibilities = seed[SHEETS.CONFIG_CATEGORIAS]
+        .filter((row) => row.ativo !== false)
+        .map((row) => row.visibilidade_padrao);
+
+    assert.ok(!activeCategoryVisibilities.includes('resumo'));
+});
+
 test('canonical seed can be cloned without mutating source data', () => {
     const seed = getCanonicalSeed();
     seed[SHEETS.CONFIG_CATEGORIAS][0].id_categoria = 'MUTATED';
