@@ -50,7 +50,7 @@ Operational authority for Bot Financeiro Familiar V55.
 
 - Local tests before deploy: `npm run check` (syntax check + all tests).
 - Deploy via `npm run push`; then update the web app with `clasp deploy -i $DEPLOY_ID` from `.env`.
-- After deploy or spreadsheet-state changes, run `npm run snapshot`, `npm run summary`, and `npm run selftest`.
+- After deploy or spreadsheet-state changes, run the single-command smoke test: `npm run smoke` (which executes `node --check`, local tests, snapshot, summary, and remote selftest).
 - New event types follow existing schema validation. No per-event decision document.
 - Group related changes in batches. Run tests once at the end of a batch.
 - Always `git commit` and `git push` after verified changes. Do not leave working tree dirty.

@@ -13,6 +13,7 @@
     "open": "clasp open",
     "logs": "clasp logs --watch",
     "check": "node --check apps-script/Code.js && npm test",
+    "smoke": "node --check apps-script/Code.js && npm run check && npm run snapshot && npm run summary && npm run selftest",
     "snapshot": "node scripts/clasp-run.js snapshot",
     "summary": "node scripts/clasp-run.js summary",
     "closing:draft": "node scripts/clasp-run.js closing_draft",
