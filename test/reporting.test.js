@@ -84,8 +84,14 @@ test('family closing hardens DRE cash exposure obligations reserve net worth and
             { competencia: '2026-04', id_fonte: 'FONTE_CONTA_FAMILIA', data_referencia: '2026-04-15', saldo_inicial: 100, saldo_final: 150, saldo_disponivel: 140 },
             { competencia: '2026-04', id_fonte: 'FONTE_CONTA_FAMILIA', data_referencia: '2026-04-30', saldo_inicial: 100, saldo_final: 350, saldo_disponivel: 330 },
             { competencia: '2026-04', id_fonte: 'FONTE_INVESTIMENTO', data_referencia: '2026-04-30', saldo_inicial: 1000, saldo_final: 1200, saldo_disponivel: 0 },
+            { competencia: '2026-04', id_fonte: 'FONTE_CARTAO_NUBANK', data_referencia: '2026-04-30', saldo_inicial: 0, saldo_final: 5000, saldo_disponivel: 5000 },
             { competencia: '2026-03', id_fonte: 'FONTE_CONTA_FAMILIA', data_referencia: '2026-03-31', saldo_inicial: 10, saldo_final: 20, saldo_disponivel: 20 },
         ],
+        sourcesById: {
+            FONTE_CONTA_FAMILIA: { id_fonte: 'FONTE_CONTA_FAMILIA', tipo: 'conta_corrente' },
+            FONTE_INVESTIMENTO: { id_fonte: 'FONTE_INVESTIMENTO', tipo: 'investimento' },
+            FONTE_CARTAO_NUBANK: { id_fonte: 'FONTE_CARTAO_NUBANK', tipo: 'cartao_credito' },
+        },
         options: { reserveTarget: 2000 },
     });
 
@@ -107,6 +113,35 @@ test('family closing hardens DRE cash exposure obligations reserve net worth and
     assert.strictEqual(closing.saldos_fontes_inicial, 1100);
     assert.strictEqual(closing.saldos_fontes_final, 1550);
     assert.strictEqual(closing.saldos_fontes_disponivel, 330);
+});
+
+test('family closing uses informed liquidity instead of monthly cash surplus for decision capacity', () => {
+    const closing = computeFamilyClosing({
+        competencia: '2026-04',
+        events: [
+            event({
+                tipo_evento: 'despesa',
+                valor: '1000.00',
+                descricao: 'cash already spent',
+                afeta_dre: true,
+                afeta_caixa_familiar: true,
+            }),
+        ],
+        invoices: [{ status: 'prevista', valor_previsto: 300, valor_pago: 0 }],
+        debts: [{ status: 'ativa', saldo_devedor: 1000, valor_parcela: 100 }],
+        assets: [{ saldo_atual: 1000, conta_reserva_emergencia: true, ativo: true }],
+        sourceBalances: [
+            { competencia: '2026-04', id_fonte: 'FONTE_CONTA_FAMILIA', data_referencia: '2026-04-30', saldo_disponivel: 700 },
+        ],
+        sourcesById: {
+            FONTE_CONTA_FAMILIA: { id_fonte: 'FONTE_CONTA_FAMILIA', tipo: 'conta_corrente' },
+        },
+        options: { reserveTarget: 1500 },
+    });
+
+    assert.strictEqual(closing.sobra_caixa, -1000);
+    assert.strictEqual(closing.margem_pos_obrigacoes, 1200);
+    assert.strictEqual(closing.destino_sugerido, 'reforcar_reserva');
 });
 
 test('shared detailed report excludes private personal and aggregate-only rows', () => {

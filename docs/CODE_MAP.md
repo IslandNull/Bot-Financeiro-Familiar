@@ -6,7 +6,11 @@ Codebase navigation guide for V55.
 
 | Path | Purpose |
 |------|---------|
-| `apps-script/Code.js` | Production Apps Script runtime (~4700 lines), locally sectioned as INFRA, PARSER, DOMAIN, READ_ONLY, and MUTATION. Deploy via `npm run push`. |
+| `apps-script/Code.js` | Apps Script entry points, constants, web actions, setup helpers, snapshot and closing wrappers. Deploy via `npm run push`. |
+| `apps-script/infra.js` | Runtime config, auth, request parsing, sheet readers, row conversion, date/money/string utilities. |
+| `apps-script/parser.js` | Telegram command classification, OpenAI parser boundary, prompt construction, NLP parsers and deterministic parser overrides. |
+| `apps-script/reporting.js` | `/resumo`, agenda, read-only answers, summary calculations, canonicalization and runtime validation. |
+| `apps-script/mutation.js` | Telegram writes, historical import apply path, closing writes, idempotency and low-level sheet mutation helpers. |
 | `apps-script/appsscript.json` | Apps Script manifest with scopes. |
 | `val-town/telegram-proxy.ts` | Val Town edge proxy: acknowledges Telegram, forwards to Apps Script. |
 | `src/*.js` | Pure Node.js domain contracts (schema, validation, parsing, planning, idempotency, reporting). |
@@ -70,12 +74,12 @@ doGet(e)
        └─ selftest → runHelpSmokeSelfTest()
 ```
 
-**Internal helper sections:**
-- `INFRA`: HTTP entry points, Apps Script wrappers, config/auth, routing, shared runtime utilities.
-- `PARSER`: command/question classifiers, OpenAI parser boundary, balance/asset command parsing.
-- `DOMAIN`: canonicalization, inference, validation, invoice-cycle and pure summary calculations.
-- `READ_ONLY`: summary/reporting views, sheet snapshot export, sheet row readers and formatters.
-- `MUTATION`: reviewed historical apply mode, closing draft/close, Telegram financial writes, balance/asset upserts, and low-level row/status writes.
+**Runtime file split:**
+- `Code.js`: public Apps Script surface and remote action wrappers.
+- `infra.js`: config/auth/routing helpers and shared sheet utilities.
+- `parser.js`: parser prompt, parser normalization and command/question classification.
+- `reporting.js`: read-only reports plus financial summary/canonicalization/validation helpers.
+- `mutation.js`: reviewed writes, idempotency, closing mutations and sheet append/update helpers.
 
 **Key patterns:**
 - All config from `PropertiesService.getScriptProperties()` (never hardcoded secrets)
