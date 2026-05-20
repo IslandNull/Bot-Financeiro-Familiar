@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
+const { projectInvoiceCycles } = require('../src/invoice-ledger');
 const { ENUMS, HEADERS, SHEETS, getSheetNames } = require('../src/schema');
 
 function auditSheetState(state) {
@@ -105,21 +106,9 @@ function checkReference(findings, sheetName, field, value, index, activeMatters)
 }
 
 function auditDuplicateInvoices(findings, invoices) {
-  const byClosedInvoiceGroup = {};
-  (invoices || []).forEach((row) => {
-    const status = stringValue(row.status);
-    if (!['fechada', 'parcialmente_paga'].includes(status)) return;
-    const key = [
-      stringValue(row.id_cartao),
-      stringValue(row.competencia),
-      stringValue(row.data_vencimento),
-    ].join('|');
-    if (key === '||') return;
-    byClosedInvoiceGroup[key] = (byClosedInvoiceGroup[key] || 0) + 1;
-  });
-  Object.keys(byClosedInvoiceGroup).forEach((key) => {
-    if (byClosedInvoiceGroup[key] > 1) {
-      add(findings, 'CONCURRENT_CLOSED_INVOICE', 'warning', SHEETS.FATURAS, 'competencia', byClosedInvoiceGroup[key], 'multiple closed invoice authority rows for same card, competence, and due date');
+  projectInvoiceCycles(invoices).forEach((cycle) => {
+    if (cycle.has_authority_conflict) {
+      add(findings, 'CONCURRENT_CLOSED_INVOICE', 'warning', SHEETS.FATURAS, 'competencia', cycle.authority_count, 'multiple closed invoice authority rows for same card, competence, and due date');
     }
   });
 }

@@ -326,3 +326,18 @@ Use short Telegram replies with light emoji markers, explicit outcome, financial
 Reason:
 The bot is used for real family financial decisions. Clear wording and deterministic read-only answers reduce panic, ambiguity, and LLM hallucination risk while preserving privacy for personal details.
 
+## V55-D023 - Faturas Separate Exposure From Authority
+
+Status: Accepted
+Date: 2026-05-20
+
+Decision:
+Treat current `Faturas` rows as a compatibility ledger with two meanings: planned exposure lines from purchases/installments, and authority rows from reviewed/closed/paid invoice state. Local code now projects those rows into invoice cycles before summing open exposure. A future spreadsheet migration should split this into invoice headers/authority and purchase/installment exposure lines instead of relying on overloaded rows.
+
+Reason:
+The live sheet legitimately has many `prevista` rows per card and competence because each purchase or installment contributes exposure. Those rows are not duplicates. Closed or partially paid invoice rows are stronger authority and must prevent double counting planned exposure for the same card, competence, and due date.
+
+Rejected:
+- Treating multiple planned rows in one cycle as duplicate invoices.
+- Mutating the real spreadsheet before a dry-run migration and owner approval.
+

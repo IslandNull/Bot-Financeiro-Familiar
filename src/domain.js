@@ -1,6 +1,7 @@
 'use strict';
 
 const { assignInstallmentCycles, assignInvoiceCycle } = require('./card-cycle');
+const { sumInvoiceOpenAmount } = require('./invoice-ledger');
 const { HEADERS, SHEETS } = require('./schema');
 const { validateParsedEvent } = require('./validator');
 
@@ -88,15 +89,7 @@ function summarizeCash(events) {
 }
 
 function sumInvoiceExposure(invoices) {
-    return roundMoney(
-        (invoices || [])
-            .filter((invoice) => ['prevista', 'fechada', 'parcialmente_paga'].includes(invoice.status))
-            .reduce((sum, invoice) => {
-                const expected = Number(invoice.valor_fechado || invoice.valor_previsto || 0);
-                const paid = Number(invoice.valor_pago || 0);
-                return sum + Math.max(0, expected - paid);
-            }, 0)
-    );
+    return sumInvoiceOpenAmount(invoices);
 }
 
 function sumActiveDebtObligations(debts) {

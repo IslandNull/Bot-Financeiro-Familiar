@@ -32,6 +32,7 @@ Codebase navigation guide for V55.
 | `validator.js` | Parsed event validation, financial mapping |
 | `domain.js` | Family closing, DRE, cash, reserve, destination calculations |
 | `card-cycle.js` | Invoice cycle assignment from card closing/due dates |
+| `invoice-ledger.js` | Compatibility projection from overloaded `Faturas` rows into invoice cycles |
 | `parser-context.js` | Parser prompt context builder from seed data |
 | `parser-contract.js` | Strict JSON extraction and validation from model output |
 | `parser-runtime.js` | Parser execution with injected fetch |

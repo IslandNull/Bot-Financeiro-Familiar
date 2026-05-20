@@ -15,4 +15,5 @@ module.exports = {
     ...require('./telegram-handler'),
     ...require('./telegram-webhook'),
     ...require('./pilot-evidence'),
+    ...require('./invoice-ledger'),
 };
