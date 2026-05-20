@@ -113,12 +113,6 @@ const fileMapping = {
     'findSourceByAlias_': 'parser.js',
 
     // mutation.js
-    'handleReviewedHistoricalImport_': 'mutation.js',
-    'isAllowedAprilRebuildInvoiceExposure_': 'mutation.js',
-    'validateReviewedHistoricalEvent_': 'mutation.js',
-    'recordReviewedHistoricalEvent_': 'mutation.js',
-    'historicalRequest_': 'mutation.js',
-    'incrementCount_': 'mutation.js',
     'appendRow_': 'mutation.js',
     'writeRow_': 'mutation.js',
     'findIdempotencyRow_': 'mutation.js',
@@ -133,7 +127,6 @@ const fileMapping = {
     'handleTelegramBalanceCommand_': 'mutation.js',
     'handleTelegramAssetCommand_': 'mutation.js',
     'saveIdempotencyLog_': 'mutation.js',
-    'saveTelegramSendLog_': 'mutation.js',
     'findExistingIdempotencyLog_': 'mutation.js',
     'updateOrAppendSourceBalance_': 'mutation.js',
     'updateOrAppendAssetBalance_': 'mutation.js',

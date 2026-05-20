@@ -207,23 +207,6 @@ function postPilotMessage(context, text) {
     return JSON.parse(output.getContentText());
 }
 
-function postHistoricalImport(context, entries, options = {}) {
-    const output = context.doPost({
-        parameter: { secret: 'test_secret' },
-        postData: {
-            contents: JSON.stringify({
-                action: 'historical_import_reviewed',
-                reviewed: options.reviewed !== undefined ? options.reviewed : true,
-                competencia: options.competencia || '2026-04',
-                batch_id: options.batch_id || 'test-batch',
-                dry_run: options.dry_run !== undefined ? options.dry_run : true,
-                entries,
-            }),
-        },
-    });
-    return JSON.parse(output.getContentText());
-}
-
 function appendRuntimeConfigRows(sheets) {
     [
         {
@@ -622,7 +605,6 @@ module.exports = {
     createFakeSheet,
     createAppsScriptHarness,
     postPilotMessage,
-    postHistoricalImport,
     appendRuntimeConfigRows,
     runRemoteAction,
     appendFakeInvoice,

@@ -42,7 +42,7 @@ Before code changes:
    - Always read `EXECUTION_PLAN.md`.
    - Read `docs/CODE_MAP.md` when touching architecture, Apps Script runtime or `apps-script/Code.js`.
    - Read `DOMAIN_RULES.md` and `SHEET_SCHEMA.md` when touching finance logic, categories, faturas, lançamentos, saldos, patrimônio, dívidas, fechamento or spreadsheet schema.
-   - Read `docs/FORMULA_STANDARD.md` only for formula/spreadsheet-format tasks.
+   - Spreadsheet-format tasks must follow the formula notes in `SHEET_SCHEMA.md`.
    - Do not re-read large unchanged files unless needed.
 
 3. Do not claim a feature, invariant, command or test exists unless verified in code, command output, tests or snapshot.

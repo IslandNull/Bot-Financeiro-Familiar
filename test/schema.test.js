@@ -27,7 +27,6 @@ test('schema contains the clean V55 sheets', () => {
         'Dividas',
         'Fechamento_Familiar',
         'Idempotency_Log',
-        'Telegram_Send_Log',
     ]);
 });
 

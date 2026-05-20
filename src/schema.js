@@ -13,7 +13,6 @@ const SHEETS = {
     DIVIDAS: 'Dividas',
     FECHAMENTO_FAMILIAR: 'Fechamento_Familiar',
     IDEMPOTENCY_LOG: 'Idempotency_Log',
-    TELEGRAM_SEND_LOG: 'Telegram_Send_Log',
 };
 
 const HEADERS = {
@@ -178,21 +177,6 @@ const HEADERS = {
         'error_code',
         'observacao',
     ],
-    [SHEETS.TELEGRAM_SEND_LOG]: [
-        'id_notificacao',
-        'created_at',
-        'route',
-        'chat_id',
-        'phase',
-        'status',
-        'status_code',
-        'error',
-        'result_ref',
-        'id_lancamento',
-        'idempotency_key',
-        'text_preview',
-        'sent_at',
-    ],
 };
 
 const ENUMS = {
@@ -254,7 +238,6 @@ function validateSchema() {
         SHEETS.DIVIDAS,
         SHEETS.FECHAMENTO_FAMILIAR,
         SHEETS.IDEMPOTENCY_LOG,
-        SHEETS.TELEGRAM_SEND_LOG,
     ].forEach((required) => {
         if (!names.includes(required)) errors.push({ code: 'MISSING_SHEET', sheet: required });
     });

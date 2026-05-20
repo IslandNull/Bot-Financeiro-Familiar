@@ -92,7 +92,7 @@ Status: Accepted
 Date: 2026-04-29
 
 Decision:
-Represent Telegram sending as a local dependency-injected boundary with fake sender tests and fake `Telegram_Send_Log` rows. Send observability must not mutate financial sheets and must redact token-like strings, webhook URLs, and stack traces.
+Represent Telegram sending as a local dependency-injected boundary with redacted diagnostics. Send observability must not mutate financial sheets and must redact token-like strings, webhook URLs, and stack traces. `Telegram_Send_Log` was later retired from the live V55 schema.
 
 Reason:
 The project needs delivery observability before a real webhook, but no Telegram service should be called until spreadsheet setup and controlled pilot gates are verified.

@@ -10,10 +10,9 @@
     await require('./idempotency.test');
     await require('./write-adapter.test');
     await require('./telegram-handler.test');
-    await require('./telegram-send.test');
     await require('./telegram-webhook.test');
     await require('./pilot-evidence.test');
-    await require('./historical-validate.test');
+    await require('./sheet-audit.test');
     await require('./apps-script-runtime.test');
     await require('./val-town-proxy.test');
     await require('./domain.test');

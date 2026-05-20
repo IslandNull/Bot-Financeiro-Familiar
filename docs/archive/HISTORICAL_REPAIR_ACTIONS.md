@@ -2,6 +2,8 @@
 
 These actions were one-off runtime mutations for the April/May 2026 cleanup and pilot repairs. They were removed from `apps-script/Code.js` in the cleanup branch after the project state recorded in `EXECUTION_PLAN.md` showed the repairs had already been applied or were historical setup.
 
+The reviewed historical JSONL import flow (`historical_import_reviewed`, `scripts/historical-validate.js`, `scripts/historical-write.js`) was also retired after the April rebuild. Future historical corrections must use the live Telegram/runtime paths or explicit reviewed adjustments.
+
 Removed from `doGet`, V55 exports, global wrappers, and local tests:
 
 - `reset_april_2026_clean_rebuild`

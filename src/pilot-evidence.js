@@ -1,7 +1,6 @@
 'use strict';
 
 const { SHEETS, getSheetNames } = require('./schema');
-const { redactTelegramText } = require('./telegram-send');
 
 function buildPilotEvidence(input) {
     const scenario = input && input.scenario;
@@ -63,7 +62,7 @@ function redactedResultRefs(result, beforeState, afterState) {
 }
 
 function redactResultRef(value) {
-    const text = redactTelegramText(value);
+    const text = redactText(value);
     if (!text) return '';
     const prefix = String(text).split('_')[0];
     return prefix && prefix !== text ? `${prefix}_[REDACTED]` : '[REDACTED_REF]';
@@ -75,7 +74,16 @@ function errorCodes(result) {
 }
 
 function redactLabel(value) {
-    return redactTelegramText(value).slice(0, 80);
+    return redactText(value).slice(0, 80);
+}
+
+function redactText(text) {
+    return String(text || '')
+        .replace(/sk-[A-Za-z0-9_-]+/g, '[REDACTED]')
+        .replace(/https?:\/\/\S+/g, '[REDACTED_URL]')
+        .replace(/(bot|telegram)[-_]?[A-Za-z0-9:_-]{12,}/gi, '[REDACTED_TOKEN]')
+        .replace(/(?:Error:\s*)?[\w.<>-]+Error:[\s\S]*/g, '[REDACTED_ERROR]')
+        .replace(/stack trace/gi, '[REDACTED_STACK]');
 }
 
 function unique(values) {

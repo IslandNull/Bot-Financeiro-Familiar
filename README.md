@@ -13,10 +13,10 @@ VERIFIED in this repo:
 - Local Node.js contracts for parsed events, invoice cycles, idempotency, reporting, privacy filtering, and guardrails.
 - Local decision-capacity hardening for launch status, recurring income schema, cash snapshots, obligation-first destination, and fail-fast event mapping.
 - Telegram handler and webhook gates with authorization, webhook-secret validation, injected local tests, and Apps Script runtime coverage.
-- Local Telegram send boundary with injected fake sender and redacted fake send logs.
 - Real V55 spreadsheet schema verified by redacted sheet/header evidence.
-- Deployed Apps Script runtime for pilot mutations, `/resumo`, `/agenda`, `/revisar_mes`, deterministic safe questions, snapshot, summary, selftest, monthly closing, and reviewed historical imports.
-- Audit hardening for strict dates, ambiguous money fallback, payable invoice validation, partial invoice payment, historical import validation, and closed-period mutation guards.
+- Deployed Apps Script runtime for pilot mutations, `/resumo`, `/agenda`, `/revisar_mes`, deterministic safe questions, snapshot, summary, selftest, monthly closing, and sheet audit.
+- Read-only sheet auditor for schema, status, reference, invoice and obligation risks.
+- Audit hardening for strict dates, ambiguous money fallback, payable invoice validation, partial invoice payment, sheet validation, and closed-period mutation guards.
 - Local tests that do not call Google Sheets, Telegram, OpenAI, or network services.
 
 UNVERIFIED:
@@ -37,6 +37,7 @@ npm run smoke
 npm run snapshot
 npm run summary
 npm run selftest
+npm run sheet:audit
 ```
 
 Local tests use only Node built-ins. Remote commands require `.env` and configured Apps Script access.

@@ -45,7 +45,6 @@ var SHEETS = {
   FECHAMENTO_FAMILIAR: 'Fechamento_Familiar',
   TRANSFERENCIAS_INTERNAS: 'Transferencias_Internas',
   IDEMPOTENCY_LOG: 'Idempotency_Log',
-  TELEGRAM_SEND_LOG: 'Telegram_Send_Log',
 };
 var HEADERS = {
   Cartoes: ['id_cartao', 'id_fonte', 'nome', 'titular', 'fechamento_dia', 'vencimento_dia', 'limite', 'ativo'],
@@ -60,7 +59,6 @@ var HEADERS = {
   Saldos_Fontes: ['id_snapshot', 'competencia', 'data_referencia', 'id_fonte', 'saldo_inicial', 'saldo_final', 'saldo_disponivel', 'observacao', 'created_at'],
   Transferencias_Internas: ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'],
   Idempotency_Log: ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'],
-  Telegram_Send_Log: ['id_notificacao', 'created_at', 'route', 'chat_id', 'phase', 'status', 'status_code', 'error', 'result_ref', 'id_lancamento', 'idempotency_key', 'text_preview', 'sent_at'],
 };
 var PARSED_EVENT_FIELDS = ['tipo_evento', 'data', 'competencia', 'valor', 'descricao', 'id_categoria', 'id_fonte', 'pessoa', 'escopo', 'visibilidade', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'direcao_caixa_familiar', 'status', 'parcelas'];
 
@@ -73,10 +71,6 @@ function doPost(e) {
 
   var update = parseUpdate_(e);
   if (!update.ok) return json_(update);
-
-  if (update.value && update.value.action === 'historical_import_reviewed') {
-    return json_(handleReviewedHistoricalImport_(update.value, config));
-  }
 
   var result = handleTelegramUpdate_(update.value, config);
   return json_(result);
@@ -114,6 +108,9 @@ function doGet(e) {
   }
   if (action === 'selftest') {
     return json_(runHelpSmokeSelfTest());
+  }
+  if (action === 'sheet_audit') {
+    return json_(exportSheetAuditV55());
   }
   return json_({ ok: false, error: 'UNKNOWN_ACTION', action: action });
 }
@@ -443,3 +440,164 @@ function exportSnapshotV55() {
   return { ok: true, snapshot: lines.join('\n') };
 }
 
+function exportSheetAuditV55() {
+  var config = readConfig_();
+  if (!config.spreadsheetId) return { ok: false, error: 'MISSING_SPREADSHEET_ID' };
+  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+  var findings = [];
+  var expectedSheets = objectValues_(SHEETS);
+  var sheets = spreadsheet.getSheets();
+  var byName = {};
+  for (var i = 0; i < sheets.length; i += 1) {
+    var name = sheets[i].getName();
+    byName[name] = sheets[i];
+    if (expectedSheets.indexOf(name) === -1) {
+      addSheetAuditFinding_(findings, 'EXTRA_SHEET', 'warning', name, '', 1, 'sheet is outside the live schema');
+    }
+  }
+
+  for (var j = 0; j < expectedSheets.length; j += 1) {
+    var sheetName = expectedSheets[j];
+    var sheet = byName[sheetName];
+    if (!sheet) {
+      addSheetAuditFinding_(findings, 'MISSING_SHEET', 'error', sheetName, '', 1, 'expected sheet is missing');
+      continue;
+    }
+    var actualHeaders = sheet.getLastRow() > 0 ? sheet.getRange(1, 1, 1, HEADERS[sheetName].length).getValues()[0].map(function(value) { return String(value || ''); }) : [];
+    if (JSON.stringify(actualHeaders) !== JSON.stringify(HEADERS[sheetName])) {
+      addSheetAuditFinding_(findings, 'HEADER_MISMATCH', 'error', sheetName, '', 1, 'headers differ from schema');
+    }
+  }
+
+  var rows = {};
+  for (var k = 0; k < expectedSheets.length; k += 1) {
+    var expectedName = expectedSheets[k];
+    rows[expectedName] = byName[expectedName] ? readRowsAsObjects_(byName[expectedName], expectedName) : [];
+  }
+  var categories = indexBy_(rows[SHEETS.CONFIG_CATEGORIAS], 'id_categoria');
+  var sources = indexBy_(rows[SHEETS.CONFIG_FONTES], 'id_fonte');
+  var cards = indexBy_(rows[SHEETS.CARTOES], 'id_cartao');
+  var debts = indexBy_(rows[SHEETS.DIVIDAS], 'id_divida');
+  var assets = indexBy_(rows[SHEETS.PATRIMONIO_ATIVOS], 'id_ativo');
+
+  auditStatusRows_(findings, rows[SHEETS.LANCAMENTOS], SHEETS.LANCAMENTOS, 'status', ['agendado', 'pendente', 'efetivado', 'cancelado', 'cancelado_revisao']);
+  auditStatusRows_(findings, rows[SHEETS.FATURAS], SHEETS.FATURAS, 'status', ['prevista', 'fechada', 'paga', 'parcialmente_paga', 'divergente', 'ajustada', 'cancelada', 'cancelado_revisao']);
+  auditStatusRows_(findings, rows[SHEETS.DIVIDAS], SHEETS.DIVIDAS, 'status', ['ativa', 'em_aberto', 'renegociada', 'quitada', 'inativa', 'cancelada']);
+  auditStatusRows_(findings, rows[SHEETS.FECHAMENTO_FAMILIAR], SHEETS.FECHAMENTO_FAMILIAR, 'status', ['draft', 'closed']);
+
+  auditLaunchReferences_(findings, rows[SHEETS.LANCAMENTOS], categories, sources, cards, debts, assets);
+  auditCardReferences_(findings, rows[SHEETS.CARTOES], sources);
+  auditInvoiceReferences_(findings, rows[SHEETS.FATURAS], cards);
+  auditDuplicateInvoices_(findings, rows[SHEETS.FATURAS]);
+  auditObligationRows_(findings, rows[SHEETS.DIVIDAS]);
+
+  return {
+    ok: true,
+    shouldApplyDomainMutation: false,
+    summary: summarizeSheetAuditFindings_(findings),
+    findings: compactSheetAuditFindings_(findings),
+  };
+}
+
+function objectValues_(object) {
+  return Object.keys(object).map(function(key) { return object[key]; });
+}
+
+function auditStatusRows_(findings, rows, sheetName, field, allowed) {
+  (rows || []).forEach(function(row) {
+    var value = stringValue_(row[field]);
+    if (value && allowed.indexOf(value) === -1) {
+      addSheetAuditFinding_(findings, 'UNKNOWN_STATUS', 'warning', sheetName, field, 1, 'status not recognized by audit policy');
+    }
+  });
+}
+
+function auditLaunchReferences_(findings, launches, categories, sources, cards, debts, assets) {
+  (launches || []).forEach(function(row) {
+    checkSheetAuditReference_(findings, SHEETS.LANCAMENTOS, 'id_categoria', row.id_categoria, categories, true);
+    checkSheetAuditReference_(findings, SHEETS.LANCAMENTOS, 'id_fonte', row.id_fonte, sources, true);
+    checkSheetAuditReference_(findings, SHEETS.LANCAMENTOS, 'id_cartao', row.id_cartao, cards, false);
+    checkSheetAuditReference_(findings, SHEETS.LANCAMENTOS, 'id_divida', row.id_divida, debts, false);
+    checkSheetAuditReference_(findings, SHEETS.LANCAMENTOS, 'id_ativo', row.id_ativo, assets, false);
+  });
+}
+
+function auditCardReferences_(findings, cards, sources) {
+  (cards || []).forEach(function(row) {
+    checkSheetAuditReference_(findings, SHEETS.CARTOES, 'id_fonte', row.id_fonte, sources, true);
+  });
+}
+
+function auditInvoiceReferences_(findings, invoices, cards) {
+  (invoices || []).forEach(function(row) {
+    checkSheetAuditReference_(findings, SHEETS.FATURAS, 'id_cartao', row.id_cartao, cards, true);
+  });
+}
+
+function checkSheetAuditReference_(findings, sheetName, field, value, index, activeMatters) {
+  var key = stringValue_(value);
+  if (!key) return;
+  var target = index[key];
+  if (!target) {
+    addSheetAuditFinding_(findings, 'BROKEN_REFERENCE', 'error', sheetName, field, 1, 'referenced row was not found');
+    return;
+  }
+  if (activeMatters && target.ativo === false) {
+    addSheetAuditFinding_(findings, 'INACTIVE_REFERENCE', 'warning', sheetName, field, 1, 'referenced config row is inactive');
+  }
+}
+
+function auditDuplicateInvoices_(findings, invoices) {
+  var byCardCompetence = {};
+  (invoices || []).forEach(function(row) {
+    var status = stringValue_(row.status);
+    if (['prevista', 'fechada', 'parcialmente_paga'].indexOf(status) === -1) return;
+    var key = stringValue_(row.id_cartao) + '|' + stringValue_(row.competencia);
+    if (key === '|') return;
+    byCardCompetence[key] = (byCardCompetence[key] || 0) + 1;
+  });
+  Object.keys(byCardCompetence).forEach(function(key) {
+    if (byCardCompetence[key] > 1) {
+      addSheetAuditFinding_(findings, 'DUPLICATE_INVOICE_COMPETENCE', 'warning', SHEETS.FATURAS, 'competencia', byCardCompetence[key], 'multiple open invoice rows for same card and competence');
+    }
+  });
+}
+
+function auditObligationRows_(findings, debts) {
+  (debts || []).forEach(function(row) {
+    if (['ativa', 'em_aberto', 'renegociada'].indexOf(stringValue_(row.status)) === -1) return;
+    var missing = ['saldo_devedor', 'valor_parcela', 'parcela_atual', 'parcelas_total'].filter(function(field) {
+      return stringValue_(row[field]) === '';
+    });
+    if (missing.length) {
+      addSheetAuditFinding_(findings, 'INCOMPLETE_OBLIGATION', 'warning', SHEETS.DIVIDAS, 'status', 1, 'active obligation has incomplete review fields');
+    }
+  });
+}
+
+function addSheetAuditFinding_(findings, code, severity, sheet, field, count, detail) {
+  findings.push({ code: code, severity: severity, sheet: sheet, field: field, count: count, detail: detail });
+}
+
+function compactSheetAuditFindings_(findings) {
+  var grouped = {};
+  findings.forEach(function(finding) {
+    var key = [finding.code, finding.severity, finding.sheet, finding.field, finding.detail].join('|');
+    if (!grouped[key]) grouped[key] = { code: finding.code, severity: finding.severity, sheet: finding.sheet, field: finding.field, detail: finding.detail, count: 0 };
+    grouped[key].count += finding.count || 1;
+  });
+  return objectValues_(grouped).sort(function(a, b) {
+    if (a.severity !== b.severity) return a.severity === 'error' ? -1 : 1;
+    if (a.code !== b.code) return a.code < b.code ? -1 : 1;
+    return a.sheet < b.sheet ? -1 : 1;
+  });
+}
+
+function summarizeSheetAuditFindings_(findings) {
+  return findings.reduce(function(summary, finding) {
+    var count = finding.count || 1;
+    summary.total += count;
+    summary[finding.severity] = (summary[finding.severity] || 0) + count;
+    return summary;
+  }, { total: 0, error: 0, warning: 0 });
+}
