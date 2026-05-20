@@ -6,7 +6,7 @@ Codebase navigation guide for V55.
 
 | Path | Purpose |
 |------|---------|
-| `apps-script/Code.js` | Production Apps Script runtime (~4600 lines). Deploy via `npm run push`. |
+| `apps-script/Code.js` | Production Apps Script runtime (~4700 lines), locally sectioned as INFRA, PARSER, DOMAIN, READ_ONLY, and MUTATION. Deploy via `npm run push`. |
 | `apps-script/appsscript.json` | Apps Script manifest with scopes. |
 | `val-town/telegram-proxy.ts` | Val Town edge proxy: acknowledges Telegram, forwards to Apps Script. |
 | `src/*.js` | Pure Node.js domain contracts (schema, validation, parsing, planning, idempotency, reporting). |
@@ -70,11 +70,19 @@ doGet(e)
        └─ selftest → runHelpSmokeSelfTest()
 ```
 
+**Internal helper sections:**
+- `INFRA`: HTTP entry points, Apps Script wrappers, config/auth, routing, shared runtime utilities.
+- `PARSER`: command/question classifiers, OpenAI parser boundary, balance/asset command parsing.
+- `DOMAIN`: canonicalization, inference, validation, invoice-cycle and pure summary calculations.
+- `READ_ONLY`: summary/reporting views, sheet snapshot export, sheet row readers and formatters.
+- `MUTATION`: reviewed historical apply mode, closing draft/close, Telegram financial writes, balance/asset upserts, and low-level row/status writes.
+
 **Key patterns:**
 - All config from `PropertiesService.getScriptProperties()` (never hardcoded secrets)
 - Idempotency: write `Idempotency_Log` before financial rows, suppress completed duplicates
 - LockService for concurrent mutation protection
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed competencias from sheets
+- Read-only report helpers do not call sheet write primitives; mutation helpers are marked with `MUTATION` comments where they write or update spreadsheet rows.
 - Historical repair/setup actions are archived in `docs/archive/HISTORICAL_REPAIR_ACTIONS.md`, not exposed by runtime `doGet`.
 - Reviewed historical type: `fatura_prevista` writes `Faturas` exposure only, with no `Lancamentos` row and no DRE/cash effect.
 

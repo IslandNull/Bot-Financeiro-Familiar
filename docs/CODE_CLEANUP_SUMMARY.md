@@ -18,6 +18,12 @@ Date: 2026-05-20
 - Domain tests for active parser, planner, writer, summary, invoices, balances, closing, privacy, and guardrails.
 - `migrateV55Parcelas()` global wrapper for the existing manual schema migration; review separately before removing.
 
+## Reorganized
+
+- `apps-script/Code.js` now marks local helper groups as `INFRA`, `PARSER`, `DOMAIN`, `READ_ONLY`, and `MUTATION`.
+- Spreadsheet-writing helpers have explicit `MUTATION` comments: reviewed historical apply mode, closing draft/close, Telegram financial records, invoice reconciliation/status updates, balance snapshots, asset balance upserts, low-level row writes, and `migrateV55Parcelas()` as `REVIEW_LATER`.
+- Read-only reporting helpers are grouped separately from write paths: `/resumo`, agenda, monthly review, safe finance questions, summary aggregation/formatting, snapshot export, and sheet readers.
+
 ## Historical Actions Removed From Runtime
 
 See `docs/archive/HISTORICAL_REPAIR_ACTIONS.md` for the archived list.
@@ -25,7 +31,7 @@ See `docs/archive/HISTORICAL_REPAIR_ACTIONS.md` for the archived list.
 ## Still Uncertain
 
 - `migrateV55Parcelas()` may now be historical, but it was not in the requested removal list and still represents a schema migration wrapper. REVIEW_LATER.
-- `apps-script/Code.js` remains large and mixes HTTP, Telegram UX, parsing, validation, reporting, and sheet writes. This cleanup reduced size but did not redesign architecture.
+- `apps-script/Code.js` remains large, but helper sections now distinguish read-only/reporting paths from spreadsheet mutation paths without changing runtime behavior.
 
 ## Globals Still Needed
 
@@ -42,7 +48,6 @@ See `docs/archive/HISTORICAL_REPAIR_ACTIONS.md` for the archived list.
 
 ## Next Refactor Block
 
-- Split read-only summary/reporting helpers from mutation/write helpers inside `Code.js`.
 - Compare and align card-cycle logic between `src/card-cycle.js` and Apps Script helpers.
 - Decide whether `migrateV55Parcelas()` can be archived after schema evidence.
 - Reduce text-coupled assertions in `test/apps-script-runtime.test.js` while preserving financial behavior coverage.

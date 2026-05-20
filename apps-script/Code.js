@@ -64,6 +64,8 @@ var V55 = (function() {
     Telegram_Send_Log: ['id_notificacao', 'created_at', 'route', 'chat_id', 'phase', 'status', 'status_code', 'error', 'result_ref', 'id_lancamento', 'idempotency_key', 'text_preview', 'sent_at'],
   };
   var PARSED_EVENT_FIELDS = ['tipo_evento', 'data', 'competencia', 'valor', 'descricao', 'id_categoria', 'id_fonte', 'pessoa', 'escopo', 'visibilidade', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'direcao_caixa_familiar', 'status', 'parcelas'];
+
+  // SECTION: INFRA - HTTP entry points and Apps Script wrappers.
   function doPost(e) {
     var config = readConfig_();
     var secret = headerValue_(e, 'x-telegram-bot-api-secret-token') || parameterValue_(e, 'secret');
@@ -186,6 +188,7 @@ var V55 = (function() {
     };
   }
 
+  // SECTION: INFRA - runtime configuration, auth, and Telegram routing.
   function readConfig_() {
     var props = PropertiesService.getScriptProperties();
     return {
@@ -347,6 +350,8 @@ var V55 = (function() {
     return recordPilotExpense_(update, message, parsed.event, config, referenceData);
   }
 
+  // SECTION: MUTATION - reviewed historical import writes approved batches only.
+  // MUTATION: dry-run is read-only; apply mode writes validated historical events.
   function handleReviewedHistoricalImport_(payload, config) {
     if (!payload || payload.reviewed !== true) {
       return fail_('HISTORICAL_REVIEW_REQUIRED', 'reviewed', GENERIC_REQUEST_FAILURE);
@@ -494,6 +499,7 @@ var V55 = (function() {
     target[key] = (target[key] || 0) + 1;
   }
 
+  // SECTION: PARSER - Telegram command/question classifiers.
   function isHelpCommand_(text) {
     return text === '/start' || text === '/help' || text === '/ajuda' || text === '/exemplos';
   }
@@ -620,6 +626,7 @@ var V55 = (function() {
     return { ok: true };
   }
 
+  // SECTION: READ_ONLY - Telegram reports and exported summary views.
   function buildPilotFamilySummaryResponse_(config) {
     var result = readCurrentPilotFamilySummary_(config, '');
     if (!result.ok) return result;
@@ -662,6 +669,8 @@ var V55 = (function() {
     };
   }
 
+  // SECTION: MUTATION - Fechamento_Familiar draft/close writes.
+  // MUTATION: creates or updates a draft row in Fechamento_Familiar.
   function writeDraftFamilyClosingV55(competencia) {
     var config = readConfig_();
     var summaryResult = readCurrentPilotFamilySummary_(config, competencia);
@@ -707,6 +716,7 @@ var V55 = (function() {
     }
   }
 
+  // MUTATION: closes a reviewed draft row in Fechamento_Familiar.
   function closeReviewedFamilyClosingV55(competencia, options) {
     var config = readConfig_();
     var runtimeCheck = verifyReportingRuntimeConfig_(config);
@@ -757,6 +767,7 @@ var V55 = (function() {
     }
   }
 
+  // SECTION: READ_ONLY - summary data loading, aggregation, and formatting.
   function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
     var runtimeCheck = verifyReportingRuntimeConfig_(config);
     if (!runtimeCheck.ok) return runtimeCheck;
@@ -1787,6 +1798,7 @@ var V55 = (function() {
     return text;
   }
 
+  // SECTION: INFRA - financial runtime config and read-only reference loading.
   function verifyFinancialRuntimeConfig_(config) {
     if (!config.spreadsheetId) return fail_('MISSING_SPREADSHEET_ID', 'spreadsheetId', GENERIC_RECORD_FAILURE);
     if (!config.openAiApiKey) return fail_('MISSING_OPENAI_API_KEY', 'openAiApiKey', GENERIC_RECORD_FAILURE);
@@ -1855,6 +1867,7 @@ var V55 = (function() {
     }
   }
 
+  // SECTION: PARSER - OpenAI parser boundary and strict output normalization.
   function parseFinancialEventWithOpenAI_(text, config, referenceData) {
     var response;
     try {
@@ -2073,6 +2086,7 @@ var V55 = (function() {
     return { ok: true };
   }
 
+  // SECTION: DOMAIN - canonicalization, defaults, inference, and validation.
   function canonicalizePilotEvent_(event, referenceData) {
     event = overrideParserForDeterministicMoneyMovement_(event, referenceData);
     if (event.tipo_evento === 'despesa') return canonicalizePilotExpenseEvent_(event, referenceData);
@@ -3282,6 +3296,8 @@ var V55 = (function() {
     return 'fatura registrada';
   }
 
+  // SECTION: MUTATION - financial Telegram writes to Lancamentos, Faturas, and Transferencias_Internas.
+  // MUTATION: writes family expense launches to Lancamentos with idempotency.
   function recordPilotExpense_(update, message, event, config, referenceData) {
     var lock = LockService.getScriptLock();
     lock.waitLock(10000);
@@ -3368,6 +3384,7 @@ var V55 = (function() {
     }
   }
 
+  // MUTATION: writes generic launch events to Lancamentos with idempotency.
   function recordPilotGenericLaunch_(update, message, event, config, referenceData) {
     var lock = LockService.getScriptLock();
     lock.waitLock(10000);
@@ -3462,6 +3479,7 @@ var V55 = (function() {
     return 'anotei.';
   }
 
+  // MUTATION: writes card purchases to Lancamentos and expected Faturas rows.
   function recordPilotCardPurchase_(update, message, event, config, referenceData) {
     var lock = LockService.getScriptLock();
     lock.waitLock(10000);
@@ -3586,6 +3604,7 @@ var V55 = (function() {
     }
   }
 
+  // MUTATION: writes invoice payment launch and marks Faturas rows as paid.
   function recordPilotInvoicePayment_(update, message, event, config, referenceData) {
     var lock = LockService.getScriptLock();
     lock.waitLock(10000);
@@ -3687,6 +3706,7 @@ var V55 = (function() {
     }
   }
 
+  // MUTATION: writes reviewed invoice exposure rows without a DRE launch.
   function recordPilotInvoiceExposure_(update, message, event, config, referenceData) {
     var lock = LockService.getScriptLock();
     lock.waitLock(10000);
@@ -3763,6 +3783,7 @@ var V55 = (function() {
     }
   }
 
+  // MUTATION: writes internal family transfer rows to Transferencias_Internas.
   function recordPilotInternalTransfer_(update, message, event, config, referenceData) {
     var lock = LockService.getScriptLock();
     lock.waitLock(10000);
@@ -3843,6 +3864,7 @@ var V55 = (function() {
     }
   }
 
+  // SECTION: DOMAIN - credit-card invoice cycle calculation.
   function assignPilotInvoiceCycle_(purchaseDateValue, card) {
     var purchaseDate = parseIsoDateUtc_(purchaseDateValue);
     var closingDate = buildClampedUtcDate_(purchaseDate.getUTCFullYear(), purchaseDate.getUTCMonth(), numberFromSheetValue_(card.fechamento_dia));
@@ -3904,6 +3926,7 @@ var V55 = (function() {
     return date.getUTCFullYear() + '-' + pad2_(date.getUTCMonth() + 1);
   }
 
+  // SECTION: INFRA - shared runtime utilities.
   function isAuthorized_(config, chatId, userId) {
     if (config.authorizedUserIds.length === 0 && config.authorizedChatIds.length === 0) return false;
     return contains_(config.authorizedUserIds, String(userId || '')) ||
@@ -3968,6 +3991,7 @@ var V55 = (function() {
     return prefix + '_' + hex;
   }
 
+  // SECTION: READ_ONLY - sheet readers and header guards.
   function verifySheetHeaders_(sheet, sheetName) {
     if (!sheet) throw new Error('Missing sheet: ' + sheetName);
     var expected = HEADERS[sheetName];
@@ -3977,6 +4001,7 @@ var V55 = (function() {
     }
   }
 
+  // SECTION: MUTATION - low-level sheet writes. Call only from explicit MUTATION sections.
   function appendRow_(sheet, sheetName, values) {
     var headers = HEADERS[sheetName];
     sheet.appendRow(headers.map(function(header) {
@@ -3992,6 +4017,7 @@ var V55 = (function() {
     }
   }
 
+  // SECTION: READ_ONLY - sheet row normalization.
   function readRowsAsObjects_(sheet, sheetName) {
     var headers = HEADERS[sheetName];
     var lastRow = sheet.getLastRow();
@@ -4114,6 +4140,7 @@ var V55 = (function() {
       containsAliasPhrase_(normalized, 'pagamento de fatura');
   }
 
+  // MUTATION: appends a reconciliation row in Faturas for reviewed invoice-payment overage.
   function appendInvoicePaymentReconciliation_(sheet, invoice, amount) {
     var meta = invoice.meta || {};
     appendRow_(sheet, SHEETS.FATURAS, {
@@ -4152,6 +4179,7 @@ var V55 = (function() {
     return null;
   }
 
+  // MUTATION: updates valor_pago/status for payable Faturas rows.
   function updateInvoicePayments_(sheet, rows, status) {
     var headers = HEADERS[SHEETS.FATURAS];
     rows.forEach(function(row) {
@@ -4174,6 +4202,7 @@ var V55 = (function() {
     return 'R$ ' + roundMoney_(value).toFixed(2).replace('.', ',');
   }
 
+  // MUTATION: updates Idempotency_Log status/result fields.
   function updateIdempotencyStatus_(sheet, rowNumber, status, resultRef, updatedAt, errorCode) {
     var headers = HEADERS[SHEETS.IDEMPOTENCY_LOG];
     sheet.getRange(rowNumber, headers.indexOf('status') + 1).setValue(status);
@@ -4182,6 +4211,7 @@ var V55 = (function() {
     sheet.getRange(rowNumber, headers.indexOf('error_code') + 1).setValue(errorCode || '');
   }
 
+  // SECTION: INFRA - response helpers and HTTP parameter handling.
   function firstAllowed_(items) {
     return items && items.length > 0 ? items[0] : 'missing_allowed_id';
   }
@@ -4272,6 +4302,7 @@ var V55 = (function() {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
+  // SECTION: READ_ONLY - redacted spreadsheet snapshot export.
   function exportSnapshotV55() {
     var config = readConfig_();
     if (!config.spreadsheetId) return { ok: false, error: 'MISSING_SPREADSHEET_ID' };
@@ -4421,6 +4452,7 @@ var V55 = (function() {
     return { ok: true, snapshot: lines.join('\n') };
   }
 
+  // SECTION: PARSER - balance and asset snapshot command parsing.
   function isPilotBalanceSnapshotText_(text) {
     var str = stringValue_(text).trim();
     return /^\/?saldo\s+/i.test(str);
@@ -4431,6 +4463,7 @@ var V55 = (function() {
     return /(^|\s)(atualizar patrimonio|patrimonio|caixinha|cofrinho)(\s|$)/.test(str) && /\bsaldo\b/.test(str);
   }
 
+  // MUTATION: writes a source balance snapshot to Saldos_Fontes.
   function handlePilotBalanceSnapshot_(update, message, text, config, referenceData) {
     var str = stringValue_(text).trim();
     var match = str.match(/^\/?saldo\s+(.+?)\s+([\d.,]+)(?:\s+em\s+(\d{1,2}\/\d{1,2}(?:\/\d{4})?|\d{4}-\d{2}-\d{2}))?\s*$/i);
@@ -4487,6 +4520,7 @@ var V55 = (function() {
     }
   }
 
+  // MUTATION: upserts a liquidity/reserve asset row in Patrimonio_Ativos.
   function handlePilotAssetBalance_(update, message, text, config, referenceData) {
     var parsed = parsePilotAssetBalanceText_(text);
     if (!parsed.ok) return parsed;
@@ -4665,6 +4699,7 @@ var V55 = (function() {
     runTelegramWebhookSetupDryRun: runTelegramWebhookSetupDryRun,
     runWebhookSecretNegativeSelfTest: runWebhookSecretNegativeSelfTest,
     writeDraftFamilyClosingV55: writeDraftFamilyClosingV55,
+    // MUTATION REVIEW_LATER: manual schema migration wrapper kept unchanged in this round.
     migrateV55Parcelas_: function() {
       var config = readConfig_();
       var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
