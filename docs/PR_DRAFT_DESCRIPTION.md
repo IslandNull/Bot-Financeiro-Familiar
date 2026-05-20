@@ -54,11 +54,11 @@ Escopo verificado por `git diff --stat main...codex/v55-bot-ux-refactor`:
 - `test/apps-script-runtime.test.js`: 1544 linhas de delta visual no stat, com 1500 insercoes e 44 remocoes no numstat.
 - Novos documentos: `docs/LOTE_1_AUDITORIA_PRE_MERGE.md`, `docs/PLANILHA_DIAGNOSTICO.md`, `docs/REFATORAMENTO_DIAGNOSTICO.md`, `docs/REFATORAMENTO_PLANO.md`.
 
-Conclusao: o PR da branch inteira nao e apenas o lote de auditoria/refatoramento final. Ele inclui uma sequencia maior de commits de UX, comportamento operacional, reparos e testes.
+Conclusao: o PR da branch inteira nao e apenas o lote de auditoria/refatoramento final. Ele inclui uma sequencia maior de commits de UX, comportamento operacional, testes e posterior remocao de reparos historicos do runtime.
 
 ## 6. Por que o PR deve ser draft
 
-- `apps-script/Code.js` cresceu muito e continua concentrando HTTP, parser, regras financeiras, formatacao Telegram, acesso a Sheets, reparos e migracoes.
+- `apps-script/Code.js` cresceu muito e continua concentrando HTTP, parser, regras financeiras, formatacao Telegram, acesso a Sheets e migracoes manuais remanescentes.
 - As actions historicas de reparo/setup foram removidas do runtime nesta limpeza.
 - Os testes locais sao relevantes, mas usam harness/fakes e nao provam equivalencia total com Google Apps Script, Google Sheets, Telegram e OpenAI reais.
 - A documentacao nova e util como diagnostico, mas parte dela depende de snapshot e leitura humana, nao de auditoria automatica continua.

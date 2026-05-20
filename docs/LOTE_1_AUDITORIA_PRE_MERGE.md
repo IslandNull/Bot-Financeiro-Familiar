@@ -85,7 +85,7 @@ Classificacao: precisa revisao.
 
 No lote 1 isolado: nao encontrei alteracao direta de logica financeira. Foram removidas funcoes sem chamadas e adicionados testes.
 
-Na branch contra `main`: sim. O resumo de faturas, pagamentos efetivos, visibilidade, saldo/fonte, fatura fechada como autoridade, reparos de maio e obrigacoes de casa alteram comportamento operacional.
+Na branch contra `main`: sim. O resumo de faturas, pagamentos efetivos, visibilidade, saldo/fonte, fatura fechada como autoridade e obrigacoes de casa alteram comportamento operacional. Reparos historicos de maio foram removidos do runtime no lote de limpeza posterior.
 
 ### 5. Alguma funcao nova duplica responsabilidade ja existente?
 
