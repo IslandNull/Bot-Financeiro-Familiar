@@ -1961,10 +1961,6 @@ var V55 = (function() {
     return stringValue_(cardName) + '|' + stringValue_(competencia) + '|' + stringValue_(dueDate);
   }
 
-  function sumPilotInvoiceExposure_(invoices, referenceDate) {
-    return summarizePilotInvoiceExposure_(invoices, referenceDate, {}, {}).total;
-  }
-
   function summarizeCurrentInvoiceExposure_(items, referenceDate) {
     var selectedByCard = {};
     (items || []).forEach(function(item) {
@@ -2485,15 +2481,6 @@ var V55 = (function() {
     var text = formatSheetDate_(value);
     if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text.slice(8, 10) + '/' + text.slice(5, 7);
     return text;
-  }
-
-  function friendlyDestination_(value) {
-    var text = stringValue_(value);
-    if (text === 'sem_sobra') return 'sem sobra por enquanto';
-    if (text === 'manter_caixa') return 'segurar dinheiro para as contas';
-    if (text === 'reforcar_reserva') return 'reforcar a reserva';
-    if (text === 'investir_ou_amortizar_revisar') return 'revisar investimento ou amortizacao';
-    return text || 'revisar';
   }
 
   function verifyFinancialRuntimeConfig_(config) {
@@ -4743,28 +4730,6 @@ var V55 = (function() {
     return { ok: true };
   }
 
-  function isPilotMarketText_(text) {
-    var normalized = normalizeAliasText_(text);
-    if (!normalized) return false;
-    return containsAliasPhrase_(normalized, 'mercado') ||
-      containsAliasPhrase_(normalized, 'supermercado') ||
-      containsAliasPhrase_(normalized, 'mercado semana') ||
-      containsAliasPhrase_(normalized, 'feira') ||
-      containsAliasPhrase_(normalized, 'hortifruti');
-  }
-
-  function isPilotPharmacyCardText_(text) {
-    var normalized = normalizeAliasText_(text);
-    if (!normalized) return false;
-    var hasPharmacy = containsAliasPhrase_(normalized, 'farmacia') ||
-      containsAliasPhrase_(normalized, 'remedio') ||
-      containsAliasPhrase_(normalized, 'medicamento');
-    var hasCard = containsAliasPhrase_(normalized, 'nubank') ||
-      containsAliasPhrase_(normalized, 'cartao') ||
-      containsAliasPhrase_(normalized, 'credito');
-    return hasPharmacy && hasCard;
-  }
-
   function isPilotInvoicePaymentText_(text) {
     var normalized = normalizeAliasText_(text);
     if (!normalized) return false;
@@ -4987,19 +4952,6 @@ var V55 = (function() {
     var text = stringValue_(value);
     if (!text) return '';
     return text.charAt(0).toLowerCase() + text.slice(1);
-  }
-
-  function friendlyEventType_(value) {
-    var text = stringValue_(value);
-    if (text === 'despesa') return 'gasto';
-    if (text === 'receita') return 'receita';
-    if (text === 'compra_cartao') return 'compra no cartao';
-    if (text === 'pagamento_fatura') return 'pagamento de fatura';
-    if (text === 'transferencia_interna') return 'entrada no caixa familiar';
-    if (text === 'aporte') return 'aporte';
-    if (text === 'divida_pagamento') return 'pagamento de obrigacao';
-    if (text === 'ajuste') return 'ajuste revisado';
-    return text || 'lancamento';
   }
 
   function friendlyImpactLines_(event) {
