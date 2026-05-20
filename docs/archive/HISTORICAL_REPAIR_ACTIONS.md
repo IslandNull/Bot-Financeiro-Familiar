@@ -20,5 +20,6 @@ Removed from `doGet`, V55 exports, global wrappers, and local tests:
 - `ensure_remaining_mutation_config`
 - `ensure_april_2026_config`
 - `ensure_april_2026_house_debts`
+- `migrateV55Parcelas`
 
 This archive intentionally contains no executable code.
