@@ -18,6 +18,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Parser and deterministic overrides protect strict dates/money, payable invoices, partial invoice payment, closed periods, benefit conversion, own-source transfers, explicit invoice payments, card/account disambiguation, and category confirmation.
 - Read-only views keep private personal detail aggregate-only in shared reports.
 - Current real closing state in snapshot: 2026-04 closed; 2026-05 open with May usage in progress.
+- `sheet:audit` is read-only and currently reports no structural errors; the remaining known warning is the retired extra `Telegram_Send_Log` sheet.
 
 ### Unverified
 
@@ -64,6 +65,6 @@ Optional keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`.
 
 ## Next Work
 
-1. Run and review `npm run sheet:audit`; use findings to plan real spreadsheet cleanup for faturas, categorias, fontes, and obrigações.
-2. Improve guided registration UX so the bot asks only the minimum missing detail for ambiguous category/source/card/invoice input.
+1. Improve guided registration UX so the bot asks only the minimum missing detail for ambiguous category/source/card/invoice input.
+2. Design the real `Faturas` refactor: separate invoice headers/authority from purchase/installment exposure lines before mutating production data.
 3. Design budget/envelope config before implementing category limits; do not infer limits from category names.

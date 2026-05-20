@@ -548,17 +548,21 @@ function checkSheetAuditReference_(findings, sheetName, field, value, index, act
 }
 
 function auditDuplicateInvoices_(findings, invoices) {
-  var byCardCompetence = {};
+  var byClosedInvoiceGroup = {};
   (invoices || []).forEach(function(row) {
     var status = stringValue_(row.status);
-    if (['prevista', 'fechada', 'parcialmente_paga'].indexOf(status) === -1) return;
-    var key = stringValue_(row.id_cartao) + '|' + stringValue_(row.competencia);
-    if (key === '|') return;
-    byCardCompetence[key] = (byCardCompetence[key] || 0) + 1;
+    if (['fechada', 'parcialmente_paga'].indexOf(status) === -1) return;
+    var key = [
+      stringValue_(row.id_cartao),
+      stringValue_(row.competencia),
+      stringValue_(row.data_vencimento),
+    ].join('|');
+    if (key === '||') return;
+    byClosedInvoiceGroup[key] = (byClosedInvoiceGroup[key] || 0) + 1;
   });
-  Object.keys(byCardCompetence).forEach(function(key) {
-    if (byCardCompetence[key] > 1) {
-      addSheetAuditFinding_(findings, 'DUPLICATE_INVOICE_COMPETENCE', 'warning', SHEETS.FATURAS, 'competencia', byCardCompetence[key], 'multiple open invoice rows for same card and competence');
+  Object.keys(byClosedInvoiceGroup).forEach(function(key) {
+    if (byClosedInvoiceGroup[key] > 1) {
+      addSheetAuditFinding_(findings, 'CONCURRENT_CLOSED_INVOICE', 'warning', SHEETS.FATURAS, 'competencia', byClosedInvoiceGroup[key], 'multiple closed invoice authority rows for same card, competence, and due date');
     }
   });
 }

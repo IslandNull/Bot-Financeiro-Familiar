@@ -1074,6 +1074,23 @@ test('Apps Script sheet_audit action reports retired extra sheets without mutati
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
+test('Apps Script sheet_audit accepts planned invoice lines but flags concurrent closed authorities', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeInvoice(sheets, { valor_previsto: 40, status: 'prevista' });
+    appendFakeInvoice(sheets, { valor_previsto: 60, status: 'prevista' });
+
+    const plannedOnly = runRemoteAction(context, 'sheet_audit');
+    assert.strictEqual(plannedOnly.ok, true, JSON.stringify(plannedOnly.errors));
+    assert.ok(!plannedOnly.findings.some((finding) => finding.code === 'DUPLICATE_INVOICE_COMPETENCE'));
+    assert.ok(!plannedOnly.findings.some((finding) => finding.code === 'CONCURRENT_CLOSED_INVOICE'));
+
+    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_04_A', valor_previsto: '', valor_fechado: 100, status: 'fechada' });
+    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_04_B', valor_previsto: '', valor_fechado: 120, status: 'fechada' });
+
+    const withClosedConflict = runRemoteAction(context, 'sheet_audit');
+    assert.ok(withClosedConflict.findings.some((finding) => finding.code === 'CONCURRENT_CLOSED_INVOICE' && finding.count === 2));
+});
+
 test('Apps Script closing_draft action writes schema-compatible family closing draft once', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,

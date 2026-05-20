@@ -28,7 +28,7 @@ test('sheet audit reports structural and reference risks without private row dum
                 { id_cartao: 'CARD_NUBANK', id_fonte: 'FONTE_CARTAO_AUSENTE', nome: 'Nubank', titular: 'Gustavo', fechamento_dia: 30, vencimento_dia: 7, limite: 1000, ativo: true },
             ]),
             [SHEETS.FATURAS]: sheet(HEADERS[SHEETS.FATURAS], [
-                { id_fatura: 'FAT_DUP_1', id_cartao: 'CARD_NUBANK', competencia: '2026-05', data_fechamento: '2026-05-30', data_vencimento: '2026-06-07', valor_previsto: 100, valor_fechado: 0, valor_pago: 0, status: 'prevista' },
+                { id_fatura: 'FAT_DUP_1', id_cartao: 'CARD_NUBANK', competencia: '2026-05', data_fechamento: '2026-05-30', data_vencimento: '2026-06-07', valor_previsto: 0, valor_fechado: 100, valor_pago: 0, status: 'fechada' },
                 { id_fatura: 'FAT_DUP_2', id_cartao: 'CARD_NUBANK', competencia: '2026-05', data_fechamento: '2026-05-30', data_vencimento: '2026-06-07', valor_previsto: 0, valor_fechado: 120, valor_pago: 0, status: 'fechada' },
                 { id_fatura: 'FAT_BAD', id_cartao: 'CARD_AUSENTE', competencia: '2026-06', data_fechamento: '2026-06-30', data_vencimento: '2026-07-07', valor_previsto: 50, valor_fechado: 0, valor_pago: 0, status: 'misteriosa' },
             ]),
@@ -57,7 +57,7 @@ test('sheet audit reports structural and reference risks without private row dum
     assert.ok(codes.includes('UNKNOWN_STATUS'));
     assert.ok(codes.includes('BROKEN_REFERENCE'));
     assert.ok(codes.includes('INACTIVE_REFERENCE'));
-    assert.ok(codes.includes('DUPLICATE_INVOICE_COMPETENCE'));
+    assert.ok(codes.includes('CONCURRENT_CLOSED_INVOICE'));
     assert.ok(codes.includes('INCOMPLETE_OBLIGATION'));
 
     const report = formatAuditReport(result);
@@ -65,4 +65,31 @@ test('sheet audit reports structural and reference risks without private row dum
     assert.match(report, /EXTRA_SHEET/);
     assert.doesNotMatch(report, /private merchant/);
     assert.doesNotMatch(report, /42/);
+});
+
+test('sheet audit accepts multiple planned invoice lines for the same invoice cycle', () => {
+    const emptySheets = Object.fromEntries(
+        Object.keys(HEADERS).map((sheetName) => [sheetName, sheet(HEADERS[sheetName], [])])
+    );
+    const state = {
+        sheets: {
+            ...emptySheets,
+            [SHEETS.CONFIG_FONTES]: sheet(HEADERS[SHEETS.CONFIG_FONTES], [
+                { id_fonte: 'FONTE_NUBANK', nome: 'Nubank credito', tipo: 'cartao_credito', titular: 'Gustavo', moeda: 'BRL', ativo: true },
+            ]),
+            [SHEETS.CARTOES]: sheet(HEADERS[SHEETS.CARTOES], [
+                { id_cartao: 'CARD_NUBANK', id_fonte: 'FONTE_NUBANK', nome: 'Nubank', titular: 'Gustavo', fechamento_dia: 30, vencimento_dia: 7, limite: 1000, ativo: true },
+            ]),
+            [SHEETS.FATURAS]: sheet(HEADERS[SHEETS.FATURAS], [
+                { id_fatura: 'FAT_CARD_NUBANK_2026_05', id_cartao: 'CARD_NUBANK', competencia: '2026-05', data_fechamento: '2026-05-30', data_vencimento: '2026-06-07', valor_previsto: 40, valor_fechado: '', valor_pago: 0, status: 'prevista' },
+                { id_fatura: 'FAT_CARD_NUBANK_2026_05', id_cartao: 'CARD_NUBANK', competencia: '2026-05', data_fechamento: '2026-05-30', data_vencimento: '2026-06-07', valor_previsto: 60, valor_fechado: '', valor_pago: 0, status: 'prevista' },
+            ]),
+        },
+    };
+
+    const result = auditSheetState(state);
+    const codes = result.findings.map((finding) => finding.code);
+
+    assert.ok(!codes.includes('DUPLICATE_INVOICE_COMPETENCE'));
+    assert.ok(!codes.includes('CONCURRENT_CLOSED_INVOICE'));
 });
