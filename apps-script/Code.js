@@ -383,15 +383,27 @@ function exportSnapshotV55() {
     }
     lines.push('');
   }
+  var cartSheet = spreadsheet.getSheetByName(SHEETS.CARTOES);
+  if (cartSheet && cartSheet.getLastRow() > 1) {
+    lines.push('## Cartoes');
+    lines.push('');
+    var cartRows = readRowsAsObjects_(cartSheet, SHEETS.CARTOES);
+    lines.push('| ID Cartao | Nome | Titular | Fechamento | Vencimento | Limite | Ativo |');
+    lines.push('| --- | --- | --- | ---: | ---: | ---: | --- |');
+    for (var c = 0; c < cartRows.length; c++) {
+      lines.push('| ' + stringValue_(cartRows[c].id_cartao) + ' | ' + stringValue_(cartRows[c].nome) + ' | ' + stringValue_(cartRows[c].titular) + ' | ' + numberFromSheetValue_(cartRows[c].fechamento_dia) + ' | ' + numberFromSheetValue_(cartRows[c].vencimento_dia) + ' | ' + numberFromSheetValue_(cartRows[c].limite) + ' | ' + stringValue_(cartRows[c].ativo) + ' |');
+    }
+    lines.push('');
+  }
   var fatSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
   if (fatSheet && fatSheet.getLastRow() > 1) {
     lines.push('## Faturas');
     lines.push('');
     var fatRows = readRowsAsObjects_(fatSheet, SHEETS.FATURAS);
-    lines.push('| Competencia | Status | Previsto | Pago |');
-    lines.push('| --- | --- | ---: | ---: |');
+    lines.push('| ID Fatura | ID Cartao | Competencia | Status | Previsto | Fechado | Pago |');
+    lines.push('| --- | --- | --- | --- | ---: | ---: | ---: |');
     for (var f = 0; f < fatRows.length; f++) {
-      lines.push('| ' + normalizeSheetCompetencia_(fatRows[f].competencia) + ' | ' + fatRows[f].status + ' | ' + numberFromSheetValue_(fatRows[f].valor_previsto) + ' | ' + numberFromSheetValue_(fatRows[f].valor_pago) + ' |');
+      lines.push('| ' + stringValue_(fatRows[f].id_fatura) + ' | ' + stringValue_(fatRows[f].id_cartao) + ' | ' + normalizeSheetCompetencia_(fatRows[f].competencia) + ' | ' + fatRows[f].status + ' | ' + numberFromSheetValue_(fatRows[f].valor_previsto) + ' | ' + numberFromSheetValue_(fatRows[f].valor_fechado) + ' | ' + numberFromSheetValue_(fatRows[f].valor_pago) + ' |');
     }
     lines.push('');
   }

@@ -502,6 +502,7 @@ function summarizePilotInvoiceExposure_(invoices, referenceDate, cardsById, invo
     var competencia = normalizeSheetCompetencia_(row.competencia) || stringValue_(row.competencia);
     var key = invoiceExposureGroupKey_(cardName, competencia, dueDate);
     if (authoritativeClosed[key] && row.status !== 'fechada') return sum;
+    if (row.status === 'fechada' && !authoritativeClosed[key]) return sum;
     var rowCardKey = invoiceCoverageCardKey_(cardId, card);
     for (var paymentIndex = 0; paymentIndex < remainingCoverage.length && outstanding > 0; paymentIndex += 1) {
       var coverage = remainingCoverage[paymentIndex];
@@ -533,9 +534,21 @@ function summarizePilotInvoiceExposure_(invoices, referenceDate, cardsById, invo
 }
 
 function authoritativeClosedInvoiceGroups_(invoices, cardsById) {
+  var today = todaySaoPaulo_();
   return (invoices || []).reduce(function(result, row) {
     if (row.status !== 'fechada') return result;
     if (numberFromSheetValue_(row.valor_fechado) <= 0) return result;
+    var closingDate = formatSheetDate_(row.data_fechamento);
+    if (!closingDate) {
+      var cardId = stringValue_(row.id_cartao);
+      var cardConfig = cardsById[cardId] || {};
+      var closingDay = Number(cardConfig.fechamento_dia);
+      var comp = normalizeSheetCompetencia_(row.competencia);
+      if (closingDay && comp && comp.length >= 7) {
+        closingDate = comp.slice(0, 8) + String(closingDay > 9 ? closingDay : '0' + closingDay);
+      }
+    }
+    if (closingDate && closingDate > today) return result;
     var cardId = stringValue_(row.id_cartao);
     var card = cardsById[cardId] || {};
     var cardName = stringValue_(card.nome) || friendlyIdentifier_(cardId);

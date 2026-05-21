@@ -701,6 +701,75 @@ test('Apps Script /resumo uses closed invoice total as authority over planned ca
     assert.doesNotMatch(result.responseText, /R\$ 2157,52/);
 });
 
+test('Apps Script /resumo ignores premature fechada row when closing date is in the future', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fonte: 'FONTE_MP_GU',
+        nome: 'Mercado Pago Gustavo',
+        titular: 'Gustavo',
+        fechamento_dia: 31,
+        vencimento_dia: 10,
+        limite: 5000,
+        ativo: true,
+    })[header] ?? ''));
+    // Old prevista row (represents charges already in the system)
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_05',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-05',
+        data_fechamento: '2026-05-31',
+        data_vencimento: '2026-06-10',
+        valor_previsto: 2100.97,
+        valor_fechado: '',
+        valor_pago: '',
+        status: 'prevista',
+    });
+    // Premature fechada row with future closing date
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_05',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-05',
+        data_fechamento: '2026-05-31',
+        data_vencimento: '2026-06-10',
+        valor_previsto: 0,
+        valor_fechado: 2100.97,
+        valor_pago: '',
+        status: 'fechada',
+    });
+    // New purchase added after the premature fechada
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_05',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-05',
+        data_fechamento: '2026-05-31',
+        data_vencimento: '2026-06-10',
+        valor_previsto: 283.07,
+        valor_fechado: '',
+        valor_pago: '',
+        status: 'prevista',
+    });
+
+    const result = runRemoteAction(context, 'summary');
+
+    assert.strictEqual(result.ok, true);
+    // Should use sum of prevista rows (2100.97 + 283.07 = 2384.04), not the premature fechada value
+    assert.strictEqual(result.summary.faturas_60d, 2384.04);
+    assert.deepStrictEqual(result.summary.faturas_60d_detalhe, [{
+        cartao: 'Mercado Pago Gustavo',
+        competencia: '2026-05',
+        data_vencimento: '2026-06-10',
+        valor: 2384.04,
+    }]);
+    assert.match(result.responseText, /R\$ 2384,04/);
+});
+
 test('Apps Script answers cost-of-life question without calling the parser', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
