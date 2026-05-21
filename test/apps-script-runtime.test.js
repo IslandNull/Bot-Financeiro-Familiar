@@ -1703,6 +1703,88 @@ test('Apps Script expense accepts config-valid category without text alias gate'
     assert.strictEqual(row.visibilidade, 'privada');
 });
 
+test('Apps Script parser canonicalization overwrites mismatched metadata and clears unrelated references', () => {
+    // 1. Mismatched metadata is overwritten to defaults and saves successfully
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '10.00',
+        descricao: 'mercado com metadata errada',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Individual', // mismatch
+        visibilidade: 'resumida', // mismatch
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'pendente', // mismatch
+    });
+
+    const result = postPilotMessage(context, 'mercado com metadata errada 10');
+    assert.strictEqual(result.ok, true);
+    const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(row.escopo, 'Familiar'); // overwritten to default
+    assert.strictEqual(row.visibilidade, 'detalhada'); // overwritten to default
+    assert.strictEqual(row.status, 'efetivado'); // overwritten to default
+});
+
+test('Apps Script parser matches pet synonyms', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '150.00',
+        descricao: 'racao do draco',
+        id_categoria: 'OPEX_PET',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => {
+        const row = {
+            id_categoria: 'OPEX_PET',
+            nome: 'Pet',
+            grupo: 'Casa',
+            tipo_evento_padrao: 'compra_cartao',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: false,
+            visibilidade_padrao: 'detalhada',
+            ativo: true,
+        };
+        return row[header] === undefined ? '' : row[header];
+    }));
+
+    const result = postPilotMessage(context, 'racao do draco 150');
+    if (!result.ok) {
+        console.log("TEST FAILURE DETAILS:", JSON.stringify(result, null, 2));
+    }
+    assert.strictEqual(result.ok, true);
+    const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(row.id_categoria, 'OPEX_PET');
+});
+
+
 test('Apps Script pilot mutation blocks closed competencia unless it is an adjustment', () => {
     const blocked = createAppsScriptHarness({
         tipo_evento: 'despesa',

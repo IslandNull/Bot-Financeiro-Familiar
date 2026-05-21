@@ -1099,9 +1099,6 @@ function canonicalizePilotExpenseEvent_(event, referenceData) {
   if (!category) return event;
   var source = event.id_fonte ? sourceForEvent_(referenceData, event.id_fonte) : defaultCashSourceForScope_(referenceData, category.escopo_padrao);
   if (!source || source.tipo === 'cartao_credito') return event;
-  if (event.escopo && event.escopo !== category.escopo_padrao) return event;
-  if (event.status && event.status !== 'efetivado') return event;
-  if (event.visibilidade && event.visibilidade !== category.visibilidade_padrao && event.visibilidade !== effectiveCategoryVisibility_(category)) return event;
   if (event.id_cartao || event.id_fatura || event.id_divida || event.id_ativo) return event;
   event.id_fonte = source.id_fonte;
   event.escopo = category.escopo_padrao;
@@ -1118,8 +1115,6 @@ function canonicalizePilotInternalTransferEvent_(event, referenceData) {
     : defaultCategoryForType_(referenceData, 'transferencia_interna');
   if (!category) return event;
   if (event.id_fonte) return event;
-  if (event.escopo && event.escopo !== category.escopo_padrao) return event;
-  if (event.status && event.status !== 'efetivado') return event;
   if (event.id_cartao || event.id_fatura || event.id_divida || event.id_ativo) return event;
   var direction = event.direcao_caixa_familiar || inferInternalTransferDirection_(event.raw_text || event.descricao);
   if (direction && direction !== 'entrada' && direction !== 'interna') return event;
@@ -1148,9 +1143,6 @@ function canonicalizePilotCardPurchaseEvent_(event, referenceData) {
   var card = event.id_cartao ? cardForEvent_(referenceData, event.id_cartao) : (inferActiveCardFromText_(event.raw_text || event.descricao, referenceData) || defaultActiveCard_(referenceData));
   if (!card) return event;
   if (event.id_fonte && event.id_fonte !== card.id_fonte) return event;
-  if (event.escopo && event.escopo !== category.escopo_padrao) return event;
-  if (event.status && event.status !== 'efetivado') return event;
-  if (event.visibilidade && event.visibilidade !== category.visibilidade_padrao && event.visibilidade !== effectiveCategoryVisibility_(category)) return event;
   if (event.id_fatura || event.id_divida || event.id_ativo) return event;
   event.id_fonte = card.id_fonte;
   event.id_cartao = card.id_cartao;
@@ -1165,9 +1157,6 @@ function canonicalizePilotInvoicePaymentEvent_(event, referenceData) {
   if (event.tipo_evento !== 'pagamento_fatura') return event;
   var source = event.id_fonte ? sourceForEvent_(referenceData, event.id_fonte) : defaultFamilyCashSource_(referenceData);
   if (!source || source.tipo === 'cartao_credito') return event;
-  if (event.escopo && event.escopo !== 'Familiar') return event;
-  if (event.status && event.status !== 'efetivado') return event;
-  if (event.visibilidade && event.visibilidade !== 'detalhada') return event;
   if (event.id_cartao || event.id_divida || event.id_ativo) return event;
   event.id_categoria = '';
   event.id_fonte = source.id_fonte;
@@ -1207,7 +1196,6 @@ function canonicalizePilotGenericLaunchEvent_(event, referenceData) {
     : (inferCashSourceFromText_(event.raw_text || event.descricao, referenceData) || defaultCashSourceForScope_(referenceData, category.escopo_padrao));
   if (category.afeta_caixa_familiar_padrao === true && (!source || source.tipo === 'cartao_credito')) return event;
   if (source && source.tipo === 'cartao_credito') return event;
-  if (event.status && event.status !== 'efetivado') return event;
   if (event.id_cartao || event.id_fatura) return event;
   if (event.tipo_evento === 'receita' && (event.id_divida || event.id_ativo)) return event;
   if (event.tipo_evento === 'aporte') {

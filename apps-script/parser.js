@@ -821,7 +821,7 @@ function categoryMatchPhrases_(category) {
     OPEX_VESTUARIO_LUANA: ['vestuario', 'roupa', 'calcado', 'acessorio'],
     OPEX_TELEFONIA_INTERNET: ['telefone', 'telefonia', 'internet', 'celular'],
     OPEX_TELEFONIA_GUSTAVO: ['telefone', 'telefonia', 'internet', 'celular'],
-    OPEX_PET: ['pet'],
+    OPEX_PET: ['pet', 'racao', 'draco', 'cachorro', 'gato', 'veterinario'],
     OPEX_CUSTO_REEMBOLSAVEL_CLIENTE: ['reembolsavel', 'cliente'],
   };
   var phrases = aliases[id] ? aliases[id].slice() : [];
