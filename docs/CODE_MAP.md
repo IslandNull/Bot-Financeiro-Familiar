@@ -86,6 +86,7 @@ doGet(e)
 
 **Key patterns:**
 - All config from `PropertiesService.getScriptProperties()` (never hardcoded secrets)
+- Per-chat conversation state is stored in Script Properties under `BFF_CONVERSATION_<chat_id>` with a rolling 25-message window and one pending guided intent.
 - Idempotency: write `Idempotency_Log` before financial rows, suppress completed duplicates
 - LockService for concurrent mutation protection
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed competencias from sheets
@@ -111,6 +112,7 @@ Full headers in `SHEET_SCHEMA.md`.
 | `/resumo` | No | Short read-only executive summary: current liquidity, current invoices, attention point, top forecast categories, next step, and drill-down commands |
 | `/agenda`, `/faturas`, `/proximas_contas` | No | Dated read-only view of open invoices and registered obligations |
 | `/revisar_mes` | No | Month-review checklist before closing; current/future months remain non-closable |
+| `/limpar_contexto` | No | Clears the current chat's persisted conversation state from Script Properties |
 | `/saldo <fonte> <valor> [em data]` | Yes | Source balance snapshot; prefers real account sources over credit-card sources and accepts an optional reference date |
 | Safe finance question | No | Deterministic read-only answers using the short `/resumo` layout: cost of life, installment-adjusted spending categories, visible category line-item drill-downs, upcoming invoices/commitments, reserve/liquidity, and conservative "posso comprar ... em Nx?" simulations |
-| Natural text | Yes | Parsed by OpenAI -> validated -> written to sheets; success and failure replies use the same short sectioned Telegram layout, hiding internal ids and explaining cash/card/invoice impact in user language |
+| Natural text | Yes | Parsed by OpenAI -> validated -> written to sheets; guided failures persist one pending intent so a short follow-up can fill source/card/invoice before validation and writing |

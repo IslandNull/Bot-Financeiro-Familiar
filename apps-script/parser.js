@@ -11,28 +11,38 @@ function handleTelegramUpdate_(update, config) {
   }
 
   var text = message && typeof message.text === 'string' ? message.text.trim() : '';
-  if (isHelpCommand_(text)) {
+  var conversation = readConversationState_(chatId);
+  if (isClearConversationCommand_(text)) {
+    clearConversationState_(chatId);
     return {
       ok: true,
-      responseText: HELP_TEXT + '\n\n' + FAMILY_SUMMARY_HELP_TEXT,
+      responseText: 'Contexto limpo.',
       shouldApplyDomainMutation: false,
     };
   }
 
+  if (isHelpCommand_(text)) {
+    return finishConversationTurn_(chatId, text, {
+      ok: true,
+      responseText: HELP_TEXT + '\n\n' + FAMILY_SUMMARY_HELP_TEXT,
+      shouldApplyDomainMutation: false,
+    }, conversation, null);
+  }
+
   if (isFamilySummaryCommand_(text)) {
-    return buildPilotFamilySummaryResponse_(config);
+    return finishConversationTurn_(chatId, text, buildPilotFamilySummaryResponse_(config), conversation, null);
   }
 
   if (isAgendaCommand_(text)) {
-    return buildAgendaResponse_(config);
+    return finishConversationTurn_(chatId, text, buildAgendaResponse_(config), conversation, null);
   }
 
   if (isMonthlyReviewCommand_(text)) {
-    return buildMonthlyReviewResponse_(config);
+    return finishConversationTurn_(chatId, text, buildMonthlyReviewResponse_(config), conversation, null);
   }
 
   if (isSafeFinanceQuestion_(text)) {
-    return buildSafeFinanceQuestionResponse_(text, config);
+    return finishConversationTurn_(chatId, text, buildSafeFinanceQuestionResponse_(text, config), conversation, null);
   }
 
   if (!config.pilotFinancialMutationEnabled) {
@@ -45,54 +55,170 @@ function handleTelegramUpdate_(update, config) {
   var referenceData = readRuntimeReferenceData_(config);
   if (!referenceData.ok) return referenceData;
 
+  var resumed = resumePendingConversationIntent_(conversation.pending_intent, text, referenceData);
+  if (resumed.ok) {
+    var resumedResult = applyParsedFinancialEvent_(update, message, resumed.event, config, referenceData);
+    return finishConversationTurn_(chatId, text, resumedResult, conversation, resumedResult.ok ? null : pendingIntentFromFailure_(resumedResult, resumed.event));
+  }
+
   if (isPilotBalanceSnapshotText_(text)) {
-    return handlePilotBalanceSnapshot_(update, message, text, config, referenceData);
+    return finishConversationTurn_(chatId, text, handlePilotBalanceSnapshot_(update, message, text, config, referenceData), conversation, null);
   }
 
   if (isPilotAssetBalanceText_(text)) {
-    return handlePilotAssetBalance_(update, message, text, config, referenceData);
+    return finishConversationTurn_(chatId, text, handlePilotAssetBalance_(update, message, text, config, referenceData), conversation, null);
   }
 
   var parsed = parseFinancialEventWithOpenAI_(text, config, referenceData);
-  if (!parsed.ok) return parsed;
+  if (!parsed.ok) return finishConversationTurn_(chatId, text, parsed, conversation, null);
 
-  var closedPeriodCheck = validateClosedPeriodForEvent_(parsed.event, referenceData.closedCompetencias);
+  var result = applyParsedFinancialEvent_(update, message, parsed.event, config, referenceData);
+  return finishConversationTurn_(chatId, text, result, conversation, pendingIntentFromFailure_(result, parsed.event));
+}
+
+function applyParsedFinancialEvent_(update, message, event, config, referenceData) {
+  var closedPeriodCheck = validateClosedPeriodForEvent_(event, referenceData.closedCompetencias);
   if (!closedPeriodCheck.ok) return closedPeriodCheck;
 
-  if (parsed.event.tipo_evento === 'pagamento_fatura') {
-    var invoicePaymentCheck = validatePilotInvoicePaymentEvent_(parsed.event, referenceData);
+  if (event.tipo_evento === 'pagamento_fatura') {
+    var invoicePaymentCheck = validatePilotInvoicePaymentEvent_(event, referenceData);
     if (!invoicePaymentCheck.ok) return invoicePaymentCheck;
-    var invoiceBalanceCheck = validateSufficientSourceBalanceForEvent_(parsed.event, referenceData);
+    var invoiceBalanceCheck = validateSufficientSourceBalanceForEvent_(event, referenceData);
     if (!invoiceBalanceCheck.ok) return invoiceBalanceCheck;
-    return recordPilotInvoicePayment_(update, message, parsed.event, config, referenceData);
+    return recordPilotInvoicePayment_(update, message, event, config, referenceData);
   }
 
-  if (parsed.event.tipo_evento === 'compra_cartao') {
-    var cardCheck = validatePilotCardPurchaseEvent_(parsed.event, referenceData);
+  if (event.tipo_evento === 'compra_cartao') {
+    var cardCheck = validatePilotCardPurchaseEvent_(event, referenceData);
     if (!cardCheck.ok) return cardCheck;
-    return recordPilotCardPurchase_(update, message, parsed.event, config, referenceData);
+    return recordPilotCardPurchase_(update, message, event, config, referenceData);
   }
 
-  if (parsed.event.tipo_evento === 'transferencia_interna') {
-    var transferCheck = validatePilotInternalTransferEvent_(parsed.event, referenceData);
+  if (event.tipo_evento === 'transferencia_interna') {
+    var transferCheck = validatePilotInternalTransferEvent_(event, referenceData);
     if (!transferCheck.ok) return transferCheck;
-    return recordPilotInternalTransfer_(update, message, parsed.event, config, referenceData);
+    return recordPilotInternalTransfer_(update, message, event, config, referenceData);
   }
 
-  if (isGenericLaunchEventType_(parsed.event.tipo_evento)) {
-    var genericCheck = validatePilotGenericLaunchEvent_(parsed.event, referenceData);
+  if (isGenericLaunchEventType_(event.tipo_evento)) {
+    var genericCheck = validatePilotGenericLaunchEvent_(event, referenceData);
     if (!genericCheck.ok) return genericCheck;
-    var genericBalanceCheck = validateSufficientSourceBalanceForEvent_(parsed.event, referenceData);
+    var genericBalanceCheck = validateSufficientSourceBalanceForEvent_(event, referenceData);
     if (!genericBalanceCheck.ok) return genericBalanceCheck;
-    return recordPilotGenericLaunch_(update, message, parsed.event, config, referenceData);
+    return recordPilotGenericLaunch_(update, message, event, config, referenceData);
   }
 
-  var pilotCheck = validatePilotExpenseEvent_(parsed.event, referenceData);
+  var pilotCheck = validatePilotExpenseEvent_(event, referenceData);
   if (!pilotCheck.ok) return pilotCheck;
-  var expenseBalanceCheck = validateSufficientSourceBalanceForEvent_(parsed.event, referenceData);
+  var expenseBalanceCheck = validateSufficientSourceBalanceForEvent_(event, referenceData);
   if (!expenseBalanceCheck.ok) return expenseBalanceCheck;
 
-  return recordPilotExpense_(update, message, parsed.event, config, referenceData);
+  return recordPilotExpense_(update, message, event, config, referenceData);
+}
+
+function isClearConversationCommand_(text) {
+  return text === '/limpar_contexto' || text === '/clear_context';
+}
+
+function finishConversationTurn_(chatId, userText, result, state, pendingIntent) {
+  var nextState = state || emptyConversationState_();
+  nextState.messages = (nextState.messages || []).concat([{
+    role: 'user',
+    text: stringValue_(userText).slice(0, 500),
+    at: isoNow_(),
+  }]).slice(-25);
+  nextState.pending_intent = pendingIntent || null;
+  writeConversationState_(chatId, nextState);
+  return result;
+}
+
+function emptyConversationState_() {
+  return { messages: [], pending_intent: null };
+}
+
+function conversationStateKey_(chatId) {
+  return 'BFF_CONVERSATION_' + String(chatId || '').replace(/[^A-Za-z0-9_-]/g, '_');
+}
+
+function readConversationState_(chatId) {
+  if (!chatId) return emptyConversationState_();
+  var raw = PropertiesService.getScriptProperties().getProperty(conversationStateKey_(chatId));
+  var parsed = raw ? parseJsonSafe_(raw) : null;
+  if (!parsed || typeof parsed !== 'object') return emptyConversationState_();
+  return {
+    messages: Array.isArray(parsed.messages) ? parsed.messages.slice(-25) : [],
+    pending_intent: parsed.pending_intent || null,
+  };
+}
+
+function writeConversationState_(chatId, state) {
+  if (!chatId) return;
+  PropertiesService.getScriptProperties().setProperty(conversationStateKey_(chatId), JSON.stringify({
+    messages: (state.messages || []).slice(-25),
+    pending_intent: state.pending_intent || null,
+  }));
+}
+
+function clearConversationState_(chatId) {
+  if (!chatId) return;
+  PropertiesService.getScriptProperties().deleteProperty(conversationStateKey_(chatId));
+}
+
+function pendingIntentFromFailure_(result, event) {
+  if (!result || result.ok || !event) return null;
+  var error = result.errors && result.errors[0] ? result.errors[0] : {};
+  var missingField = missingConversationFieldFromError_(error.code, error.field);
+  if (!missingField) return null;
+  return {
+    missing_field: missingField,
+    event: cloneEventForConversation_(event),
+    created_at: isoNow_(),
+  };
+}
+
+function missingConversationFieldFromError_(code, field) {
+  if (code === 'CONFIG_SOURCE_BLOCKED' && field === 'id_fonte') return 'fonte';
+  if (code === 'CONFIG_CARD_BLOCKED' && field === 'id_cartao') return 'cartao';
+  if ((code === 'PILOT_INVOICE_BLOCKED' || code === 'PILOT_INVOICE_NOT_FOUND') && field === 'id_fatura') return 'fatura';
+  if ((code === 'CONFIG_CATEGORY_BLOCKED' || code === 'CATEGORY_CONFIRMATION_REQUIRED') && field === 'id_categoria') return 'categoria';
+  return '';
+}
+
+function cloneEventForConversation_(event) {
+  var copy = {};
+  PARSED_EVENT_FIELDS.forEach(function(field) {
+    copy[field] = event[field] === undefined ? '' : event[field];
+  });
+  copy.raw_text = stringValue_(event.raw_text || event.descricao);
+  return copy;
+}
+
+function resumePendingConversationIntent_(pendingIntent, text, referenceData) {
+  if (!pendingIntent || !pendingIntent.event) return { ok: false };
+  var event = cloneEventForConversation_(pendingIntent.event);
+  var field = pendingIntent.missing_field;
+  if (field === 'fonte') {
+    var source = findSourceByAlias_(text, referenceData.sources);
+    if (!source || source.tipo === 'cartao_credito') return { ok: false };
+    event.id_fonte = source.id_fonte;
+    event.raw_text = [event.raw_text || event.descricao, 'pela', source.nome].join(' ');
+    return { ok: true, event: event };
+  }
+  if (field === 'cartao') {
+    var card = inferActiveCardFromText_(text, referenceData);
+    if (!card) return { ok: false };
+    event.id_cartao = card.id_cartao;
+    event.id_fonte = card.id_fonte;
+    event.raw_text = [event.raw_text || event.descricao, 'no', card.nome].join(' ');
+    return { ok: true, event: event };
+  }
+  if (field === 'fatura') {
+    event.raw_text = [event.raw_text || event.descricao, text].join(' ');
+    event.id_fatura = inferInvoicePaymentIdFromText_(event, referenceData);
+    if (!event.id_fatura) return { ok: false };
+    return { ok: true, event: event };
+  }
+  return { ok: false };
 }
 
 function isHelpCommand_(text) {
