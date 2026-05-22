@@ -1193,6 +1193,58 @@ test('Apps Script invoice_migration_preview action returns redacted dry-run spli
     assert.strictEqual(sheets.Faturas.rows.length, 4);
 });
 
+test('Apps Script invoice_migration_apply requires explicit confirmation', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeInvoice(sheets, { valor_previsto: 40, status: 'prevista' });
+
+    const result = runRemoteAction(context, 'invoice_migration_apply');
+
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.error, 'MISSING_INVOICE_MIGRATION_CONFIRMATION');
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 1);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 1);
+});
+
+test('Apps Script invoice_migration_apply backs up Faturas and writes split sheets', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_04', valor_previsto: 40, status: 'prevista' });
+    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_04', valor_previsto: 60, status: 'prevista' });
+    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_04', valor_previsto: '', valor_fechado: 95, valor_pago: 20, status: 'fechada' });
+
+    const result = runRemoteAction(context, 'invoice_migration_apply', {
+        confirm: 'APPLY_FATURAS_SPLIT',
+    });
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result));
+    assert.strictEqual(result.shouldApplyDomainMutation, true);
+    assert.strictEqual(result.backup_sheet.indexOf('Faturas_Backup_'), 0);
+    assert.strictEqual(sheets.Faturas.rows.length, 4);
+    assert.deepStrictEqual(Array.from(sheets.Faturas_Resumo.rows[0]), [
+        'id_fatura',
+        'id_cartao',
+        'competencia',
+        'data_fechamento',
+        'data_vencimento',
+        'valor_previsto_total',
+        'valor_fechado',
+        'valor_pago',
+        'valor_aberto',
+        'status',
+        'authority_count',
+    ]);
+    assert.deepStrictEqual(Array.from(sheets.Faturas_Linhas.rows[0]), [
+        'id_linha_fatura',
+        'id_fatura',
+        'id_cartao',
+        'competencia',
+        'valor_previsto',
+        'status_origem',
+    ]);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 3);
+    assert.ok(Object.keys(sheets).some((name) => name.indexOf('Faturas_Backup_') === 0));
+});
+
 test('Apps Script closing_draft action writes schema-compatible family closing draft once', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,

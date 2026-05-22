@@ -21,6 +21,7 @@
     "selftest": "node scripts/clasp-run.js selftest",
     "sheet:audit": "node scripts/sheet-audit.js",
     "invoice:preview": "node scripts/invoice-migration-preview.js",
-    "invoice:plan": "node scripts/invoice-migration-plan.js"
+    "invoice:plan": "node scripts/invoice-migration-plan.js",
+    "invoice:design": "node scripts/invoice-migration-design.js"
   }
 }

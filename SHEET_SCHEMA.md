@@ -22,6 +22,14 @@ For the current redacted state of the real spreadsheet, use `docs/SPREADSHEET_SN
 
 `id_fatura | id_cartao | competencia | data_fechamento | data_vencimento | valor_previsto | valor_fechado | valor_pago | status`
 
+### Faturas_Resumo
+
+`id_fatura | id_cartao | competencia | data_fechamento | data_vencimento | valor_previsto_total | valor_fechado | valor_pago | valor_aberto | status | authority_count`
+
+### Faturas_Linhas
+
+`id_linha_fatura | id_fatura | id_cartao | competencia | valor_previsto | status_origem`
+
 ### Lancamentos
 
 `id_lancamento | data | competencia | tipo_evento | id_categoria | valor | id_fonte | pessoa | escopo | id_cartao | id_fatura | id_divida | id_ativo | afeta_dre | afeta_patrimonio | afeta_caixa_familiar | visibilidade | status | descricao | parcelas | created_at`

@@ -23,6 +23,8 @@ Operational authority for Bot Financeiro Familiar V55.
 - Local invoice projection separates planned card exposure from closed/paid invoice authority without mutating the spreadsheet.
 - `invoice:preview` is a read-only dry-run for splitting overloaded `Faturas` into invoice headers/authority plus exposure lines; it reports aggregates and conflicts only.
 - `invoice:plan` combines audit plus preview. Paid historical exposure rows without `valor_fechado` are not authority conflicts.
+- `invoice:design` documents the guarded future `Faturas` apply design with backup, dry-run diff, rollback and explicit owner-approval gates; it does not mutate Sheets.
+- `invoice_migration_apply` is the guarded real apply action for the `Faturas` split and requires `confirm=APPLY_FATURAS_SPLIT`; it backs up `Faturas`, writes `Faturas_Resumo` and `Faturas_Linhas`, and leaves original `Faturas` intact.
 
 ### Unverified
 
@@ -47,7 +49,7 @@ Operational authority for Bot Financeiro Familiar V55.
 The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>`.
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env`.
 
-Available actions: `snapshot`, `summary`, `closing_draft`, `closing_close`, `selftest`, `sheet_audit`, and `invoice_migration_preview`.
+Available actions: `snapshot`, `summary`, `closing_draft`, `closing_close`, `selftest`, `sheet_audit`, `invoice_migration_preview`, and `invoice_migration_apply`.
 
 On Windows with PowerShell execution policy, use `npm.cmd` and `clasp.cmd` if needed.
 
@@ -69,6 +71,6 @@ Optional keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`.
 
 ## Next Work
 
-1. Use the clean `invoice:plan` output to prepare a guarded `Faturas` migration design with backup, dry-run diff, and rollback notes.
+1. Verify the real `Faturas` split output after apply, then decide when runtime should consume `Faturas_Resumo`/`Faturas_Linhas` instead of compatibility projection.
 2. Design budget/envelope config before implementing category limits; do not infer limits from category names.
-3. Prepare a guarded migration plan only after invoice authority conflicts are resolved and rollback/dry-run evidence exists.
+3. Keep physical cleanup (`Telegram_Send_Log`, old compatibility `Faturas`) behind backup and explicit apply approval.

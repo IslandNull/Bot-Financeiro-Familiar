@@ -19,6 +19,7 @@ Codebase navigation guide for V55.
 | `scripts/sheet-audit.js` | Read-only sheet auditor. With no args, calls remote `sheet_audit`; with a JSON state file, audits offline. |
 | `scripts/invoice-migration-preview.js` | Read-only formatter for the remote `invoice_migration_preview` dry-run. |
 | `scripts/invoice-migration-plan.js` | Read-only gate combining sheet audit and invoice preview before any `Faturas` migration apply design. |
+| `scripts/invoice-migration-design.js` | Read-only guarded migration design for future `Faturas` split apply; no spreadsheet writes. |
 | `EXECUTION_PLAN.md` | Operational authority: current state, rules, next steps. |
 | `DOMAIN_RULES.md` | Financial domain rules (event types, scopes, visibility, mandatory rules). |
 | `SHEET_SCHEMA.md` | Canonical live V55 sheet schema (12 sheets). |
@@ -72,7 +73,8 @@ doGet(e)
        ├─ closing_close → closeReviewedFamilyClosingV55()
        ├─ selftest → runHelpSmokeSelfTest()
        ├─ sheet_audit → exportSheetAuditV55()
-       └─ invoice_migration_preview → exportInvoiceMigrationPreviewV55()
+       ├─ invoice_migration_preview → exportInvoiceMigrationPreviewV55()
+       └─ invoice_migration_apply → applyInvoiceMigrationV55()
 ```
 
 **Runtime file split:**
@@ -92,7 +94,7 @@ doGet(e)
 
 ## Google Sheets (V55) — 12 live sheets
 
-**Core data:** `Lancamentos`, `Transferencias_Internas`, `Faturas`, `Fechamento_Familiar`
+**Core data:** `Lancamentos`, `Transferencias_Internas`, `Faturas`, `Faturas_Resumo`, `Faturas_Linhas`, `Fechamento_Familiar`
 **Config:** `Config_Categorias`, `Config_Fontes`, `Cartoes`
 **Tracking:** `Patrimonio_Ativos`, `Dividas`, `Rendas_Recorrentes`, `Saldos_Fontes`
 **Operational:** `Idempotency_Log`
