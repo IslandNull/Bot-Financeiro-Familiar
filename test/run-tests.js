@@ -15,6 +15,7 @@
     await require('./sheet-audit.test');
     await require('./invoice-ledger.test');
     await require('./invoice-migration-preview.test');
+    await require('./invoice-migration-plan.test');
     await require('./apps-script-runtime.test');
     await require('./val-town-proxy.test');
     await require('./domain.test');

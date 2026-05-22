@@ -22,6 +22,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - `sheet:audit` is read-only and currently reports no structural errors; the remaining known warning is the retired extra `Telegram_Send_Log` sheet.
 - Local invoice projection separates planned card exposure from closed/paid invoice authority without mutating the spreadsheet.
 - `invoice:preview` is a read-only dry-run for splitting overloaded `Faturas` into invoice headers/authority plus exposure lines; it reports aggregates and conflicts only.
+- `invoice:plan` combines audit plus preview and currently blocks apply design while authority conflicts remain.
 
 ### Unverified
 
@@ -68,6 +69,6 @@ Optional keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`.
 
 ## Next Work
 
-1. Use `invoice:preview` plus `sheet:audit` to design the actual future `Faturas` split before any spreadsheet mutation.
+1. Review the `invoice:plan` blocker: consolidate the old Nubank April authority conflict before any `Faturas` apply.
 2. Design budget/envelope config before implementing category limits; do not infer limits from category names.
-3. Prepare a guarded migration plan only after the split design has reviewed invariants and rollback/dry-run evidence.
+3. Prepare a guarded migration plan only after invoice authority conflicts are resolved and rollback/dry-run evidence exists.

@@ -20,6 +20,7 @@
     "closing:close": "node scripts/clasp-run.js closing_close",
     "selftest": "node scripts/clasp-run.js selftest",
     "sheet:audit": "node scripts/sheet-audit.js",
-    "invoice:preview": "node scripts/invoice-migration-preview.js"
+    "invoice:preview": "node scripts/invoice-migration-preview.js",
+    "invoice:plan": "node scripts/invoice-migration-plan.js"
   }
 }

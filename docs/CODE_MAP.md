@@ -18,6 +18,7 @@ Codebase navigation guide for V55.
 | `scripts/clasp-run.js` | HTTP-based remote execution helper. Reads `.env` for `WEBAPP_URL`, `WEBHOOK_SECRET`, `DEPLOY_ID`. |
 | `scripts/sheet-audit.js` | Read-only sheet auditor. With no args, calls remote `sheet_audit`; with a JSON state file, audits offline. |
 | `scripts/invoice-migration-preview.js` | Read-only formatter for the remote `invoice_migration_preview` dry-run. |
+| `scripts/invoice-migration-plan.js` | Read-only gate combining sheet audit and invoice preview before any `Faturas` migration apply design. |
 | `EXECUTION_PLAN.md` | Operational authority: current state, rules, next steps. |
 | `DOMAIN_RULES.md` | Financial domain rules (event types, scopes, visibility, mandatory rules). |
 | `SHEET_SCHEMA.md` | Canonical live V55 sheet schema (12 sheets). |
