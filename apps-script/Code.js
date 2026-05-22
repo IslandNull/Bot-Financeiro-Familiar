@@ -529,7 +529,10 @@ function exportInvoiceMigrationPreviewV55() {
 function buildInvoiceMigrationPreview_(invoices) {
   var rows = invoices || [];
   var cycles = projectInvoiceMigrationCycles_(rows);
-  var plannedRows = rows.filter(function(row) { return stringValue_(row.status) === 'prevista'; });
+  var plannedRows = rows.filter(function(row) {
+    var status = stringValue_(row.status);
+    return ['prevista', 'paga'].indexOf(status) !== -1 && !isInvoiceMigrationAuthorityRow_(row);
+  });
   var invoiceHeaders = cycles.map(function(cycle) {
     return {
       id_fatura: cycle.id_fatura,
@@ -551,7 +554,7 @@ function buildInvoiceMigrationPreview_(invoices) {
       id_fatura: stringValue_(row.id_fatura),
       id_cartao: stringValue_(row.id_cartao),
       competencia: normalizeSheetCompetencia_(row.competencia) || stringValue_(row.competencia),
-      valor_previsto: roundMoney_(Math.max(0, numberFromSheetValue_(row.valor_previsto) - numberFromSheetValue_(row.valor_pago))),
+      valor_previsto: roundMoney_(numberFromSheetValue_(row.valor_previsto)),
       status_origem: stringValue_(row.status),
     };
   });
@@ -600,8 +603,9 @@ function projectInvoiceMigrationCycles_(invoices) {
     if (!cycle.data_fechamento && formatSheetDate_(row.data_fechamento)) cycle.data_fechamento = formatSheetDate_(row.data_fechamento);
     if (!cycle.data_vencimento && formatSheetDate_(row.data_vencimento)) cycle.data_vencimento = formatSheetDate_(row.data_vencimento);
 
-    if (status === 'prevista') {
-      cycle.planned_amount = roundMoney_(cycle.planned_amount + Math.max(0, numberFromSheetValue_(row.valor_previsto) - numberFromSheetValue_(row.valor_pago)));
+    if (!isInvoiceMigrationAuthorityRow_(row)) {
+      cycle.planned_amount = roundMoney_(cycle.planned_amount + numberFromSheetValue_(row.valor_previsto));
+      cycle.paid_amount = roundMoney_(cycle.paid_amount + numberFromSheetValue_(row.valor_pago));
       cycle.planned_count += 1;
       return;
     }
@@ -616,7 +620,7 @@ function projectInvoiceMigrationCycles_(invoices) {
 
   objectValues_(byKey).forEach(function(cycle) {
     var sourceAmount = cycle.has_authority ? cycle.authority_amount : cycle.planned_amount;
-    var paidAmount = cycle.has_authority ? cycle.paid_amount : 0;
+    var paidAmount = cycle.paid_amount;
     cycle.open_amount = roundMoney_(Math.max(0, sourceAmount - paidAmount));
     cycle.has_authority_conflict = authorityCountByConflictKey[
       [cycle.id_cartao, cycle.competencia, cycle.data_vencimento].join('|')
@@ -669,6 +673,11 @@ function invoiceMigrationConflictKey_(row) {
 function invoiceMigrationExpectedAmount_(row) {
   var closed = numberFromSheetValue_(row.valor_fechado);
   return closed > 0 ? closed : numberFromSheetValue_(row.valor_previsto);
+}
+
+function isInvoiceMigrationAuthorityRow_(row) {
+  var status = stringValue_(row.status);
+  return ['fechada', 'parcialmente_paga'].indexOf(status) !== -1 || numberFromSheetValue_(row.valor_fechado) > 0;
 }
 
 function objectValues_(object) {

@@ -50,6 +50,21 @@ test('invoice projection marks concurrent authority conflicts without exposing r
     assert.strictEqual(cycles[0].open_amount, 192);
 });
 
+test('invoice projection treats paid rows without closed amount as paid exposure lines', () => {
+    const cycles = projectInvoiceCycles([
+        { id_fatura: 'FAT_CARD_2026_04', id_cartao: 'CARD', competencia: '2026-04', data_vencimento: '2026-05-07', valor_previsto: 40, valor_fechado: '', valor_pago: 40, status: 'paga' },
+        { id_fatura: 'FAT_CARD_2026_04', id_cartao: 'CARD', competencia: '2026-04', data_vencimento: '2026-05-07', valor_previsto: 60, valor_fechado: '', valor_pago: 60, status: 'paga' },
+    ]);
+
+    assert.strictEqual(cycles.length, 1);
+    assert.strictEqual(cycles[0].planned_amount, 100);
+    assert.strictEqual(cycles[0].paid_amount, 100);
+    assert.strictEqual(cycles[0].open_amount, 0);
+    assert.strictEqual(cycles[0].authority_count, 0);
+    assert.strictEqual(cycles[0].has_authority, false);
+    assert.strictEqual(cycles[0].has_authority_conflict, false);
+});
+
 test('invoice migration preview separates future headers from exposure lines', () => {
     const preview = buildInvoiceMigrationPreview([
         { id_fatura: 'FAT_CARD_2026_05', id_cartao: 'CARD', competencia: '2026-05', data_fechamento: '2026-05-30', data_vencimento: '2026-06-07', valor_previsto: 40, valor_fechado: '', valor_pago: '', status: 'prevista' },

@@ -46,3 +46,13 @@ test('invoice migration plan is ready when audit and invoice invariants are clea
   assert.strictEqual(exitCodeForPlan(plan), 0);
   assert.match(formatInvoiceMigrationPlan(plan), /Ready for guarded apply design/);
 });
+
+test('invoice migration plan accepts future split with more rows than current state', () => {
+  const plan = assessInvoiceMigrationPlan({
+    audit: { summary: { error: 0, warning: 0 }, findings: [] },
+    preview: { summary: { current_rows: 2, future_invoice_headers: 1, future_exposure_lines: 2, conflict_cycles: 0 } },
+  });
+
+  assert.strictEqual(plan.ready_for_apply, true);
+  assert.ok(plan.invariants.some((item) => item.code === 'ROW_ACCOUNTING' && item.ok));
+});

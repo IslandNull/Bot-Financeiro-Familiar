@@ -336,6 +336,7 @@ Treat current `Faturas` rows as a compatibility ledger with two meanings: planne
 
 Reason:
 The live sheet legitimately has many `prevista` rows per card and competence because each purchase or installment contributes exposure. Those rows are not duplicates. Closed or partially paid invoice rows are stronger authority and must prevent double counting planned exposure for the same card, competence, and due date.
+Historical `paga` rows without `valor_fechado` are treated as paid exposure lines, not competing authority rows, because they represent already-paid line items from the overloaded ledger.
 
 Rejected:
 - Treating multiple planned rows in one cycle as duplicate invoices.

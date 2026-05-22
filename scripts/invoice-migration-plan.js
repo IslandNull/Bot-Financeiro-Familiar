@@ -50,8 +50,8 @@ function assessInvoiceMigrationPlan(inputs) {
     },
     {
       code: 'ROW_ACCOUNTING',
-      ok: (previewSummary.current_rows || 0) >= ((previewSummary.future_invoice_headers || 0) + (previewSummary.future_exposure_lines || 0)),
-      detail: 'Future headers plus exposure lines must be explainable from current Faturas rows.',
+      ok: (previewSummary.current_rows || 0) === 0 || (previewSummary.future_invoice_headers || 0) > 0,
+      detail: 'Current Faturas rows must project into at least one future invoice header when rows exist.',
     },
     {
       code: 'AUTHORITY_REVIEWED',

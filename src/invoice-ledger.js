@@ -37,6 +37,11 @@ function invoiceExpectedAmount(row) {
     return closed > 0 ? closed : money(row.valor_previsto);
 }
 
+function isInvoiceAuthorityRow(row) {
+    const status = text(row.status);
+    return ['fechada', 'parcialmente_paga'].includes(status) || money(row.valor_fechado) > 0;
+}
+
 function emptyCycle(row) {
     return {
         id_fatura: text(row.id_fatura),
@@ -73,8 +78,9 @@ function projectInvoiceCycles(invoices) {
         if (!cycle.data_fechamento && text(row.data_fechamento)) cycle.data_fechamento = text(row.data_fechamento);
         if (!cycle.data_vencimento && text(row.data_vencimento)) cycle.data_vencimento = text(row.data_vencimento);
 
-        if (status === 'prevista') {
-            cycle.planned_amount = roundMoney(cycle.planned_amount + Math.max(0, money(row.valor_previsto) - money(row.valor_pago)));
+        if (!isInvoiceAuthorityRow(row)) {
+            cycle.planned_amount = roundMoney(cycle.planned_amount + money(row.valor_previsto));
+            cycle.paid_amount = roundMoney(cycle.paid_amount + money(row.valor_pago));
             cycle.planned_count += 1;
             return;
         }
@@ -89,7 +95,7 @@ function projectInvoiceCycles(invoices) {
 
     Object.values(byKey).forEach((cycle) => {
         const sourceAmount = cycle.has_authority ? cycle.authority_amount : cycle.planned_amount;
-        const paidAmount = cycle.has_authority ? cycle.paid_amount : 0;
+        const paidAmount = cycle.paid_amount;
         cycle.open_amount = roundMoney(Math.max(0, sourceAmount - paidAmount));
         cycle.has_authority_conflict = authorityCountByConflictKey[
             [cycle.id_cartao, cycle.competencia, cycle.data_vencimento].join('|')
@@ -113,7 +119,7 @@ function sumInvoiceOpenAmount(invoiceCyclesOrRows) {
 function buildInvoiceMigrationPreview(invoices) {
     const rows = Array.isArray(invoices) ? invoices : [];
     const cycles = projectInvoiceCycles(rows);
-    const plannedRows = rows.filter((row) => text(row.status) === 'prevista');
+    const plannedRows = rows.filter((row) => ['prevista', 'paga'].includes(text(row.status)) && !isInvoiceAuthorityRow(row));
     const invoiceHeaders = cycles.map((cycle) => ({
         id_fatura: cycle.id_fatura,
         id_cartao: cycle.id_cartao,
@@ -132,7 +138,7 @@ function buildInvoiceMigrationPreview(invoices) {
         id_fatura: text(row.id_fatura),
         id_cartao: text(row.id_cartao),
         competencia: text(row.competencia),
-        valor_previsto: roundMoney(Math.max(0, money(row.valor_previsto) - money(row.valor_pago))),
+        valor_previsto: roundMoney(money(row.valor_previsto)),
         status_origem: text(row.status),
     }));
     const conflicts = cycles
