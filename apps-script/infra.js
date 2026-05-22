@@ -73,7 +73,7 @@ function readRuntimeReferenceData_(config) {
     var categorySheet = spreadsheet.getSheetByName(SHEETS.CONFIG_CATEGORIAS);
     var sourceSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_FONTES);
     var cardSheet = spreadsheet.getSheetByName(SHEETS.CARTOES);
-    var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
+    var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
     var assetSheet = spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS);
     var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
     var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
@@ -81,7 +81,7 @@ function readRuntimeReferenceData_(config) {
     verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
     verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
     verifySheetHeaders_(cardSheet, SHEETS.CARTOES);
-    verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
+    verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS_RESUMO);
     verifySheetHeaders_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
     verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
     verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
@@ -90,7 +90,7 @@ function readRuntimeReferenceData_(config) {
     var categories = readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS).filter(function(row) { return row.ativo === true; });
     var sources = readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES).filter(function(row) { return row.ativo === true; });
     var cards = readRowsAsObjects_(cardSheet, SHEETS.CARTOES).filter(function(row) { return row.ativo === true; });
-    var invoices = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS).filter(function(row) {
+    var invoices = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS_RESUMO).filter(function(row) {
       return ['prevista', 'fechada', 'parcialmente_paga'].indexOf(row.status) !== -1;
     });
     var assets = readRowsAsObjects_(assetSheet, SHEETS.PATRIMONIO_ATIVOS).filter(function(row) { return row.ativo === true; });

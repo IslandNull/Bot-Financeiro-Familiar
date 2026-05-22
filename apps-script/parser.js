@@ -358,7 +358,7 @@ function formatCardDictionaryPrompt_(referenceData) {
 
 function formatInvoiceDictionaryPrompt_(referenceData) {
   return 'Allowed payable invoice ids: ' + referenceData.invoices.map(function(row) {
-    var expected = numberFromSheetValue_(row.valor_fechado) > 0 ? numberFromSheetValue_(row.valor_fechado) : numberFromSheetValue_(row.valor_previsto);
+    var expected = numberFromSheetValue_(row.valor_fechado) > 0 ? numberFromSheetValue_(row.valor_fechado) : numberFromSheetValue_(row.valor_previsto_total);
     var outstanding = roundMoney_(Math.max(0, expected - numberFromSheetValue_(row.valor_pago)));
     return row.id_fatura + ' for card ' + row.id_cartao + ' (competencia ' + normalizeSheetCompetencia_(row.competencia) + ', outstanding ' + outstanding + ')';
   }).join('; ') + '.';
@@ -662,7 +662,7 @@ function inferInvoicePaymentIdFromText_(event, referenceData) {
   candidates.forEach(function(invoice) {
     var id = stringValue_(invoice.id_fatura);
     if (!grouped[id]) grouped[id] = 0;
-    var expected = numberFromSheetValue_(invoice.valor_fechado) > 0 ? numberFromSheetValue_(invoice.valor_fechado) : numberFromSheetValue_(invoice.valor_previsto);
+    var expected = numberFromSheetValue_(invoice.valor_fechado) > 0 ? numberFromSheetValue_(invoice.valor_fechado) : numberFromSheetValue_(invoice.valor_previsto_total);
     grouped[id] = roundMoney_(grouped[id] + Math.max(0, expected - numberFromSheetValue_(invoice.valor_pago)));
   });
   var ids = Object.keys(grouped);

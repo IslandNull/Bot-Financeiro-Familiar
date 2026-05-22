@@ -38,7 +38,7 @@ function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
   try {
     var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
     var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
-    var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
+    var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
     var transferSheet = spreadsheet.getSheetByName(SHEETS.TRANSFERENCIAS_INTERNAS);
     var assetSheet = spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS);
     var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
@@ -49,7 +49,7 @@ function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
     var sourceSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_FONTES);
 
     verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
-    verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
+    verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS_RESUMO);
     verifySheetHeaders_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS);
     verifySheetHeaders_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
     verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
@@ -66,7 +66,7 @@ function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
     var transfers = readRowsAsObjects_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS).filter(function(row) {
       return normalizeSheetCompetencia_(row.competencia) === competencia && row.escopo === 'Familiar';
     });
-    var invoices = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS);
+    var invoices = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS_RESUMO);
     var assets = readRowsAsObjects_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
     var debts = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS);
     var recurringIncomes = readRowsAsObjects_(recurringIncomeSheet, SHEETS.RENDAS_RECORRENTES);
@@ -493,7 +493,7 @@ function summarizePilotInvoiceExposure_(invoices, referenceDate, cardsById, invo
     if (['prevista', 'fechada', 'parcialmente_paga'].indexOf(row.status) === -1) return sum;
     var dueDate = formatSheetDate_(row.data_vencimento);
     if (dueDate && dueDate > windowEndDate) return sum;
-    var expected = numberFromSheetValue_(row.valor_fechado) > 0 ? numberFromSheetValue_(row.valor_fechado) : numberFromSheetValue_(row.valor_previsto);
+    var expected = numberFromSheetValue_(row.valor_fechado) > 0 ? numberFromSheetValue_(row.valor_fechado) : numberFromSheetValue_(row.valor_previsto_total);
     var paid = numberFromSheetValue_(row.valor_pago);
     var outstanding = roundMoney_(Math.max(0, expected - paid));
     var cardId = stringValue_(row.id_cartao);
@@ -2015,11 +2015,13 @@ function recordPilotCardPurchase_(update, message, event, config, referenceData)
     var request = mutationRequest_(update, message);
     var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
     var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
-    var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
+    var invoiceResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
+    var invoiceLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
     idempotencySheetForFailure = idempotencySheet;
     verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
     verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
-    verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
+    verifySheetHeaders_(invoiceResumoSheet, SHEETS.FATURAS_RESUMO);
+    verifySheetHeaders_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS);
 
     var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
     if (existing && existing.status === 'completed') {
@@ -2090,29 +2092,27 @@ function recordPilotCardPurchase_(update, message, event, config, referenceData)
       for (var pi = 0; pi < parcelas; pi += 1) {
         var offsetDate = pi === 0 ? event.data : formatUtcDate_(addUtcMonths_(parseIsoDateUtc_(event.data), pi));
         var installmentInvoice = assignPilotInvoiceCycle_(offsetDate, card);
-        appendRow_(invoiceSheet, SHEETS.FATURAS, {
+        findOrAppendInvoiceHeader_(invoiceResumoSheet, installmentInvoice);
+        var id = stableId_('FATL', [installmentInvoice.id_fatura, event.id_cartao, installmentInvoice.competencia, valorParcela, 'compra_cartao', pi, isoNow_()].join('|'));
+        appendRow_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS, {
+          id_linha_fatura: id,
           id_fatura: installmentInvoice.id_fatura,
           id_cartao: event.id_cartao,
           competencia: installmentInvoice.competencia,
-          data_fechamento: installmentInvoice.data_fechamento,
-          data_vencimento: installmentInvoice.data_vencimento,
           valor_previsto: valorParcela,
-          valor_fechado: '',
-          valor_pago: '',
-          status: 'prevista',
+          status_origem: 'compra_cartao',
         });
       }
     } else {
-      appendRow_(invoiceSheet, SHEETS.FATURAS, {
+      findOrAppendInvoiceHeader_(invoiceResumoSheet, invoice);
+      var id = stableId_('FATL', [invoice.id_fatura, event.id_cartao, invoice.competencia, event.valor, 'compra_cartao', 0, isoNow_()].join('|'));
+      appendRow_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS, {
+        id_linha_fatura: id,
         id_fatura: invoice.id_fatura,
         id_cartao: event.id_cartao,
         competencia: invoice.competencia,
-        data_fechamento: invoice.data_fechamento,
-        data_vencimento: invoice.data_vencimento,
         valor_previsto: event.valor,
-        valor_fechado: '',
-        valor_pago: '',
-        status: 'prevista',
+        status_origem: 'compra_cartao',
       });
     }
     updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
@@ -2139,11 +2139,13 @@ function recordPilotInvoicePayment_(update, message, event, config, referenceDat
     var request = mutationRequest_(update, message);
     var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
     var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
-    var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
+    var invoiceResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
+    var invoiceLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
     idempotencySheetForFailure = idempotencySheet;
     verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
     verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
-    verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
+    verifySheetHeaders_(invoiceResumoSheet, SHEETS.FATURAS_RESUMO);
+    verifySheetHeaders_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS);
 
     var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
     if (existing && existing.status === 'completed') {
@@ -2156,7 +2158,7 @@ function recordPilotInvoicePayment_(update, message, event, config, referenceDat
     var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
     if (!periodCheck.ok) return periodCheck;
 
-    var invoice = findInvoicePaymentTarget_(invoiceSheet, event.id_fatura);
+    var invoice = findInvoicePaymentTarget_(invoiceResumoSheet, event.id_fatura);
     if (!invoice.found) return fail_('PILOT_INVOICE_NOT_FOUND', 'id_fatura', GENERIC_RECORD_FAILURE);
     if (!invoice.payableRows.length) return fail_('PILOT_INVOICE_ALREADY_PAID', 'id_fatura', GENERIC_RECORD_FAILURE);
     var expectedAmount = invoice.expectedAmount;
@@ -2214,9 +2216,9 @@ function recordPilotInvoicePayment_(update, message, event, config, referenceDat
       created_at: now,
     });
     if (reconciliationAmount > 0) {
-      appendInvoicePaymentReconciliation_(invoiceSheet, invoice, reconciliationAmount);
+      appendInvoicePaymentReconciliation_(invoiceLinhasSheet, invoice, reconciliationAmount);
     }
-    updateInvoicePayments_(invoiceSheet, invoice.payableRows, 'paga');
+    updateInvoicePayments_(invoiceResumoSheet, invoice.payableRows, 'paga');
     updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
     return { ok: true, responseText: recordedEventText_(event, 'anotei pagamento da fatura.', referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
   } catch (_err) {
@@ -2239,10 +2241,12 @@ function recordPilotInvoiceExposure_(update, message, event, config, referenceDa
     var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
     var request = mutationRequest_(update, message);
     var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
-    var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
+    var invoiceResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
+    var invoiceLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
     idempotencySheetForFailure = idempotencySheet;
     verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
-    verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
+    verifySheetHeaders_(invoiceResumoSheet, SHEETS.FATURAS_RESUMO);
+    verifySheetHeaders_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS);
 
     var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
     if (existing && existing.status === 'completed') {
@@ -2282,16 +2286,21 @@ function recordPilotInvoiceExposure_(update, message, event, config, referenceDa
       idempotencyRowNumberForFailure = existing && existing.rowNumber;
     }
 
-    appendRow_(invoiceSheet, SHEETS.FATURAS, {
+    findOrAppendInvoiceHeader_(invoiceResumoSheet, {
       id_fatura: event.id_fatura,
       id_cartao: event.id_cartao,
       competencia: event.competencia,
       data_fechamento: invoiceCycle.data_fechamento,
       data_vencimento: invoiceCycle.data_vencimento,
+    });
+    var id = stableId_('FATL', [event.id_fatura, event.id_cartao, event.competencia, event.valor, 'fatura_prevista', isoNow_()].join('|'));
+    appendRow_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS, {
+      id_linha_fatura: id,
+      id_fatura: event.id_fatura,
+      id_cartao: event.id_cartao,
+      competencia: event.competencia,
       valor_previsto: event.valor,
-      valor_fechado: '',
-      valor_pago: '',
-      status: 'prevista',
+      status_origem: 'fatura_prevista',
     });
     updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
     return { ok: true, responseText: SUCCESS_TEXT, shouldApplyDomainMutation: true, result_ref: resultRef };
@@ -2399,6 +2408,7 @@ function assignPilotInvoiceCycle_(purchaseDateValue, card) {
   var competencia = formatUtcCompetencia_(closingDate);
   return {
     id_fatura: 'FAT_' + card.id_cartao + '_' + competencia.replace('-', '_'),
+    id_cartao: card.id_cartao,
     competencia: competencia,
     data_fechamento: formatUtcDate_(closingDate),
     data_vencimento: formatUtcDate_(dueDate),

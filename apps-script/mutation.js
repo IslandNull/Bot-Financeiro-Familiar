@@ -36,15 +36,14 @@ function findIdempotencyRow_(sheet, idempotencyKey) {
 function findInvoicePaymentTarget_(sheet, invoiceId) {
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return { found: false, payableRows: [], expectedAmount: 0, meta: null };
-  var headers = HEADERS[SHEETS.FATURAS];
+  var headers = HEADERS[SHEETS.FATURAS_RESUMO];
   var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
   var idIndex = headers.indexOf('id_fatura');
   var cardIndex = headers.indexOf('id_cartao');
   var competenciaIndex = headers.indexOf('competencia');
   var closingIndex = headers.indexOf('data_fechamento');
   var dueIndex = headers.indexOf('data_vencimento');
-  var previstoIndex = headers.indexOf('valor_previsto');
-  var fechadoIndex = headers.indexOf('valor_fechado');
+  var abertoIndex = headers.indexOf('valor_aberto');
   var pagoIndex = headers.indexOf('valor_pago');
   var statusIndex = headers.indexOf('status');
   var found = false;
@@ -65,17 +64,14 @@ function findInvoicePaymentTarget_(sheet, invoiceId) {
       }
       var status = String(rows[i][statusIndex] || '');
       if (['prevista', 'fechada', 'parcialmente_paga'].indexOf(status) === -1) continue;
-      var valorFechado = numberFromSheetValue_(rows[i][fechadoIndex]);
-      var valorPrevisto = numberFromSheetValue_(rows[i][previstoIndex]);
+      var valorAberto = numberFromSheetValue_(rows[i][abertoIndex]);
       var valorPago = numberFromSheetValue_(rows[i][pagoIndex]);
-      var valorEsperado = valorFechado > 0 ? valorFechado : valorPrevisto;
-      var valorAberto = Math.max(0, valorEsperado - valorPago);
       if (valorAberto <= 0) continue;
       expectedAmount = roundMoney_(expectedAmount + valorAberto);
+      var newValorPago = roundMoney_(valorPago + valorAberto);
       payableRows.push({
         rowNumber: i + 2,
-        amount: valorEsperado,
-        valor_pago: valorPago,
+        amount: newValorPago,
         status: status,
       });
     }
@@ -99,16 +95,14 @@ function isReviewedInvoicePaymentReconciliationText_(text) {
 
 function appendInvoicePaymentReconciliation_(sheet, invoice, amount) {
   var meta = invoice.meta || {};
-  appendRow_(sheet, SHEETS.FATURAS, {
+  var id = stableId_('FATL', [meta.id_fatura, meta.id_cartao, meta.competencia, amount, 'ajuste_pagamento', isoNow_()].join('|'));
+  appendRow_(sheet, SHEETS.FATURAS_LINHAS, {
+    id_linha_fatura: id,
     id_fatura: meta.id_fatura,
     id_cartao: meta.id_cartao,
     competencia: meta.competencia,
-    data_fechamento: meta.data_fechamento,
-    data_vencimento: meta.data_vencimento,
     valor_previsto: amount,
-    valor_fechado: '',
-    valor_pago: amount,
-    status: 'paga',
+    status_origem: 'fatura_prevista',
   });
 }
 
@@ -136,10 +130,38 @@ function findFamilyClosingRow_(sheet, competencia) {
 }
 
 function updateInvoicePayments_(sheet, rows, status) {
-  var headers = HEADERS[SHEETS.FATURAS];
+  var headers = HEADERS[SHEETS.FATURAS_RESUMO];
   rows.forEach(function(row) {
     sheet.getRange(row.rowNumber, headers.indexOf('valor_pago') + 1).setValue(row.amount);
+    sheet.getRange(row.rowNumber, headers.indexOf('valor_aberto') + 1).setValue(0);
     sheet.getRange(row.rowNumber, headers.indexOf('status') + 1).setValue(status);
+  });
+}
+
+function findOrAppendInvoiceHeader_(sheet, invoice) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow >= 2) {
+    var headers = HEADERS[SHEETS.FATURAS_RESUMO];
+    var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    var idIndex = headers.indexOf('id_fatura');
+    for (var i = 0; i < rows.length; i += 1) {
+      if (String(rows[i][idIndex]) === invoice.id_fatura) {
+        return;
+      }
+    }
+  }
+  appendRow_(sheet, SHEETS.FATURAS_RESUMO, {
+    id_fatura: invoice.id_fatura,
+    id_cartao: invoice.id_cartao,
+    competencia: invoice.competencia,
+    data_fechamento: invoice.data_fechamento,
+    data_vencimento: invoice.data_vencimento,
+    valor_previsto_total: '',
+    valor_fechado: '',
+    valor_pago: '',
+    valor_aberto: '',
+    status: 'prevista',
+    authority_count: 1,
   });
 }
 

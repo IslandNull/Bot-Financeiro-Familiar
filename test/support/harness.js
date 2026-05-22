@@ -470,13 +470,14 @@ function appendFakeInvoice(sheets, overrides = {}) {
         competencia: '2026-04',
         data_fechamento: '2026-04-30',
         data_vencimento: '2026-05-07',
-        valor_previsto: 42.5,
+        valor_previsto_total: overrides.valor_previsto ?? 42.5,
         valor_fechado: '',
         valor_pago: '',
+        valor_aberto: overrides.valor_aberto ?? overrides.valor_previsto ?? 42.5,
         status: 'prevista',
         ...overrides,
     };
-    sheets.Faturas.appendRow(faturasHeaders.map((header) => invoice[header] === undefined ? '' : invoice[header]));
+    sheets.Faturas_Resumo.appendRow(faturasResumoHeaders.map((header) => invoice[header] === undefined ? '' : invoice[header]));
 }
 
 function appendFakeLaunch(sheets, overrides = {}) {

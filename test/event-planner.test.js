@@ -73,10 +73,10 @@ test('card purchase plans Lancamentos and expected Faturas rows', () => {
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     assert.strictEqual(result.mutationGroup.kind, 'compra_cartao');
-    assert.deepStrictEqual(result.mutationGroup.rows.map((row) => row.sheet), [SHEETS.LANCAMENTOS, SHEETS.FATURAS]);
+    assert.deepStrictEqual(result.mutationGroup.rows.map((row) => row.sheet), [SHEETS.LANCAMENTOS, SHEETS.FATURAS_RESUMO]);
     assert.strictEqual(result.mutationGroup.rows[0].row.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
     assert.strictEqual(result.mutationGroup.rows[1].row.status, 'prevista');
-    assert.strictEqual(result.mutationGroup.rows[1].row.valor_previsto, 85);
+    assert.strictEqual(result.mutationGroup.rows[1].row.valor_aberto, 85);
     assertPlannedRowsMatchSchema(result);
 });
 
@@ -94,7 +94,7 @@ test('card purchase plans reviewed Mercado Pago April config rows', () => {
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     assert.strictEqual(result.mutationGroup.kind, 'compra_cartao');
     assert.strictEqual(result.mutationGroup.rows[0].row.id_fatura, 'FAT_CARD_MERCADO_PAGO_GU_2026_05');
-    assert.strictEqual(result.mutationGroup.rows[1].row.valor_previsto, 84.9);
+    assert.strictEqual(result.mutationGroup.rows[1].row.valor_aberto, 84.9);
     assertPlannedRowsMatchSchema(result);
 });
 
@@ -132,9 +132,9 @@ test('invoice exposure plans Faturas only without DRE launch', () => {
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     assert.strictEqual(result.mutationGroup.kind, 'fatura_prevista');
-    assert.deepStrictEqual(result.mutationGroup.rows.map((row) => row.sheet), [SHEETS.FATURAS]);
+    assert.deepStrictEqual(result.mutationGroup.rows.map((row) => row.sheet), [SHEETS.FATURAS_RESUMO]);
     assert.strictEqual(result.mutationGroup.rows[0].row.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
-    assert.strictEqual(result.mutationGroup.rows[0].row.valor_previsto, 203.64);
+    assert.strictEqual(result.mutationGroup.rows[0].row.valor_aberto, 203.64);
     assert.strictEqual(result.mutationGroup.rows[0].row.status, 'prevista');
     assertPlannedRowsMatchSchema(result);
 });

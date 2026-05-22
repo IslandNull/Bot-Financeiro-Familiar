@@ -18,9 +18,6 @@ For the current redacted state of the real spreadsheet, use `docs/SPREADSHEET_SN
 
 `id_cartao | id_fonte | nome | titular | fechamento_dia | vencimento_dia | limite | ativo`
 
-### Faturas
-
-`id_fatura | id_cartao | competencia | data_fechamento | data_vencimento | valor_previsto | valor_fechado | valor_pago | status`
 
 ### Faturas_Resumo
 

@@ -64,8 +64,8 @@ test('family closing hardens DRE cash exposure obligations reserve net worth and
             }),
         ],
         invoices: [
-            { status: 'prevista', valor_previsto: 1000, valor_pago: 200 },
-            { status: 'paga', valor_fechado: 300, valor_pago: 300 },
+            { status: 'prevista', valor_aberto: 800 },
+            { status: 'paga', valor_aberto: 0 },
         ],
         debts: [
             { status: 'ativa', saldo_devedor: 5000, valor_parcela: 600 },
@@ -127,7 +127,7 @@ test('family closing uses informed liquidity instead of monthly cash surplus for
                 afeta_caixa_familiar: true,
             }),
         ],
-        invoices: [{ status: 'prevista', valor_previsto: 300, valor_pago: 0 }],
+        invoices: [{ status: 'prevista', valor_aberto: 300 }],
         debts: [{ status: 'ativa', saldo_devedor: 1000, valor_parcela: 100 }],
         assets: [{ saldo_atual: 1000, conta_reserva_emergencia: true, ativo: true }],
         sourceBalances: [
@@ -217,7 +217,7 @@ test('draft family closing row matches Fechamento_Familiar schema', () => {
                 descricao: 'mercado',
             }),
         ],
-        invoices: [{ status: 'prevista', valor_previsto: 400, valor_pago: 100 }],
+        invoices: [{ status: 'prevista', valor_aberto: 300 }],
         debts: [{ status: 'ativa', saldo_devedor: 2000, valor_parcela: 300 }],
         assets: [{ saldo_atual: 1000, conta_reserva_emergencia: true, ativo: true }],
         observacao: 'draft local',

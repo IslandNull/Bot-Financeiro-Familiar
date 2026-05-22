@@ -203,7 +203,7 @@ test('family closing computes surplus and destination', () => {
     const closing = computeFamilyClosing({
         competencia: '2026-04',
         events,
-        invoices: [{ status: 'prevista', valor_previsto: 600, valor_pago: 0 }],
+        invoices: [{ status: 'prevista', valor_aberto: 600 }],
         debts: [{ status: 'ativa', saldo_devedor: 10000, valor_parcela: 800 }],
         assets: [{ saldo_atual: 1000, conta_reserva_emergencia: true, ativo: true }],
         options: { reserveTarget: 15000 },
@@ -234,7 +234,7 @@ test('destination prioritizes immediate obligations before reserve target', () =
                 afeta_caixa_familiar: true,
             })).normalized,
         ],
-        invoices: [{ status: 'prevista', valor_previsto: 2500, valor_pago: 0 }],
+        invoices: [{ status: 'prevista', valor_aberto: 2500 }],
         debts: [{ status: 'ativa', saldo_devedor: 10000, valor_parcela: 800 }],
         assets: [{ saldo_atual: 1000, conta_reserva_emergencia: true, ativo: true }],
         options: { reserveTarget: 15000 },

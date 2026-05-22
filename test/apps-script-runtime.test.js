@@ -37,7 +37,8 @@ const {
     configCategoriasHeaders,
     configFontesHeaders,
     cartoesHeaders,
-    faturasHeaders,
+    faturasResumoHeaders,
+    faturasLinhasHeaders,
     rendasRecorrentesHeaders,
     saldosFontesHeaders,
     patrimonioAtivosHeaders,
@@ -451,7 +452,7 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.doesNotMatch(result.responseText, /agregado/);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 5);
-    assert.strictEqual(sheets.Faturas.rows.length, 3);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 3);
     assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
 });
 
@@ -1158,91 +1159,6 @@ test('Apps Script sheet_audit accepts planned invoice lines but flags concurrent
 
     const withClosedConflict = runRemoteAction(context, 'sheet_audit');
     assert.ok(withClosedConflict.findings.some((finding) => finding.code === 'CONCURRENT_CLOSED_INVOICE' && finding.count === 2));
-});
-
-test('Apps Script invoice_migration_preview action returns redacted dry-run split', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    appendFakeInvoice(sheets, { valor_previsto: 40, status: 'prevista' });
-    appendFakeInvoice(sheets, { valor_previsto: 60, status: 'prevista' });
-    appendFakeInvoice(sheets, { valor_previsto: '', valor_fechado: 95, valor_pago: 20, status: 'fechada' });
-
-    const result = runRemoteAction(context, 'invoice_migration_preview');
-
-    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
-    assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.deepStrictEqual(result.summary, {
-        current_rows: 3,
-        future_invoice_headers: 1,
-        future_exposure_lines: 2,
-        authority_cycles: 1,
-        conflict_cycles: 0,
-        planned_total: 100,
-        authority_total: 95,
-        paid_total: 20,
-        open_total: 75,
-    });
-    assert.strictEqual(result.invoice_headers.length, 1);
-    assert.strictEqual(result.exposure_lines.length, 2);
-    assert.deepStrictEqual(Object.keys(result.exposure_lines[0]).sort(), [
-        'competencia',
-        'id_cartao',
-        'id_fatura',
-        'status_origem',
-        'valor_previsto',
-    ]);
-    assert.strictEqual(sheets.Faturas.rows.length, 4);
-});
-
-test('Apps Script invoice_migration_apply requires explicit confirmation', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    appendFakeInvoice(sheets, { valor_previsto: 40, status: 'prevista' });
-
-    const result = runRemoteAction(context, 'invoice_migration_apply');
-
-    assert.strictEqual(result.ok, false);
-    assert.strictEqual(result.error, 'MISSING_INVOICE_MIGRATION_CONFIRMATION');
-    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 1);
-    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 1);
-});
-
-test('Apps Script invoice_migration_apply backs up Faturas and writes split sheets', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_04', valor_previsto: 40, status: 'prevista' });
-    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_04', valor_previsto: 60, status: 'prevista' });
-    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_04', valor_previsto: '', valor_fechado: 95, valor_pago: 20, status: 'fechada' });
-
-    const result = runRemoteAction(context, 'invoice_migration_apply', {
-        confirm: 'APPLY_FATURAS_SPLIT',
-    });
-
-    assert.strictEqual(result.ok, true, JSON.stringify(result));
-    assert.strictEqual(result.shouldApplyDomainMutation, true);
-    assert.strictEqual(result.backup_sheet.indexOf('Faturas_Backup_'), 0);
-    assert.strictEqual(sheets.Faturas.rows.length, 4);
-    assert.deepStrictEqual(Array.from(sheets.Faturas_Resumo.rows[0]), [
-        'id_fatura',
-        'id_cartao',
-        'competencia',
-        'data_fechamento',
-        'data_vencimento',
-        'valor_previsto_total',
-        'valor_fechado',
-        'valor_pago',
-        'valor_aberto',
-        'status',
-        'authority_count',
-    ]);
-    assert.deepStrictEqual(Array.from(sheets.Faturas_Linhas.rows[0]), [
-        'id_linha_fatura',
-        'id_fatura',
-        'id_cartao',
-        'competencia',
-        'valor_previsto',
-        'status_origem',
-    ]);
-    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 2);
-    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 3);
-    assert.ok(Object.keys(sheets).some((name) => name.indexOf('Faturas_Backup_') === 0));
 });
 
 test('Apps Script closing_draft action writes schema-compatible family closing draft once', () => {
@@ -2025,7 +1941,7 @@ test('Apps Script pilot card purchase writes launch and expected invoice rows', 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
-    assert.strictEqual(sheets.Faturas.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 2);
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.tipo_evento, 'compra_cartao');
     assert.strictEqual(launch.id_categoria, 'OPEX_FARMACIA');
@@ -2035,14 +1951,16 @@ test('Apps Script pilot card purchase writes launch and expected invoice rows', 
     assert.strictEqual(launch.afeta_dre, true);
     assert.strictEqual(launch.afeta_patrimonio, false);
     assert.strictEqual(launch.afeta_caixa_familiar, false);
-    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
     assert.strictEqual(invoice.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
     assert.strictEqual(invoice.id_cartao, 'CARD_NUBANK_GU');
     assert.strictEqual(invoice.competencia, '2026-04');
     assert.strictEqual(invoice.data_fechamento, '2026-04-30');
     assert.strictEqual(invoice.data_vencimento, '2026-05-07');
-    assert.strictEqual(invoice.valor_previsto, 42.5);
+    assert.strictEqual(invoice.valor_previsto_total, '');
     assert.strictEqual(invoice.status, 'prevista');
+    const invoiceLine = Object.fromEntries(faturasLinhasHeaders.map((header, index) => [header, sheets.Faturas_Linhas.rows[1][index]]));
+    assert.strictEqual(invoiceLine.valor_previsto, 42.5);
 });
 
 test('Apps Script card purchase blocks unrelated fallback category and asks for confirmation', () => {
@@ -2077,7 +1995,7 @@ test('Apps Script card purchase blocks unrelated fallback category and asks for 
     assert.match(result.responseText, /Reenvie com a categoria no texto/);
     assert.match(result.responseText, /Eletronicos e equipamentos/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    assert.strictEqual(sheets.Faturas.rows.length, 1);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 1);
 });
 
 test('Apps Script card purchase accepts notebook when parser selects matching electronics category', () => {
@@ -2108,12 +2026,13 @@ test('Apps Script card purchase accepts notebook when parser selects matching el
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
-    assert.strictEqual(sheets.Faturas.rows.length, 4);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 4);
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.id_categoria, 'OPEX_ELETRONICOS_E_EQUIPAMENTOS');
     assert.strictEqual(launch.parcelas, 3);
-    const invoices = sheets.Faturas.rows.slice(1).map((row) => Object.fromEntries(faturasHeaders.map((header, index) => [header, row[index]])));
-    assert.deepStrictEqual(invoices.map((invoice) => invoice.valor_previsto), [1000, 1000, 1000]);
+    const invoices = sheets.Faturas_Resumo.rows.slice(1).map((row) => Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, row[index]])));
+    const invoiceLines = sheets.Faturas_Linhas.rows.slice(1).map((row) => Object.fromEntries(faturasLinhasHeaders.map((header, index) => [header, row[index]])));
+    assert.deepStrictEqual(invoiceLines.map((invoiceLine) => invoiceLine.valor_previsto), [1000, 1000, 1000]);
     assert.deepStrictEqual(invoices.map((invoice) => invoice.competencia), ['2026-04', '2026-05', '2026-06']);
 });
 
@@ -2444,7 +2363,7 @@ test('Apps Script cash account payment with explicit category is not recorded as
     assert.strictEqual(launch.id_cartao, '');
     assert.strictEqual(launch.id_fatura, '');
     assert.strictEqual(launch.afeta_caixa_familiar, true);
-    assert.strictEqual(sheets.Faturas.rows.length, 1);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 1);
 });
 
 test('Apps Script pilot invoice payment writes cash launch and marks invoice paid', () => {
@@ -2476,7 +2395,7 @@ test('Apps Script pilot invoice payment writes cash launch and marks invoice pai
     assert.strictEqual(result.ok, true);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
-    assert.strictEqual(sheets.Faturas.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 2);
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.tipo_evento, 'pagamento_fatura');
     assert.strictEqual(launch.id_categoria, '');
@@ -2485,7 +2404,7 @@ test('Apps Script pilot invoice payment writes cash launch and marks invoice pai
     assert.strictEqual(launch.afeta_dre, false);
     assert.strictEqual(launch.afeta_patrimonio, false);
     assert.strictEqual(launch.afeta_caixa_familiar, true);
-    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
     assert.strictEqual(invoice.valor_pago, 42.5);
     assert.strictEqual(invoice.status, 'paga');
 });
@@ -2535,7 +2454,7 @@ test('Apps Script pilot invoice payment infers Nubank April invoice and cash sou
     assert.strictEqual(launch.afeta_dre, false);
     assert.strictEqual(launch.afeta_patrimonio, false);
     assert.strictEqual(launch.afeta_caixa_familiar, true);
-    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
     assert.strictEqual(invoice.valor_pago, 1997.73);
     assert.strictEqual(invoice.status, 'paga');
 });
@@ -2700,16 +2619,14 @@ test('Apps Script pilot invoice payment reconciles small reviewed invoice overag
     assert.strictEqual(launch.competencia, '2026-05');
     assert.strictEqual(launch.valor, 1997.73);
     assert.strictEqual(launch.afeta_dre, false);
-    assert.strictEqual(sheets.Faturas.rows.length, 4);
-    const originalFirst = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
-    const originalSecond = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[2][index]]));
-    const reconciliation = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[3][index]]));
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 3);
+    const originalFirst = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
+    const originalSecond = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[2][index]]));
+    const reconciliation = Object.fromEntries(faturasLinhasHeaders.map((header, index) => [header, sheets.Faturas_Linhas.rows[1][index]]));
     assert.strictEqual(originalFirst.status, 'paga');
     assert.strictEqual(originalSecond.status, 'paga');
     assert.strictEqual(reconciliation.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
     assert.strictEqual(reconciliation.valor_previsto, 20.98);
-    assert.strictEqual(reconciliation.valor_pago, 20.98);
-    assert.strictEqual(reconciliation.status, 'paga');
 });
 
 test('Apps Script pilot invoice payment can pay a historical invoice split into duplicate rows', () => {
@@ -2740,8 +2657,8 @@ test('Apps Script pilot invoice payment can pay a historical invoice split into 
     const result = postPilotMessage(context, 'paguei fatura historica 120');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
-    const firstInvoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
-    const secondInvoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[2][index]]));
+    const firstInvoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
+    const secondInvoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[2][index]]));
     assert.strictEqual(firstInvoice.valor_pago, 70);
     assert.strictEqual(secondInvoice.valor_pago, 50);
     assert.strictEqual(firstInvoice.status, 'paga');
@@ -2776,13 +2693,14 @@ test('Apps Script pilot invoice payment charges only outstanding amount on parti
     appendFakeInvoice(sheets, {
         valor_previsto: 100,
         valor_pago: 30,
+        valor_aberto: 70,
         status: 'parcialmente_paga',
     });
 
     const result = postPilotMessage(context, 'paguei restante fatura nubank 70');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
-    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.valor, 70);
     assert.strictEqual(invoice.valor_pago, 100);
@@ -2819,7 +2737,7 @@ test('Apps Script pilot invoice payment requires reviewed invoice and amount', (
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['PILOT_INVOICE_AMOUNT_MISMATCH']);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
     assert.strictEqual(invoice.valor_pago, '');
     assert.strictEqual(invoice.status, 'prevista');
 });
@@ -2852,7 +2770,7 @@ test('Apps Script pilot internal transfer writes family cash entry only', () => 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    assert.strictEqual(sheets.Faturas.rows.length, 1);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 1);
     assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
     const transfer = Object.fromEntries(transferenciasHeaders.map((header, index) => [header, sheets.Transferencias_Internas.rows[1][index]]));
     assert.ok(/^TRF_[A-F0-9]{12}$/.test(transfer.id_transferencia));
@@ -3128,7 +3046,7 @@ test('Apps Script guided registration asks only for missing card', () => {
     assert.match(result.responseText, /Cartao/);
     assert.match(result.responseText, /no Nubank Gustavo/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    assert.strictEqual(sheets.Faturas.rows.length, 1);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 1);
 });
 
 test('Apps Script guided registration asks only for missing invoice', () => {
@@ -3525,7 +3443,8 @@ test('Apps Script runtime writes pilot expense with idempotency before launch ro
     assert.ok(code.includes('waitLock(10000)'));
     assert.ok(code.includes("appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG"));
     assert.ok(code.includes("appendRow_(launchSheet, SHEETS.LANCAMENTOS"));
-    assert.ok(code.includes("appendRow_(invoiceSheet, SHEETS.FATURAS"));
+    assert.ok(code.includes("appendRow_(sheet, SHEETS.FATURAS_RESUMO"));
+    assert.ok(code.includes("appendRow_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS"));
     assert.ok(code.includes("appendRow_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS"));
     assert.ok(code.includes('updateInvoicePayments_'));
     assert.ok(code.includes('duplicate_completed'));

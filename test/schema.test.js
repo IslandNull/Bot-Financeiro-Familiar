@@ -18,7 +18,6 @@ test('schema contains the clean V55 sheets', () => {
         'Config_Categorias',
         'Config_Fontes',
         'Cartoes',
-        'Faturas',
         'Faturas_Resumo',
         'Faturas_Linhas',
         'Lancamentos',

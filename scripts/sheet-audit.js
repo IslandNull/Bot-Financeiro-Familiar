@@ -3,7 +3,6 @@
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
-const { projectInvoiceCycles } = require('../src/invoice-ledger');
 const { ENUMS, HEADERS, SHEETS, getSheetNames } = require('../src/schema');
 
 function auditSheetState(state) {
@@ -40,8 +39,7 @@ function auditSheetState(state) {
   auditStatuses(findings, rows);
   auditLaunchReferences(findings, rows[SHEETS.LANCAMENTOS], { categories, sources, cards, debts, assets });
   auditCardReferences(findings, rows[SHEETS.CARTOES], sources);
-  auditInvoiceReferences(findings, rows[SHEETS.FATURAS], cards);
-  auditDuplicateInvoices(findings, rows[SHEETS.FATURAS]);
+  auditInvoiceReferences(findings, rows[SHEETS.FATURAS_RESUMO], cards);
   auditObligations(findings, rows[SHEETS.DIVIDAS]);
 
   return { ok: true, findings: compactFindings(findings), summary: summarizeFindings(findings) };
@@ -56,7 +54,7 @@ function rowsBySheet(sheets) {
 
 function auditStatuses(findings, rows) {
   checkStatus(findings, rows[SHEETS.LANCAMENTOS], SHEETS.LANCAMENTOS, 'status', ENUMS.lancamento_status.concat(['cancelado_revisao']));
-  checkStatus(findings, rows[SHEETS.FATURAS], SHEETS.FATURAS, 'status', ENUMS.invoice_status.concat(['cancelado_revisao']));
+  checkStatus(findings, rows[SHEETS.FATURAS_RESUMO], SHEETS.FATURAS_RESUMO, 'status', ENUMS.invoice_status.concat(['cancelado_revisao']));
   checkStatus(findings, rows[SHEETS.DIVIDAS], SHEETS.DIVIDAS, 'status', ['ativa', 'em_aberto', 'renegociada', 'quitada', 'inativa', 'cancelada']);
   checkStatus(findings, rows[SHEETS.FECHAMENTO_FAMILIAR], SHEETS.FECHAMENTO_FAMILIAR, 'status', ['draft', 'closed']);
 }
@@ -88,7 +86,7 @@ function auditCardReferences(findings, cards, sources) {
 
 function auditInvoiceReferences(findings, invoices, cards) {
   (invoices || []).forEach((row) => {
-    checkReference(findings, SHEETS.FATURAS, 'id_cartao', row.id_cartao, cards, true);
+    checkReference(findings, SHEETS.FATURAS_RESUMO, 'id_cartao', row.id_cartao, cards, true);
   });
 }
 
@@ -105,13 +103,7 @@ function checkReference(findings, sheetName, field, value, index, activeMatters)
   }
 }
 
-function auditDuplicateInvoices(findings, invoices) {
-  projectInvoiceCycles(invoices).forEach((cycle) => {
-    if (cycle.has_authority_conflict) {
-      add(findings, 'CONCURRENT_CLOSED_INVOICE', 'warning', SHEETS.FATURAS, 'competencia', cycle.authority_count, 'multiple closed invoice authority rows for same card, competence, and due date');
-    }
-  });
-}
+
 
 function auditObligations(findings, debts) {
   (debts || []).forEach((row) => {

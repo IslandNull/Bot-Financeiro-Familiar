@@ -36,7 +36,6 @@ var SHEETS = {
   CONFIG_CATEGORIAS: 'Config_Categorias',
   CONFIG_FONTES: 'Config_Fontes',
   CARTOES: 'Cartoes',
-  FATURAS: 'Faturas',
   FATURAS_RESUMO: 'Faturas_Resumo',
   FATURAS_LINHAS: 'Faturas_Linhas',
   LANCAMENTOS: 'Lancamentos',
@@ -54,7 +53,6 @@ var HEADERS = {
   Config_Fontes: ['id_fonte', 'nome', 'tipo', 'titular', 'moeda', 'ativo'],
   Dividas: ['id_divida', 'nome', 'credor', 'tipo', 'escopo', 'saldo_devedor', 'parcela_atual', 'parcelas_total', 'valor_parcela', 'taxa_juros', 'sistema_amortizacao', 'data_atualizacao', 'status', 'observacao'],
   Fechamento_Familiar: ['competencia', 'status', 'receitas_dre', 'despesas_dre', 'resultado_dre', 'caixa_entradas', 'caixa_saidas', 'sobra_caixa', 'faturas_60d', 'obrigacoes_60d', 'reserva_total', 'patrimonio_liquido', 'margem_pos_obrigacoes', 'capacidade_aporte_segura', 'parcela_maxima_segura', 'pode_avaliar_amortizacao', 'motivo_bloqueio_amortizacao', 'destino_reserva', 'destino_obrigacoes', 'destino_investimentos', 'destino_amortizacao', 'destino_sugerido', 'observacao', 'created_at', 'closed_at'],
-  Faturas: ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'],
   Faturas_Resumo: ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto_total', 'valor_fechado', 'valor_pago', 'valor_aberto', 'status', 'authority_count'],
   Faturas_Linhas: ['id_linha_fatura', 'id_fatura', 'id_cartao', 'competencia', 'valor_previsto', 'status_origem'],
   Lancamentos: ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'parcelas', 'created_at'],
@@ -115,12 +113,6 @@ function doGet(e) {
   }
   if (action === 'sheet_audit') {
     return json_(exportSheetAuditV55());
-  }
-  if (action === 'invoice_migration_preview') {
-    return json_(exportInvoiceMigrationPreviewV55());
-  }
-  if (action === 'invoice_migration_apply') {
-    return json_(applyInvoiceMigrationV55(params));
   }
   return json_({ ok: false, error: 'UNKNOWN_ACTION', action: action });
 }
@@ -427,7 +419,7 @@ function exportSnapshotV55() {
     var transfers = readRowsAsObjects_(transSheet, SHEETS.TRANSFERENCIAS_INTERNAS).filter(function(row) {
       return normalizeSheetCompetencia_(row.competencia) === competencia && row.escopo === 'Familiar';
     });
-    var invoices = readRowsAsObjects_(fatSheet, SHEETS.FATURAS);
+    var invoices = fatResumoRows;
     var assets = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS), SHEETS.PATRIMONIO_ATIVOS);
     var debts = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.DIVIDAS), SHEETS.DIVIDAS);
     var recurringIncomes = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.RENDAS_RECORRENTES), SHEETS.RENDAS_RECORRENTES);
@@ -503,15 +495,15 @@ function exportSheetAuditV55() {
   var assets = indexBy_(rows[SHEETS.PATRIMONIO_ATIVOS], 'id_ativo');
 
   auditStatusRows_(findings, rows[SHEETS.LANCAMENTOS], SHEETS.LANCAMENTOS, 'status', ['agendado', 'pendente', 'efetivado', 'cancelado', 'cancelado_revisao']);
-  auditStatusRows_(findings, rows[SHEETS.FATURAS], SHEETS.FATURAS, 'status', ['prevista', 'fechada', 'paga', 'parcialmente_paga', 'divergente', 'ajustada', 'cancelada', 'cancelado_revisao']);
+  auditStatusRows_(findings, rows[SHEETS.FATURAS_RESUMO], SHEETS.FATURAS_RESUMO, 'status', ['prevista', 'fechada', 'paga', 'parcialmente_paga', 'divergente', 'ajustada', 'cancelada', 'cancelado_revisao']);
+  auditStatusRows_(findings, rows[SHEETS.FATURAS_LINHAS], SHEETS.FATURAS_LINHAS, 'status_origem', ['prevista', 'compra_cartao', 'fatura_prevista']);
   auditStatusRows_(findings, rows[SHEETS.DIVIDAS], SHEETS.DIVIDAS, 'status', ['ativa', 'em_aberto', 'renegociada', 'quitada', 'inativa', 'cancelada']);
   auditStatusRows_(findings, rows[SHEETS.FECHAMENTO_FAMILIAR], SHEETS.FECHAMENTO_FAMILIAR, 'status', ['draft', 'closed']);
 
   auditLaunchReferences_(findings, rows[SHEETS.LANCAMENTOS], categories, sources, cards, debts, assets);
   auditCardReferences_(findings, rows[SHEETS.CARTOES], sources);
-  auditInvoiceReferences_(findings, rows[SHEETS.FATURAS], cards);
-  auditDuplicateInvoices_(findings, rows[SHEETS.FATURAS]);
-  auditObligationRows_(findings, rows[SHEETS.DIVIDAS]);
+  auditInvoiceReferences_(findings, rows[SHEETS.FATURAS_RESUMO], cards);
+  auditDuplicateInvoices_(findings, rows[SHEETS.FATURAS_RESUMO]);
 
   return {
     ok: true,
@@ -525,10 +517,19 @@ function exportInvoiceMigrationPreviewV55() {
   var config = readConfig_();
   if (!config.spreadsheetId) return { ok: false, error: 'MISSING_SPREADSHEET_ID' };
   var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
-  var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
-  verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
-  var invoices = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS);
-  var preview = buildInvoiceMigrationPreview_(invoices);
+  var catSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_CATEGORIAS);
+  var fonSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_FONTES);
+  var carSheet = spreadsheet.getSheetByName(SHEETS.CARTOES);
+  var fatResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
+  var fatLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
+  var lanSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+    
+  if (!catSheet || !fonSheet || !carSheet || !fatResumoSheet || !fatLinhasSheet || !lanSheet) {
+    return { ok: false, error: 'SHEETS_NOT_FOUND' };
+  }
+
+  var fatResumoRows = readRowsAsObjects_(fatResumoSheet, SHEETS.FATURAS_RESUMO);
+  var preview = buildInvoiceMigrationPreview_(fatResumoRows);
   preview.shouldApplyDomainMutation = false;
   return preview;
 }
@@ -614,7 +615,7 @@ function invoiceLineRows_(lines) {
       row.id_fatura,
       row.id_cartao,
       row.competencia,
-      row.valor_previsto,
+      row.valor_previsto_total,
       row.status_origem,
       index,
     ].join('|'));
@@ -653,7 +654,7 @@ function buildInvoiceMigrationPreview_(invoices) {
       id_fatura: stringValue_(row.id_fatura),
       id_cartao: stringValue_(row.id_cartao),
       competencia: normalizeSheetCompetencia_(row.competencia) || stringValue_(row.competencia),
-      valor_previsto: roundMoney_(numberFromSheetValue_(row.valor_previsto)),
+      valor_previsto: roundMoney_(numberFromSheetValue_(row.valor_previsto_total)),
       status_origem: stringValue_(row.status),
     };
   });
@@ -703,7 +704,7 @@ function projectInvoiceMigrationCycles_(invoices) {
     if (!cycle.data_vencimento && formatSheetDate_(row.data_vencimento)) cycle.data_vencimento = formatSheetDate_(row.data_vencimento);
 
     if (!isInvoiceMigrationAuthorityRow_(row)) {
-      cycle.planned_amount = roundMoney_(cycle.planned_amount + numberFromSheetValue_(row.valor_previsto));
+      cycle.planned_amount = roundMoney_(cycle.planned_amount + numberFromSheetValue_(row.valor_previsto_total));
       cycle.paid_amount = roundMoney_(cycle.paid_amount + numberFromSheetValue_(row.valor_pago));
       cycle.planned_count += 1;
       return;
@@ -771,7 +772,7 @@ function invoiceMigrationConflictKey_(row) {
 
 function invoiceMigrationExpectedAmount_(row) {
   var closed = numberFromSheetValue_(row.valor_fechado);
-  return closed > 0 ? closed : numberFromSheetValue_(row.valor_previsto);
+  return closed > 0 ? closed : numberFromSheetValue_(row.valor_previsto_total);
 }
 
 function isInvoiceMigrationAuthorityRow_(row) {
