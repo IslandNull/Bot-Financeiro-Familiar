@@ -332,7 +332,7 @@ Status: Accepted
 Date: 2026-05-20
 
 Decision:
-Treat current `Faturas` rows as a compatibility ledger with two meanings: planned exposure lines from purchases/installments, and authority rows from reviewed/closed/paid invoice state. Local code now projects those rows into invoice cycles before summing open exposure. A future spreadsheet migration should split this into invoice headers/authority and purchase/installment exposure lines instead of relying on overloaded rows.
+Treat current `Faturas` rows as a compatibility ledger with two meanings: planned exposure lines from purchases/installments, and authority rows from reviewed/closed/paid invoice state. Local and runtime code project those rows into invoice cycles before summing open exposure. `invoice:preview` provides a read-only aggregate dry-run for the future split into invoice headers/authority and purchase/installment exposure lines.
 
 Reason:
 The live sheet legitimately has many `prevista` rows per card and competence because each purchase or installment contributes exposure. Those rows are not duplicates. Closed or partially paid invoice rows are stronger authority and must prevent double counting planned exposure for the same card, competence, and due date.

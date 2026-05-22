@@ -110,7 +110,61 @@ function sumInvoiceOpenAmount(invoiceCyclesOrRows) {
     return roundMoney((cycles || []).reduce((sum, cycle) => sum + money(cycle.open_amount), 0));
 }
 
+function buildInvoiceMigrationPreview(invoices) {
+    const rows = Array.isArray(invoices) ? invoices : [];
+    const cycles = projectInvoiceCycles(rows);
+    const plannedRows = rows.filter((row) => text(row.status) === 'prevista');
+    const invoiceHeaders = cycles.map((cycle) => ({
+        id_fatura: cycle.id_fatura,
+        id_cartao: cycle.id_cartao,
+        competencia: cycle.competencia,
+        data_fechamento: cycle.data_fechamento,
+        data_vencimento: cycle.data_vencimento,
+        valor_previsto_total: cycle.planned_amount,
+        valor_fechado: cycle.authority_amount,
+        valor_pago: cycle.paid_amount,
+        valor_aberto: cycle.open_amount,
+        has_authority: cycle.has_authority,
+        has_authority_conflict: cycle.has_authority_conflict,
+        authority_count: cycle.authority_count,
+    }));
+    const exposureLines = plannedRows.map((row) => ({
+        id_fatura: text(row.id_fatura),
+        id_cartao: text(row.id_cartao),
+        competencia: text(row.competencia),
+        valor_previsto: roundMoney(Math.max(0, money(row.valor_previsto) - money(row.valor_pago))),
+        status_origem: text(row.status),
+    }));
+    const conflicts = cycles
+        .filter((cycle) => cycle.has_authority_conflict)
+        .map((cycle) => ({
+            id_cartao: cycle.id_cartao,
+            competencia: cycle.competencia,
+            data_vencimento: cycle.data_vencimento,
+            authority_count: cycle.authority_count,
+        }));
+
+    return {
+        ok: true,
+        summary: {
+            current_rows: rows.length,
+            future_invoice_headers: invoiceHeaders.length,
+            future_exposure_lines: exposureLines.length,
+            authority_cycles: cycles.filter((cycle) => cycle.has_authority).length,
+            conflict_cycles: conflicts.length,
+            planned_total: roundMoney(cycles.reduce((sum, cycle) => sum + cycle.planned_amount, 0)),
+            authority_total: roundMoney(cycles.reduce((sum, cycle) => sum + cycle.authority_amount, 0)),
+            paid_total: roundMoney(cycles.reduce((sum, cycle) => sum + cycle.paid_amount, 0)),
+            open_total: sumInvoiceOpenAmount(cycles),
+        },
+        invoice_headers: invoiceHeaders,
+        exposure_lines: exposureLines,
+        conflicts,
+    };
+}
+
 module.exports = {
+    buildInvoiceMigrationPreview,
     projectInvoiceCycles,
     sumInvoiceOpenAmount,
 };

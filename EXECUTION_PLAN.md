@@ -16,10 +16,12 @@ Operational authority for Bot Financeiro Familiar V55.
 - Live schema authority is `SHEET_SCHEMA.md`. `Telegram_Send_Log` is retired from the live schema; if it still exists in the real spreadsheet, `sheet:audit` reports it as an extra candidate for future cleanup.
 - `/resumo` uses informed source balances plus reserve/liquidity assets to evaluate current invoice and obligation coverage.
 - Parser and deterministic overrides protect strict dates/money, payable invoices, partial invoice payment, closed periods, benefit conversion, own-source transfers, explicit invoice payments, card/account disambiguation, and category confirmation.
+- Guided registration failures ask for the minimum missing category/source/card/invoice detail and show a resend example.
 - Read-only views keep private personal detail aggregate-only in shared reports.
 - Current real closing state in snapshot: 2026-04 closed; 2026-05 open with May usage in progress.
 - `sheet:audit` is read-only and currently reports no structural errors; the remaining known warning is the retired extra `Telegram_Send_Log` sheet.
 - Local invoice projection separates planned card exposure from closed/paid invoice authority without mutating the spreadsheet.
+- `invoice:preview` is a read-only dry-run for splitting overloaded `Faturas` into invoice headers/authority plus exposure lines; it reports aggregates and conflicts only.
 
 ### Unverified
 
@@ -44,7 +46,7 @@ Operational authority for Bot Financeiro Familiar V55.
 The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>`.
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env`.
 
-Available actions: `snapshot`, `summary`, `closing_draft`, `closing_close`, `selftest`, and `sheet_audit`.
+Available actions: `snapshot`, `summary`, `closing_draft`, `closing_close`, `selftest`, `sheet_audit`, and `invoice_migration_preview`.
 
 On Windows with PowerShell execution policy, use `npm.cmd` and `clasp.cmd` if needed.
 
@@ -66,6 +68,6 @@ Optional keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`.
 
 ## Next Work
 
-1. Improve guided registration UX so the bot asks only the minimum missing detail for ambiguous category/source/card/invoice input.
-2. Build a dry-run migration preview for the real `Faturas` split: invoice headers/authority plus purchase/installment exposure lines.
-3. Design budget/envelope config before implementing category limits; do not infer limits from category names.
+1. Use `invoice:preview` plus `sheet:audit` to design the actual future `Faturas` split before any spreadsheet mutation.
+2. Design budget/envelope config before implementing category limits; do not infer limits from category names.
+3. Prepare a guarded migration plan only after the split design has reviewed invariants and rollback/dry-run evidence.

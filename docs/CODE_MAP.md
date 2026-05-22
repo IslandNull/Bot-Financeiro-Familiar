@@ -17,6 +17,7 @@ Codebase navigation guide for V55.
 | `test/*.js` | Node.js tests. Run with `npm test`. |
 | `scripts/clasp-run.js` | HTTP-based remote execution helper. Reads `.env` for `WEBAPP_URL`, `WEBHOOK_SECRET`, `DEPLOY_ID`. |
 | `scripts/sheet-audit.js` | Read-only sheet auditor. With no args, calls remote `sheet_audit`; with a JSON state file, audits offline. |
+| `scripts/invoice-migration-preview.js` | Read-only formatter for the remote `invoice_migration_preview` dry-run. |
 | `EXECUTION_PLAN.md` | Operational authority: current state, rules, next steps. |
 | `DOMAIN_RULES.md` | Financial domain rules (event types, scopes, visibility, mandatory rules). |
 | `SHEET_SCHEMA.md` | Canonical live V55 sheet schema (12 sheets). |
@@ -69,7 +70,8 @@ doGet(e)
        ├─ closing_draft → writeDraftFamilyClosingV55()
        ├─ closing_close → closeReviewedFamilyClosingV55()
        ├─ selftest → runHelpSmokeSelfTest()
-       └─ sheet_audit → exportSheetAuditV55()
+       ├─ sheet_audit → exportSheetAuditV55()
+       └─ invoice_migration_preview → exportInvoiceMigrationPreviewV55()
 ```
 
 **Runtime file split:**

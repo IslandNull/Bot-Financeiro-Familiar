@@ -1160,6 +1160,39 @@ test('Apps Script sheet_audit accepts planned invoice lines but flags concurrent
     assert.ok(withClosedConflict.findings.some((finding) => finding.code === 'CONCURRENT_CLOSED_INVOICE' && finding.count === 2));
 });
 
+test('Apps Script invoice_migration_preview action returns redacted dry-run split', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeInvoice(sheets, { valor_previsto: 40, status: 'prevista' });
+    appendFakeInvoice(sheets, { valor_previsto: 60, status: 'prevista' });
+    appendFakeInvoice(sheets, { valor_previsto: '', valor_fechado: 95, valor_pago: 20, status: 'fechada' });
+
+    const result = runRemoteAction(context, 'invoice_migration_preview');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.deepStrictEqual(result.summary, {
+        current_rows: 3,
+        future_invoice_headers: 1,
+        future_exposure_lines: 2,
+        authority_cycles: 1,
+        conflict_cycles: 0,
+        planned_total: 100,
+        authority_total: 95,
+        paid_total: 20,
+        open_total: 75,
+    });
+    assert.strictEqual(result.invoice_headers.length, 1);
+    assert.strictEqual(result.exposure_lines.length, 2);
+    assert.deepStrictEqual(Object.keys(result.exposure_lines[0]).sort(), [
+        'competencia',
+        'id_cartao',
+        'id_fatura',
+        'status_origem',
+        'valor_previsto',
+    ]);
+    assert.strictEqual(sheets.Faturas.rows.length, 4);
+});
+
 test('Apps Script closing_draft action writes schema-compatible family closing draft once', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
