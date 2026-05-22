@@ -3012,6 +3012,168 @@ test('Apps Script guided registration asks only for missing source', () => {
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
+test('Apps Script conversation context persists a rolling 25-message window and can be cleared', () => {
+    const { context } = createAppsScriptHarness(null, { failOnFetch: true });
+
+    for (let index = 1; index <= 30; index += 1) {
+        const result = postPilotMessage(context, '/ajuda', {
+            updateId: `ctx_update_${index}`,
+            messageId: `ctx_message_${index}`,
+        });
+        assert.strictEqual(result.ok, true);
+    }
+
+    const state = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1);
+    assert.strictEqual(state.messages.length, 25);
+    assert.strictEqual(state.messages[0].text, '/ajuda');
+    assert.strictEqual(state.messages[0].role, 'user');
+    assert.strictEqual(state.messages[24].role, 'user');
+
+    const cleared = postPilotMessage(context, '/limpar_contexto', {
+        updateId: 'ctx_clear_update',
+        messageId: 'ctx_clear_message',
+    });
+
+    assert.strictEqual(cleared.ok, true);
+    assert.match(cleared.responseText, /Contexto limpo/);
+    assert.strictEqual(context.__scriptProperties.BFF_CONVERSATION_chat_1, undefined);
+});
+
+test('Apps Script guided registration resumes pending expense when user replies with source only', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '10',
+        descricao: 'mercado 10',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const ask = postPilotMessage(context, 'mercado 10', {
+        updateId: 'pending_source_1',
+        messageId: 'pending_source_msg_1',
+    });
+    assert.strictEqual(ask.ok, false);
+    assert.deepStrictEqual(ask.errors.map((error) => error.code), ['CONFIG_SOURCE_BLOCKED']);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+
+    const resumed = postPilotMessage(context, 'Conta familia', {
+        updateId: 'pending_source_2',
+        messageId: 'pending_source_msg_2',
+    });
+
+    assert.strictEqual(resumed.ok, true);
+    assert.match(resumed.responseText, /Gasto anotado/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_FAMILIA');
+    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1).pending_intent, null);
+});
+
+test('Apps Script guided registration resumes pending card purchase when user replies with card only', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '18',
+        descricao: 'farmacia 18',
+        id_categoria: 'OPEX_FARMACIA',
+        id_fonte: '',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: 'CARD_INEXISTENTE',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const ask = postPilotMessage(context, 'farmacia 18', {
+        updateId: 'pending_card_1',
+        messageId: 'pending_card_msg_1',
+    });
+    assert.strictEqual(ask.ok, false);
+    assert.deepStrictEqual(ask.errors.map((error) => error.code), ['CONFIG_CARD_BLOCKED']);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+
+    const resumed = postPilotMessage(context, 'Nubank Gustavo', {
+        updateId: 'pending_card_2',
+        messageId: 'pending_card_msg_2',
+    });
+
+    assert.strictEqual(resumed.ok, true);
+    assert.match(resumed.responseText, /Compra no cart/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(sheets.Faturas.rows.length, 2);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_cartao, 'CARD_NUBANK_GU');
+    assert.strictEqual(launch.id_fonte, 'FONTE_NUBANK_GU');
+});
+
+test('Apps Script guided registration resumes pending invoice payment when user replies with invoice card only', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'pagamento_fatura',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '42.50',
+        descricao: 'paguei fatura 42,50',
+        id_categoria: '',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: 'FAT_INEXISTENTE',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    appendFakeInvoice(sheets, { valor_previsto: 42.5 });
+
+    const ask = postPilotMessage(context, 'paguei fatura 42,50', {
+        updateId: 'pending_invoice_1',
+        messageId: 'pending_invoice_msg_1',
+    });
+    assert.strictEqual(ask.ok, false);
+    assert.deepStrictEqual(ask.errors.map((error) => error.code), ['PILOT_INVOICE_NOT_FOUND']);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+
+    const resumed = postPilotMessage(context, 'Nubank', {
+        updateId: 'pending_invoice_2',
+        messageId: 'pending_invoice_msg_2',
+    });
+
+    assert.strictEqual(resumed.ok, true);
+    assert.match(resumed.responseText, /Pagamento de fatura anotado/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
+    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    assert.strictEqual(invoice.status, 'paga');
+});
+
 test('Apps Script guided registration asks only for missing card', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'compra_cartao',

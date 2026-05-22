@@ -26,6 +26,7 @@ var HELP_TEXT = [
   '- /resumo: visao do mes sem alterar a planilha',
   '- /agenda: faturas e compromissos por data',
   '- /revisar_mes: checklist antes de fechamento',
+  '- /limpar_contexto: apaga a conversa pendente deste chat',
   '- /ajuda: exemplos'
 ].join('\n');
 var SUCCESS_TEXT = '✅ Anotado.\n\n🧭 Próximo passo\nUse /resumo para revisar o mês.';

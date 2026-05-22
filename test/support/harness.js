@@ -91,13 +91,21 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
         OPENAI_MODEL: 'gpt-5.4-nano',
         ...(options.properties || {}),
     };
+    const scriptProperties = { ...properties };
     const context = {
         console,
+        __scriptProperties: scriptProperties,
         PropertiesService: {
             getScriptProperties() {
                 return {
                     getProperty(name) {
-                        return properties[name] || '';
+                        return scriptProperties[name] || '';
+                    },
+                    setProperty(name, value) {
+                        scriptProperties[name] = String(value);
+                    },
+                    deleteProperty(name) {
+                        delete scriptProperties[name];
                     },
                 };
             },
@@ -189,16 +197,20 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
     return { context, sheets };
 }
 
-function postPilotMessage(context, text) {
+function postPilotMessage(context, text, options = {}) {
+    const updateId = options.updateId || 'update_1';
+    const messageId = options.messageId || 'message_1';
+    const chatId = options.chatId || 'chat_1';
+    const userId = options.userId || 'user_1';
     const output = context.doPost({
         parameter: { secret: 'test_secret' },
         postData: {
             contents: JSON.stringify({
-                update_id: 'update_1',
+                update_id: updateId,
                 message: {
-                    message_id: 'message_1',
-                    chat: { id: 'chat_1' },
-                    from: { id: 'user_1' },
+                    message_id: messageId,
+                    chat: { id: chatId },
+                    from: { id: userId },
                     text,
                 },
             }),

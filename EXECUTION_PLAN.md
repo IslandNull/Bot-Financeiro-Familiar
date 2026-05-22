@@ -16,6 +16,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Live schema authority is `SHEET_SCHEMA.md`. `Telegram_Send_Log` is retired from the live schema; if it still exists in the real spreadsheet, `sheet:audit` reports it as an extra candidate for future cleanup.
 - `/resumo` uses informed source balances plus reserve/liquidity assets to evaluate current invoice and obligation coverage.
 - Parser and deterministic overrides protect strict dates/money, payable invoices, partial invoice payment, closed periods, benefit conversion, own-source transfers, explicit invoice payments, card/account disambiguation, and category confirmation.
+- Telegram runtime keeps a short persistent conversation state in Script Properties per chat: last 25 user messages plus one pending intent for guided source/card/invoice completion.
 - Read-only views keep private personal detail aggregate-only in shared reports.
 - Current real closing state in snapshot: 2026-04 closed; 2026-05 open with May usage in progress.
 - `sheet:audit` is read-only and currently reports no structural errors; the remaining known warning is the retired extra `Telegram_Send_Log` sheet.
@@ -64,8 +65,10 @@ Required keys: `WEBHOOK_SECRET`, `AUTHORIZED_USER_IDS`, `AUTHORIZED_CHAT_IDS`, `
 
 Optional keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`.
 
+Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Properties. Use `/limpar_contexto` from Telegram to clear the current chat state.
+
 ## Next Work
 
-1. Improve guided registration UX so the bot asks only the minimum missing detail for ambiguous category/source/card/invoice input.
-2. Build a dry-run migration preview for the real `Faturas` split: invoice headers/authority plus purchase/installment exposure lines.
-3. Design budget/envelope config before implementing category limits; do not infer limits from category names.
+1. Build a dry-run migration preview for the real `Faturas` split: invoice headers/authority plus purchase/installment exposure lines.
+2. Design budget/envelope config before implementing category limits; do not infer limits from category names.
+3. Expand conversational read-only answers to resolve references like "essa fatura" from recent context.
