@@ -2,7 +2,7 @@
 
 Operational authority for Bot Financeiro Familiar V55.
 
-## Current State (2026-05-20)
+## Current State (2026-05-22)
 
 ### Verified
 
@@ -19,12 +19,11 @@ Operational authority for Bot Financeiro Familiar V55.
 - Guided registration failures ask for the minimum missing category/source/card/invoice detail and show a resend example.
 - Read-only views keep private personal detail aggregate-only in shared reports.
 - Current real closing state in snapshot: 2026-04 closed; 2026-05 open with May usage in progress.
-- `sheet:audit` is read-only and currently reports no structural errors; the remaining known warning is the retired extra `Telegram_Send_Log` sheet.
-- Local invoice projection separates planned card exposure from closed/paid invoice authority without mutating the spreadsheet.
-- `invoice:preview` is a read-only dry-run for splitting overloaded `Faturas` into invoice headers/authority plus exposure lines; it reports aggregates and conflicts only.
-- `invoice:plan` combines audit plus preview. Paid historical exposure rows without `valor_fechado` are not authority conflicts.
-- `invoice:design` documents the guarded future `Faturas` apply design with backup, dry-run diff, rollback and explicit owner-approval gates; it does not mutate Sheets.
-- `invoice_migration_apply` is the guarded real apply action for the `Faturas` split and requires `confirm=APPLY_FATURAS_SPLIT`; it backs up `Faturas`, writes `Faturas_Resumo` and `Faturas_Linhas`, and leaves original `Faturas` intact.
+- `sheet:audit` is read-only; post-migration audit reports 0 errors, 3 warnings (2 backup sheets + retired `Telegram_Send_Log`).
+- `Faturas` migration applied on 2026-05-22: 155 original rows split into 23 `Faturas_Resumo` headers and 152 `Faturas_Linhas` exposure lines. Backup: `Faturas_Backup_20260522201042`. Original `Faturas` remains intact as compatibility source.
+- Post-apply verification: selftest passed, audit 0 errors, 0 authority conflicts, 2 authority cycles confirmed.
+- `invoice:preview`, `invoice:plan`, `invoice:design` remain available as read-only planning/audit tools.
+- Runtime still consumes original `Faturas` for compatibility; switch to `Faturas_Resumo`/`Faturas_Linhas` is the next reviewed step.
 
 ### Unverified
 
@@ -71,6 +70,7 @@ Optional keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`.
 
 ## Next Work
 
-1. Verify the real `Faturas` split output after apply, then decide when runtime should consume `Faturas_Resumo`/`Faturas_Linhas` instead of compatibility projection.
-2. Design budget/envelope config before implementing category limits; do not infer limits from category names.
-3. Keep physical cleanup (`Telegram_Send_Log`, old compatibility `Faturas`) behind backup and explicit apply approval.
+1. Switch runtime to consume `Faturas_Resumo`/`Faturas_Linhas` instead of compatibility projection from `Faturas`. Requires reviewed code change + tests.
+2. Clean up extra backup sheets (`Faturas_Backup_*`) and retired `Telegram_Send_Log` from the real spreadsheet behind explicit approval.
+3. Design budget/envelope config before implementing category limits; do not infer limits from category names.
+4. Deeper UX beyond guided registration: natural conversational flows, Luana onboarding.
