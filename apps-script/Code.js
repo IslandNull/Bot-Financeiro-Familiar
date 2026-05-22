@@ -587,9 +587,8 @@ function createOrReplaceSheet_(spreadsheet, name) {
 
 function writeMatrixToSheet_(sheet, values) {
   sheet.clear();
-  for (var i = 0; i < values.length; i += 1) {
-    sheet.appendRow(values[i]);
-  }
+  if (values.length === 0) return;
+  sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
 }
 
 function rowsToMatrix_(rows, sheetName) {

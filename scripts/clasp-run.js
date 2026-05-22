@@ -67,7 +67,7 @@ function httpGet(targetUrl, redirectCount) {
   }
   return new Promise(function(resolve, reject) {
     const mod = targetUrl.startsWith('https') ? https : require('http');
-    var req = mod.get(targetUrl, { timeout: 30000 }, function(res) {
+    var req = mod.get(targetUrl, { timeout: 120000 }, function(res) {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         resolve(httpGet(res.headers.location, redirectCount + 1));
         return;
