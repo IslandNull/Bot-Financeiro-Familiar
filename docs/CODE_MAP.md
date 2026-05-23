@@ -95,7 +95,7 @@ doGet(e)
 **Tracking:** `Patrimonio_Ativos`, `Dividas`, `Rendas_Recorrentes`, `Saldos_Fontes`
 **Operational:** `Idempotency_Log`
 
-`Telegram_Send_Log` may still exist in the real spreadsheet as retired operational residue; it is not live schema and `sheet:audit` reports it as extra.
+`Telegram_Send_Log` is retired from the live schema. Manual owner check on 2026-05-23 confirmed the real spreadsheet no longer has backup sheets or retired send-log sheets.
 
 Full headers in `SHEET_SCHEMA.md`.
 

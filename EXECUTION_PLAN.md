@@ -13,7 +13,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Runtime validation reads active categories, sources, cards, payable invoices, assets, debts, source balances, and closed family closings from Sheets.
 - April 2026 was rebuilt and closed from reviewed local source material. April corrections must now be explicit `ajuste`; historical JSONL import is retired.
 - Historical repair/setup/import actions are not live runtime. See `docs/archive/HISTORICAL_REPAIR_ACTIONS.md`.
-- Live schema authority is `SHEET_SCHEMA.md`. `Telegram_Send_Log` is retired from the live schema; if it still exists in the real spreadsheet, `sheet:audit` reports it as an extra candidate for future cleanup.
+- Live schema authority is `SHEET_SCHEMA.md`. Manual owner check on 2026-05-23 confirmed the real spreadsheet no longer has backup sheets or retired `Telegram_Send_Log`.
 - `/resumo` uses informed source balances plus reserve/liquidity assets to evaluate current invoice and obligation coverage.
 - Parser and deterministic overrides protect strict dates/money, payable invoices, partial invoice payment, closed periods, benefit conversion, own-source transfers, explicit invoice payments, card/account disambiguation, and category confirmation.
 - Telegram runtime keeps a short persistent conversation state in Script Properties per chat: last 25 user messages plus one pending intent for guided source/card/invoice completion.
@@ -28,7 +28,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Full production readiness beyond owner pilot usage.
 - UX readiness with Luana using real Telegram messages.
 - Budget/envelope limits; no category-limit behavior exists until reviewed config/schema is designed.
-- Real spreadsheet cleanup beyond read-only audit.
+- Remote `sheet:audit` after the manual spreadsheet cleanup.
 
 ## Execution Rules
 
@@ -70,6 +70,6 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 
 ## Next Work
 
-1. Re-run remote `sheet:audit`; if it still reports extra backup sheets or retired `Telegram_Send_Log`, clean the real spreadsheet behind explicit approval.
+1. Re-run remote `sheet:audit` to confirm the manual spreadsheet cleanup.
 2. Expand conversational read-only answers to resolve references like "essa fatura" or "nesse cartão" from recent context.
 3. Design budget/envelope config before implementing category limits; do not infer limits from category names.
