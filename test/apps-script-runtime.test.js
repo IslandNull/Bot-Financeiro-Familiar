@@ -563,6 +563,36 @@ test('Apps Script /resumo picks latest source balance when sheet dates are Date 
     assert.strictEqual(result.summary.saldos_fontes_disponivel, 113.15);
 });
 
+test('Apps Script /resumo ignores source balance rows not present in active Config_Fontes', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeSourceBalance(sheets, {
+        id_snapshot: 'SALDO_LEGADO',
+        id_fonte: 'FONTE_MP_GU',
+        competencia: '2026-04',
+        saldo_final: 324.41,
+        saldo_disponivel: 324.41,
+    });
+    appendFakeSourceBalance(sheets, {
+        id_snapshot: 'SALDO_ATIVO',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        competencia: '2026-04',
+        saldo_final: 113.15,
+        saldo_disponivel: 113.15,
+    });
+
+    const result = runRemoteAction(context, 'summary', { competencia: '2026-04' });
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.summary.saldos_fontes_disponivel, 113.15);
+    assert.deepStrictEqual(result.summary.saldos_fontes_detalhe.map((item) => item.id_fonte), ['FONTE_CONTA_FAMILIA']);
+});
+
 test('Apps Script /resumo projects salary before scheduled invoices and obligations', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,

@@ -417,7 +417,7 @@ function summarizePilotSourceBalances_(rows, competencia, sourcesById) {
   return Object.keys(selectedBySource).reduce(function(summary, key) {
     var row = selectedBySource[key];
     var source = sourcesById && sourcesById[row.id_fonte];
-    if (source && (source.tipo === 'cartao_credito' || source.tipo === 'beneficio')) {
+    if (!source || source.ativo === false || source.tipo === 'cartao_credito' || source.tipo === 'beneficio') {
       return summary;
     }
     summary.saldos_fontes_count += 1;
