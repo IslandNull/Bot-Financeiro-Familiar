@@ -23,5 +23,6 @@ Removed from `doGet`, V55 exports, global wrappers, and local tests:
 - `ensure_april_2026_config`
 - `ensure_april_2026_house_debts`
 - `migrateV55Parcelas`
+- `clean_spreadsheet_v55` (Consolidated duplicate credit cards `CARD_MP_GU` and `CARD_MERCADO_PAGO_GU`, updated limit to 10300, deleted duplicate sources, duplicate house debts, and consolidated category `OPEX_MERCADO_SEMANA_CARTAO` into `OPEX_MERCADO_SEMANA`, migrating all affected rows in `Lancamentos`, `Faturas_Linhas`, and `Faturas_Resumo` on 2026-05-23).
 
 This archive intentionally contains no executable code.

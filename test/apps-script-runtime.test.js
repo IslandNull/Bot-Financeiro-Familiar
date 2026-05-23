@@ -608,7 +608,7 @@ test('Apps Script /resumo subtracts effective invoice payments when invoice rows
     });
     sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
         id_cartao: 'CARD_MP_GU',
-        id_fonte: 'FONTE_MP_GU',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
         nome: 'Mercado Pago Gustavo',
         titular: 'Gustavo',
         fechamento_dia: 30,
@@ -618,7 +618,7 @@ test('Apps Script /resumo subtracts effective invoice payments when invoice rows
     })[header] ?? ''));
     sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
         id_cartao: 'CARD_MERCADO_PAGO_GU',
-        id_fonte: 'FONTE_MP_GU',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
         nome: 'Mercado Pago Gustavo',
         titular: 'Gustavo',
         fechamento_dia: 30,
@@ -660,7 +660,7 @@ test('Apps Script /resumo uses closed invoice total as authority over planned ca
     });
     sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
         id_cartao: 'CARD_MERCADO_PAGO_GU',
-        id_fonte: 'FONTE_MP_GU',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
         nome: 'Mercado Pago Gustavo',
         titular: 'Gustavo',
         fechamento_dia: 31,
@@ -714,7 +714,7 @@ test('Apps Script /resumo ignores premature fechada row when closing date is in 
     });
     sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
         id_cartao: 'CARD_MERCADO_PAGO_GU',
-        id_fonte: 'FONTE_MP_GU',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
         nome: 'Mercado Pago Gustavo',
         titular: 'Gustavo',
         fechamento_dia: 31,
@@ -2227,7 +2227,7 @@ test('Apps Script card purchase overrides parser expense type when text explicit
     assert.strictEqual(launch.afeta_caixa_familiar, false);
 });
 
-test('Apps Script card purchase uses the most specific explicit card category', () => {
+test('Apps Script card purchase uses explicit category', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'despesa',
         data: '2026-05-09',
@@ -2250,19 +2250,6 @@ test('Apps Script card purchase uses the most specific explicit card category', 
         status: '',
         parcelas: 1,
     });
-    sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => ({
-        id_categoria: 'OPEX_MERCADO_SEMANA_CARTAO',
-        nome: 'Mercado da semana cartao',
-        grupo: 'Casa',
-        tipo_evento_padrao: 'compra_cartao',
-        classe_dre: 'despesa_operacional',
-        escopo_padrao: 'Familiar',
-        afeta_dre_padrao: true,
-        afeta_patrimonio_padrao: false,
-        afeta_caixa_familiar_padrao: false,
-        visibilidade_padrao: 'detalhada',
-        ativo: true,
-    })[header] ?? ''));
     sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
         id_fonte: 'FONTE_MERCADO_PAGO_GU',
         nome: 'Mercado Pago Gustavo',
@@ -2282,12 +2269,12 @@ test('Apps Script card purchase uses the most specific explicit card category', 
         ativo: true,
     })[header] ?? ''));
 
-    const result = postPilotMessage(context, 'Comprei mercado da semana 36,92 no cartão Mercado Pago Gustavo em 09/05. Categoria mercado da semana cartão.');
+    const result = postPilotMessage(context, 'Comprei mercado da semana 36,92 no cartão Mercado Pago Gustavo em 09/05. Categoria mercado da semana.');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.tipo_evento, 'compra_cartao');
-    assert.strictEqual(launch.id_categoria, 'OPEX_MERCADO_SEMANA_CARTAO');
+    assert.strictEqual(launch.id_categoria, 'OPEX_MERCADO_SEMANA');
     assert.strictEqual(launch.id_cartao, 'CARD_MERCADO_PAGO_GU');
     assert.strictEqual(launch.id_fonte, 'FONTE_MERCADO_PAGO_GU');
     assert.strictEqual(launch.afeta_caixa_familiar, false);
@@ -3679,7 +3666,7 @@ test('Apps Script answers read-only query using OpenAI extracted entities', () =
     
     sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
         id_cartao: 'CARD_MERCADO_PAGO_GU',
-        id_fonte: 'FONTE_MP_GU',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
         nome: 'Mercado Pago Gustavo',
         titular: 'Gustavo',
         fechamento_dia: 30,
@@ -3728,4 +3715,100 @@ test('Apps Script answers read-only query filtered by category', () => {
     assert.match(result.responseText, /Mercado da semana/);
     assert.match(result.responseText, /R\$ 200,00/);
     assert.doesNotMatch(result.responseText, /Farmacia/);
+});
+
+test('Apps Script dynamic benefit balance calculates correctly in summary and format', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+
+    // Setup benefit source
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_ALELO_GU',
+        nome: 'Alelo Gustavo',
+        tipo: 'beneficio',
+        titular: 'Gustavo',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+
+    // Setup active recurring benefit income
+    sheets.Rendas_Recorrentes.appendRow(rendasRecorrentesHeaders.map((header) => ({
+        id_renda: 'REN_GU_ALELO',
+        pessoa: 'Gustavo',
+        descricao: 'Alelo Gustavo',
+        valor_planejado: 1500,
+        tipo_renda: 'beneficio_va_vr',
+        beneficio_restrito: true,
+        ativo: true,
+    })[header] ?? ''));
+
+    // Setup normal cash source (to verify liquidity separation)
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_CONTA_GU',
+        nome: 'Conta Gustavo',
+        tipo: 'conta_corrente',
+        titular: 'Gustavo',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+
+    sheets.Saldos_Fontes.appendRow(saldosFontesHeaders.map((header) => ({
+        id_snapshot: 'SNAP_1',
+        competencia: '2026-05',
+        data_referencia: '2026-05-01',
+        id_fonte: 'FONTE_CONTA_GU',
+        saldo_inicial: 0,
+        saldo_final: 800,
+        saldo_disponivel: 800,
+        created_at: '2026-05-01T12:00:00Z',
+    })[header] ?? ''));
+
+    // Record dynamic benefit expenses (should decrease Alelo balance)
+    appendFakeLaunch(sheets, {
+        data: '2026-05-10',
+        competencia: '2026-05',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        valor: 400,
+        id_fonte: 'FONTE_ALELO_GU',
+        status: 'efetivado',
+        afeta_dre: true,
+        afeta_caixa_familiar: false,
+    });
+
+    appendFakeLaunch(sheets, {
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        valor: 150,
+        id_fonte: 'FONTE_ALELO_GU',
+        status: 'efetivado',
+        afeta_dre: true,
+        afeta_caixa_familiar: false,
+    });
+
+    const result = runRemoteAction(context, 'summary', { competencia: '2026-05' });
+
+    assert.strictEqual(result.ok, true);
+    
+    // Liquidity check: Alelo's 1500 (or remaining 950) should NOT be in general liquidity balance (Conta Gustavo is 800)
+    assert.strictEqual(result.summary.saldos_fontes_disponivel, 800);
+
+    // Benefit balance details check
+    assert.strictEqual(result.summary.beneficios_detalhe.length, 1);
+    const aleloDetail = result.summary.beneficios_detalhe[0];
+    assert.strictEqual(aleloDetail.id_fonte, 'FONTE_ALELO_GU');
+    assert.strictEqual(aleloDetail.saldo_inicial, 1500);
+    assert.strictEqual(aleloDetail.total_gasto, 550);
+    assert.strictEqual(aleloDetail.saldo_disponivel, 950);
+
+    // Format output check (Telegram response)
+    assert.match(result.responseText, /🥗 Saldos de benefícios/);
+    assert.match(result.responseText, /Alelo Gustavo: R\$ 950,00 \(de R\$ 1500,00\)/);
 });

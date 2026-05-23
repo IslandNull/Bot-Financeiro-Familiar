@@ -159,7 +159,7 @@ function summarizeSourceBalances(sourceBalances, competencia, sourcesById) {
     return Object.values(selectedBySource).reduce(
         (summary, snapshot) => {
             const source = sourcesById && sourcesById[snapshot.id_fonte];
-            if (source && source.tipo === 'cartao_credito') return summary;
+            if (source && (source.tipo === 'cartao_credito' || source.tipo === 'beneficio')) return summary;
             summary.saldos_fontes_count += 1;
             summary.saldos_fontes_inicial = roundMoney(summary.saldos_fontes_inicial + Number(snapshot.saldo_inicial || 0));
             summary.saldos_fontes_final = roundMoney(summary.saldos_fontes_final + Number(snapshot.saldo_final || 0));
@@ -173,6 +173,67 @@ function summarizeSourceBalances(sourceBalances, competencia, sourcesById) {
             saldos_fontes_disponivel: 0,
         }
     );
+}
+
+function computeBenefitBalances(events, sourceBalances, recurringIncomes, sourcesById, competencia) {
+    const benefitSources = Object.values(sourcesById || {}).filter(
+        (s) => s.tipo === 'beneficio' && s.ativo !== false
+    );
+
+    const detail = [];
+    benefitSources.forEach((source) => {
+        const snapshots = (sourceBalances || []).filter(
+            (b) => b.id_fonte === source.id_fonte && (!competencia || b.competencia === competencia)
+        );
+        let latestSnapshot = null;
+        snapshots.forEach((snap) => {
+            if (!latestSnapshot || String(snap.data_referencia || '') >= String(latestSnapshot.data_referencia || '')) {
+                latestSnapshot = snap;
+            }
+        });
+
+        let saldoInicial = 0;
+        let snapshotDate = null;
+        let hasSnapshot = false;
+
+        if (latestSnapshot) {
+            saldoInicial = Number(latestSnapshot.saldo_disponivel !== undefined ? latestSnapshot.saldo_disponivel : latestSnapshot.saldo_final || 0);
+            snapshotDate = latestSnapshot.data_referencia || null;
+            hasSnapshot = true;
+        } else {
+            const income = (recurringIncomes || []).find(
+                (inc) => inc.ativo !== false && inc.beneficio_restrito === true && inc.descricao.toLowerCase() === source.nome.toLowerCase()
+            );
+            if (income) {
+                saldoInicial = Number(income.valor_planejado || 0);
+            }
+        }
+
+        const relevantExpenses = (events || []).filter((event) => {
+            if (event.id_fonte !== source.id_fonte) return false;
+            if (event.status !== 'efetivado') return false;
+            if (event.tipo_evento !== 'despesa' && event.tipo_evento !== 'compra_cartao') return false;
+            if (competencia && event.competencia !== competencia) return false;
+            if (hasSnapshot && snapshotDate) {
+                return String(event.data || '') > String(snapshotDate);
+            }
+            return true;
+        });
+
+        const totalSpent = relevantExpenses.reduce((sum, exp) => sum + Number(exp.valor || 0), 0);
+        const saldoDisponivel = roundMoney(saldoInicial - totalSpent);
+
+        detail.push({
+            id_fonte: source.id_fonte,
+            nome: source.nome,
+            saldo_inicial: roundMoney(saldoInicial),
+            total_gasto: roundMoney(totalSpent),
+            saldo_disponivel: saldoDisponivel,
+            has_snapshot: hasSnapshot
+        });
+    });
+
+    return detail;
 }
 
 function computeNetWorth(assets, debts) {
@@ -260,6 +321,8 @@ function computeFamilyClosing(input) {
         ? roundMoney(sourceBalanceSummary.saldos_fontes_disponivel + reservaTotal)
         : cash.sobra_caixa;
 
+    const benefitBalances = computeBenefitBalances(events, sourceBalances, recurringIncomes, sourcesById, competencia);
+
     const closing = {
         competencia,
         status: 'draft',
@@ -271,6 +334,7 @@ function computeFamilyClosing(input) {
         patrimonio_liquido: netWorth.patrimonio_liquido,
         ...recurringIncome,
         ...sourceBalanceSummary,
+        beneficios_detalhe: benefitBalances,
     };
 
     Object.assign(closing, computeDecisionCapacity({
@@ -351,6 +415,7 @@ function buildFamilySummaryView(input) {
             destino_amortizacao: closing.destino_amortizacao,
             destino_sugerido: closing.destino_sugerido,
         },
+        beneficios_detalhe: closing.beneficios_detalhe,
         eventos_detalhados: filterSharedDetailedEvents(source.events),
     };
 }

@@ -667,7 +667,7 @@ function overrideParserForDeterministicMoneyMovement_(event, referenceData) {
       return event;
     }
   }
-  var explicitCardCategory = inferExplicitCategoryFromText_(text, referenceData, 'compra_cartao');
+  var explicitCardCategory = inferExplicitSpendingCategoryFromText_(text, referenceData);
   var explicitCard = inferActiveCardFromText_(text, referenceData);
   if (explicitCardCategory && explicitCard) {
     event.tipo_evento = 'compra_cartao';
@@ -835,6 +835,18 @@ function inferActiveCardFromText_(text, referenceData) {
   if (!normalized) return null;
   for (var i = 0; i < referenceData.cards.length; i += 1) {
     var card = referenceData.cards[i];
+    if (card.id_cartao === 'CARD_MERCADO_PAGO_GU' && (
+      containsAliasPhrase_(normalized, 'conta mercado pago') ||
+      containsAliasPhrase_(normalized, 'conta mp')
+    )) {
+      continue;
+    }
+    if (card.id_cartao === 'CARD_NUBANK_GU' && (
+      containsAliasPhrase_(normalized, 'conta nubank') ||
+      containsAliasPhrase_(normalized, 'conta nu')
+    )) {
+      continue;
+    }
     var name = normalizeAliasText_(card.nome);
     if (name && containsAliasPhrase_(normalized, name)) return card;
     if (card.id_cartao === 'CARD_NUBANK_GU' && containsAliasPhrase_(normalized, 'nubank')) return card;
@@ -997,7 +1009,6 @@ function categoryMatchPhrases_(category) {
   var id = stringValue_(category.id_categoria);
   var aliases = {
     OPEX_MERCADO_SEMANA: ['mercado', 'supermercado', 'feira', 'hortifruti'],
-    OPEX_MERCADO_SEMANA_CARTAO: ['mercado', 'supermercado', 'feira', 'hortifruti'],
     OPEX_FARMACIA: ['farmacia', 'remedio', 'medicamento'],
     OPEX_SAUDE_BEM_ESTAR: ['saude', 'consulta', 'medico', 'exame', 'remedio', 'medicamento'],
     OPEX_ELETRONICOS_E_EQUIPAMENTOS: ['eletronicos', 'equipamentos', 'notebook', 'computador', 'laptop', 'celular', 'tablet', 'monitor', 'teclado', 'mouse'],

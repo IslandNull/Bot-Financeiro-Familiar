@@ -422,6 +422,59 @@ function exportSnapshotV55() {
     }
     lines.push('');
   }
+
+  var fontSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_FONTES);
+  if (fontSheet && fontSheet.getLastRow() > 1) {
+    lines.push('## Config_Fontes');
+    lines.push('');
+    var fontRows = readRowsAsObjects_(fontSheet, SHEETS.CONFIG_FONTES);
+    lines.push('| ID Fonte | Nome | Tipo | Titular | Moeda | Ativo |');
+    lines.push('| --- | --- | --- | --- | --- | --- |');
+    for (var fn = 0; fn < fontRows.length; fn++) {
+      lines.push('| ' + stringValue_(fontRows[fn].id_fonte) + ' | ' + stringValue_(fontRows[fn].nome) + ' | ' + stringValue_(fontRows[fn].tipo) + ' | ' + stringValue_(fontRows[fn].titular) + ' | ' + stringValue_(fontRows[fn].moeda) + ' | ' + stringValue_(fontRows[fn].ativo) + ' |');
+    }
+    lines.push('');
+  }
+
+  var divSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
+  if (divSheet && divSheet.getLastRow() > 1) {
+    lines.push('## Dividas');
+    lines.push('');
+    var divRows = readRowsAsObjects_(divSheet, SHEETS.DIVIDAS);
+    lines.push('| ID Divida | Nome | Credor | Tipo | Escopo | Saldo Devedor | Parcela Atual | Parcelas Total | Valor Parcela | Status |');
+    lines.push('| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |');
+    for (var dv = 0; dv < divRows.length; dv++) {
+      lines.push('| ' + stringValue_(divRows[dv].id_divida) + ' | ' + stringValue_(divRows[dv].nome) + ' | ' + stringValue_(divRows[dv].credor) + ' | ' + stringValue_(divRows[dv].tipo) + ' | ' + stringValue_(divRows[dv].escopo) + ' | ' + numberFromSheetValue_(divRows[dv].saldo_devedor) + ' | ' + numberFromSheetValue_(divRows[dv].parcela_atual) + ' | ' + numberFromSheetValue_(divRows[dv].parcelas_total) + ' | ' + numberFromSheetValue_(divRows[dv].valor_parcela) + ' | ' + stringValue_(divRows[dv].status) + ' |');
+    }
+    lines.push('');
+  }
+
+  var rendSheet = spreadsheet.getSheetByName(SHEETS.RENDAS_RECORRENTES);
+  if (rendSheet && rendSheet.getLastRow() > 1) {
+    lines.push('## Rendas_Recorrentes');
+    lines.push('');
+    var rendRows = readRowsAsObjects_(rendSheet, SHEETS.RENDAS_RECORRENTES);
+    lines.push('| ID Renda | Pessoa | Descricao | Valor Planejado | Tipo Renda | Beneficio Restrito | Ativo |');
+    lines.push('| --- | --- | --- | ---: | --- | --- | --- |');
+    for (var rn = 0; rn < rendRows.length; rn++) {
+      lines.push('| ' + stringValue_(rendRows[rn].id_renda) + ' | ' + stringValue_(rendRows[rn].pessoa) + ' | ' + stringValue_(rendRows[rn].descricao) + ' | ' + numberFromSheetValue_(rendRows[rn].valor_planejado) + ' | ' + stringValue_(rendRows[rn].tipo_renda) + ' | ' + stringValue_(rendRows[rn].beneficio_restrito) + ' | ' + stringValue_(rendRows[rn].ativo) + ' |');
+    }
+    lines.push('');
+  }
+
+  var catSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_CATEGORIAS);
+  if (catSheet && catSheet.getLastRow() > 1) {
+    lines.push('## Config_Categorias');
+    lines.push('');
+    var catRows = readRowsAsObjects_(catSheet, SHEETS.CONFIG_CATEGORIAS);
+    lines.push('| ID Categoria | Nome | Grupo | Tipo Evento Padrao | Ativo |');
+    lines.push('| --- | --- | --- | --- | --- |');
+    for (var ct = 0; ct < catRows.length; ct++) {
+      lines.push('| ' + stringValue_(catRows[ct].id_categoria) + ' | ' + stringValue_(catRows[ct].nome) + ' | ' + stringValue_(catRows[ct].grupo) + ' | ' + stringValue_(catRows[ct].tipo_evento_padrao) + ' | ' + stringValue_(catRows[ct].ativo) + ' |');
+    }
+    lines.push('');
+  }
+
   lines.push('## Resumo atual (read-only)');
   lines.push('');
   try {
@@ -634,3 +687,5 @@ function summarizeSheetAuditFindings_(findings) {
     return summary;
   }, { total: 0, error: 0, warning: 0 });
 }
+
+

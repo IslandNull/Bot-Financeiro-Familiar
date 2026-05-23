@@ -134,6 +134,7 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
   }, 0);
   var recurringIncome = summarizePilotRecurringIncome_(recurringIncomes || []);
   var sourceBalanceSummary = summarizePilotSourceBalances_(sourceBalances || [], competencia, sourcesById || {});
+  var benefitBalances = computePilotBenefitBalances_(launches, sourceBalances, recurringIncomes || [], sourcesById || {}, competencia);
   var coverageBase = sourceBalanceSummary.saldos_fontes_count > 0
     ? roundMoney_(sourceBalanceSummary.saldos_fontes_disponivel + reservaTotal)
     : cash.sobra_caixa;
@@ -171,6 +172,7 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     saldos_fontes_final: sourceBalanceSummary.saldos_fontes_final,
     saldos_fontes_disponivel: sourceBalanceSummary.saldos_fontes_disponivel,
     saldos_fontes_detalhe: sourceBalanceSummary.saldos_fontes_detalhe,
+    beneficios_detalhe: benefitBalances,
     categorias_dicionario: categoriasDicionario,
     margem_pos_obrigacoes: margemPosObrigacoes,
     capacidade_aporte_segura: capacity.capacidade_aporte_segura,
@@ -352,7 +354,7 @@ function summarizePilotSourceBalances_(rows, competencia, sourcesById) {
   return Object.keys(selectedBySource).reduce(function(summary, key) {
     var row = selectedBySource[key];
     var source = sourcesById && sourcesById[row.id_fonte];
-    if (source && source.tipo === 'cartao_credito') {
+    if (source && (source.tipo === 'cartao_credito' || source.tipo === 'beneficio')) {
       return summary;
     }
     summary.saldos_fontes_count += 1;
@@ -375,6 +377,83 @@ function summarizePilotSourceBalances_(rows, competencia, sourcesById) {
     saldos_fontes_disponivel: 0,
     saldos_fontes_detalhe: [],
   });
+}
+
+function computePilotBenefitBalances_(launches, sourceBalances, recurringIncomes, sourcesById, competencia) {
+  var benefitSources = [];
+  if (sourcesById) {
+    Object.keys(sourcesById).forEach(function(key) {
+      var s = sourcesById[key];
+      if (s && s.tipo === 'beneficio' && s.ativo !== false) {
+        benefitSources.push(s);
+      }
+    });
+  }
+
+  var detail = [];
+  for (var i = 0; i < benefitSources.length; i++) {
+    var source = benefitSources[i];
+    var snapshots = (sourceBalances || []).filter(function(b) {
+      return b.id_fonte === source.id_fonte && (!competencia || normalizeSheetCompetencia_(b.competencia) === competencia);
+    });
+    
+    var latestSnapshot = null;
+    for (var j = 0; j < snapshots.length; j++) {
+      var snap = snapshots[j];
+      if (!latestSnapshot || stringValue_(snap.data_referencia) >= stringValue_(latestSnapshot.data_referencia)) {
+        latestSnapshot = snap;
+      }
+    }
+
+    var saldoInicial = 0;
+    var snapshotDate = null;
+    var hasSnapshot = false;
+
+    if (latestSnapshot) {
+      saldoInicial = numberFromSheetValue_(latestSnapshot.saldo_disponivel !== undefined ? latestSnapshot.saldo_disponivel : latestSnapshot.saldo_final);
+      snapshotDate = stringValue_(latestSnapshot.data_referencia) || null;
+      hasSnapshot = true;
+    } else {
+      var income = null;
+      for (var k = 0; k < recurringIncomes.length; k++) {
+        var inc = recurringIncomes[k];
+        if (inc.ativo !== false && stringValue_(inc.beneficio_restrito) === 'true' && stringValue_(inc.descricao).toLowerCase() === stringValue_(source.nome).toLowerCase()) {
+          income = inc;
+          break;
+        }
+      }
+      if (income) {
+        saldoInicial = numberFromSheetValue_(income.valor_planejado);
+      }
+    }
+
+    var relevantExpenses = (launches || []).filter(function(event) {
+      if (event.id_fonte !== source.id_fonte) return false;
+      if (event.status !== 'efetivado') return false;
+      if (event.tipo_evento !== 'despesa' && event.tipo_evento !== 'compra_cartao') return false;
+      if (competencia && normalizeSheetCompetencia_(event.competencia) !== competencia) return false;
+      if (hasSnapshot && snapshotDate) {
+        return stringValue_(event.data) > snapshotDate;
+      }
+      return true;
+    });
+
+    var totalSpent = relevantExpenses.reduce(function(sum, exp) {
+      return roundMoney_(sum + numberFromSheetValue_(exp.valor));
+    }, 0);
+    var saldoDisponivel = roundMoney_(saldoInicial - totalSpent);
+
+    detail.push({
+      id_fonte: source.id_fonte,
+      nome: source.nome,
+      saldo_inicial: roundMoney_(saldoInicial),
+      total_gasto: roundMoney_(totalSpent),
+      saldo_disponivel: saldoDisponivel,
+      has_snapshot: hasSnapshot
+    });
+  }
+
+  return detail;
 }
 
 function normalizeRequestedCompetencia_(value) {
@@ -663,9 +742,16 @@ function formatPilotFamilySummary_(summary) {
     'Contas: ' + formatMoney_(summary.saldos_fontes_disponivel),
     'Reserva: ' + formatMoney_(summary.reserva_total),
     'Após faturas atuais: ' + formatMoney_(currentAfterLiquidity),
-    '',
-    '💳 Faturas atuais',
   ];
+  if (summary.beneficios_detalhe && summary.beneficios_detalhe.length > 0) {
+    lines.push('');
+    lines.push('🥗 Saldos de benefícios');
+    summary.beneficios_detalhe.forEach(function(b) {
+      lines.push(b.nome + ': ' + formatMoney_(b.saldo_disponivel) + ' (de ' + formatMoney_(b.saldo_inicial) + ')');
+    });
+  }
+  lines.push('');
+  lines.push('💳 Faturas atuais');
   var currentInvoiceItems = summary.faturas_atuais_detalhe || [];
   if (currentInvoiceItems.length === 0) lines.push('Nenhuma fatura atual aberta registrada.');
   currentInvoiceItems.forEach(function(item) {
@@ -1490,7 +1576,11 @@ function defaultActiveDebt_(referenceData) {
 function applyCategoryDefaults_(event, category) {
   event.afeta_dre = category.afeta_dre_padrao === true;
   event.afeta_patrimonio = category.afeta_patrimonio_padrao === true;
-  event.afeta_caixa_familiar = category.afeta_caixa_familiar_padrao === true;
+  if (event.tipo_evento === 'compra_cartao') {
+    event.afeta_caixa_familiar = false;
+  } else {
+    event.afeta_caixa_familiar = category.afeta_caixa_familiar_padrao === true;
+  }
 }
 
 function effectiveCategoryVisibility_(category) {
@@ -1664,9 +1754,13 @@ function latestSourceBalanceForEvent_(event, sourceBalances) {
 }
 
 function validateCategoryFlags_(event, category) {
+  var expectedCaixaFamiliar = category.afeta_caixa_familiar_padrao === true;
+  if (event.tipo_evento === 'compra_cartao') {
+    expectedCaixaFamiliar = false;
+  }
   if (event.afeta_dre !== (category.afeta_dre_padrao === true) ||
       event.afeta_patrimonio !== (category.afeta_patrimonio_padrao === true) ||
-      event.afeta_caixa_familiar !== (category.afeta_caixa_familiar_padrao === true)) {
+      event.afeta_caixa_familiar !== expectedCaixaFamiliar) {
     return fail_('CONFIG_FLAGS_BLOCKED', 'flags', GENERIC_RECORD_FAILURE);
   }
   return { ok: true };
