@@ -430,7 +430,7 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.match(result.responseText, /Contas: R\$ 330,00/);
     assert.match(result.responseText, /Reserva: R\$ 1000,00/);
     assert.match(result.responseText, /Ap[oó]s faturas atuais: R\$ 1287,50/);
-    assert.match(result.responseText, /Nubank 07\/05: R\$ 42,50/);
+    assert.match(result.responseText, /Nubank( Gu)? 07\/05: R\$ 42,50/);
     assert.match(result.responseText, /Total: R\$ 42,50/);
     assert.doesNotMatch(result.responseText, /Compromissos cadastrados/);
     assert.doesNotMatch(result.responseText, /Financiamento: R\$ 500,00/);
@@ -573,7 +573,7 @@ test('Apps Script /resumo separates current liquidity from 60-day exposure and s
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Contas: R\$ 324,91/);
     assert.match(result.responseText, /Reserva: R\$ 9482,99/);
-    assert.match(result.responseText, /Nubank 07\/05: R\$ 1260,47/);
+    assert.match(result.responseText, /Nubank( Gu)? 07\/05: R\$ 1260,47/);
     assert.match(result.responseText, /Total: R\$ 1260,47/);
     assert.doesNotMatch(result.responseText, /Compromissos cadastrados/);
     assert.doesNotMatch(result.responseText, /Contas proximas: R\$ 4239,85/);
@@ -647,7 +647,7 @@ test('Apps Script /resumo subtracts effective invoice payments when invoice rows
         valor: 25,
     });
     assert.match(result.responseText, /Total: R\$ 25,00/);
-    assert.match(result.responseText, /Mercado Pago 10\/05: R\$ 25,00/);
+    assert.match(result.responseText, /Mercado Pago( Gu)? 10\/05: R\$ 25,00/);
 });
 
 test('Apps Script /resumo uses closed invoice total as authority over planned card rows', () => {

@@ -1201,8 +1201,15 @@ function formatMonthlyReviewAnswer_(summary) {
 
 function shortCardName_(value) {
   var text = stringValue_(value);
-  if (normalizeAliasText_(text).indexOf('mercado pago') !== -1) return 'Mercado Pago';
-  if (normalizeAliasText_(text).indexOf('nubank') !== -1) return 'Nubank';
+  var normalized = normalizeAliasText_(text);
+  if (normalized.indexOf('mercado pago') !== -1) {
+    if (normalized.indexOf('luana') !== -1 || normalized.indexOf('lu') !== -1) return 'Mercado Pago Lu';
+    return 'Mercado Pago Gu';
+  }
+  if (normalized.indexOf('nubank') !== -1) {
+    if (normalized.indexOf('luana') !== -1 || normalized.indexOf('lu') !== -1) return 'Nubank Lu';
+    return 'Nubank Gu';
+  }
   return text;
 }
 
