@@ -2112,7 +2112,8 @@ test('Apps Script pilot card purchase writes launch and expected invoice rows', 
     assert.strictEqual(invoice.competencia, '2026-04');
     assert.strictEqual(invoice.data_fechamento, '2026-04-30');
     assert.strictEqual(invoice.data_vencimento, '2026-05-07');
-    assert.strictEqual(invoice.valor_previsto_total, '');
+    assert.strictEqual(invoice.valor_previsto_total, 42.5);
+    assert.strictEqual(invoice.valor_aberto, 42.5);
     assert.strictEqual(invoice.status, 'prevista');
     const invoiceLine = Object.fromEntries(faturasLinhasHeaders.map((header, index) => [header, sheets.Faturas_Linhas.rows[1][index]]));
     assert.strictEqual(invoiceLine.valor_previsto, 42.5);

@@ -2414,6 +2414,7 @@ function recordPilotCardPurchase_(update, message, event, config, referenceData)
 
     if (parcelas > 1) {
       var valorParcela = roundMoney_(event.valor / parcelas);
+      var reconciledInstallmentIds = {};
       for (var pi = 0; pi < parcelas; pi += 1) {
         var offsetDate = pi === 0 ? event.data : formatUtcDate_(addUtcMonths_(parseIsoDateUtc_(event.data), pi));
         var installmentInvoice = assignPilotInvoiceCycle_(offsetDate, card);
@@ -2427,6 +2428,11 @@ function recordPilotCardPurchase_(update, message, event, config, referenceData)
           valor_previsto: valorParcela,
           status_origem: 'compra_cartao',
         });
+        reconciledInstallmentIds[installmentInvoice.id_fatura] = true;
+      }
+      var reconciledKeys = Object.keys(reconciledInstallmentIds);
+      for (var ri = 0; ri < reconciledKeys.length; ri += 1) {
+        reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, reconciledKeys[ri]);
       }
     } else {
       findOrAppendInvoiceHeader_(invoiceResumoSheet, invoice);
@@ -2439,6 +2445,7 @@ function recordPilotCardPurchase_(update, message, event, config, referenceData)
         valor_previsto: event.valor,
         status_origem: 'compra_cartao',
       });
+      reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, invoice.id_fatura);
     }
     updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
     var responseMsg = parcelas > 1 ? 'anotei compra parcelada (' + parcelas + 'x) no cartao.' : 'anotei compra no cartao.';

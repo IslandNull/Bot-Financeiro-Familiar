@@ -1020,7 +1020,7 @@ function categoryMatchPhrases_(category) {
     OPEX_ELETRONICOS_E_EQUIPAMENTOS: ['eletronicos', 'equipamentos', 'notebook', 'computador', 'laptop', 'celular', 'tablet', 'monitor', 'teclado', 'mouse'],
     OPEX_DESENVOLVIMENTO_PROFISSIONAL: ['desenvolvimento profissional', 'curso', 'certificacao', 'livro', 'carreira'],
     OPEX_DESENVOLVIMENTO_PROFISSIONAL_DINHEIRO: ['desenvolvimento profissional', 'curso', 'certificacao', 'livro', 'carreira'],
-    OPEX_ALIMENTACAO_FORA: ['alimentacao', 'restaurante', 'lanche', 'ifood'],
+    OPEX_ALIMENTACAO_FORA: ['alimentacao', 'restaurante', 'lanche', 'ifood', 'casal'],
     OPEX_LANCHE_TRABALHO: ['lanche', 'trabalho'],
     OPEX_TRANSPORTE_TRABALHO_GUSTAVO: ['transporte', 'uber', 'onibus', 'gasolina', 'combustivel'],
     OPEX_TRANSPORTE_TRABALHO_GUSTAVO_DINHEIRO: ['transporte', 'uber', 'onibus', 'gasolina', 'combustivel'],
