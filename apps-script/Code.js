@@ -118,9 +118,6 @@ function doGet(e) {
   if (action === 'reconcile_faturas') {
     return json_(reconcileAllFaturas());
   }
-  if (action === 'debug_70') {
-    return json_(debug70());
-  }
   return json_({ ok: false, error: 'UNKNOWN_ACTION', action: action });
 }
 
@@ -717,13 +714,4 @@ function reconcileAllFaturas() {
     reconciledCount += 1;
   }
   return { ok: true, reconciled: reconciledCount };
-}
-
-function debug70() {
-  var config = readConfig_();
-  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
-  var sheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
-  var rows = readRowsAsObjects_(sheet, SHEETS.LANCAMENTOS);
-  var found = rows.filter(function(r) { return numberFromSheetValue_(r.valor) === 70.36 || String(r.descricao).indexOf('70,36') !== -1; });
-  return { ok: true, found: found };
 }
