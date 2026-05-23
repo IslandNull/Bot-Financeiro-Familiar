@@ -201,6 +201,7 @@ const ENUMS = {
         'aporte',
         'divida_pagamento',
         'ajuste',
+        'leitura',
     ],
     escopo: ['Familiar', 'Gustavo', 'Luana'],
     visibilidade: ['detalhada', 'resumo', 'privada'],

@@ -41,19 +41,24 @@ function handleTelegramUpdate_(update, config) {
     return finishConversationTurn_(chatId, text, buildMonthlyReviewResponse_(config), conversation, null);
   }
 
-  if (isSafeFinanceQuestion_(text)) {
-    return finishConversationTurn_(chatId, text, buildSafeFinanceQuestionResponse_(text, config), conversation, null);
+  if (!config.spreadsheetId) {
+    return fail_('MISSING_SPREADSHEET_ID', 'spreadsheetId', GENERIC_RECORD_FAILURE);
   }
-
-  if (!config.pilotFinancialMutationEnabled) {
-    return fail_('FINANCIAL_MUTATION_NOT_ENABLED', 'phase', 'Piloto financeiro ainda nao habilitado neste runtime.');
-  }
-
-  var runtimeCheck = verifyFinancialRuntimeConfig_(config);
-  if (!runtimeCheck.ok) return runtimeCheck;
 
   var referenceData = readRuntimeReferenceData_(config);
   if (!referenceData.ok) return referenceData;
+
+  if (isSafeFinanceQuestion_(text)) {
+    var parsed = null;
+    if (config.openAiApiKey && config.openAiModel) {
+      parsed = parseFinancialEventWithOpenAI_(text, config, referenceData, conversation);
+    }
+    if (parsed && parsed.ok && parsed.event && parsed.event.tipo_evento === 'leitura') {
+      var result = applyParsedFinancialEvent_(update, message, parsed.event, config, referenceData);
+      return finishConversationTurn_(chatId, text, result, conversation, null);
+    }
+    return finishConversationTurn_(chatId, text, buildSafeFinanceQuestionResponse_(text, config, null), conversation, null);
+  }
 
   var resumed = resumePendingConversationIntent_(conversation.pending_intent, text, referenceData);
   if (resumed.ok) {
@@ -62,23 +67,43 @@ function handleTelegramUpdate_(update, config) {
   }
 
   if (isPilotBalanceSnapshotText_(text)) {
+    if (!config.pilotFinancialMutationEnabled) {
+      return fail_('FINANCIAL_MUTATION_NOT_ENABLED', 'phase', 'Piloto financeiro ainda nao habilitado neste runtime.');
+    }
     return finishConversationTurn_(chatId, text, handlePilotBalanceSnapshot_(update, message, text, config, referenceData), conversation, null);
   }
 
   if (isPilotAssetBalanceText_(text)) {
+    if (!config.pilotFinancialMutationEnabled) {
+      return fail_('FINANCIAL_MUTATION_NOT_ENABLED', 'phase', 'Piloto financeiro ainda nao habilitado neste runtime.');
+    }
     return finishConversationTurn_(chatId, text, handlePilotAssetBalance_(update, message, text, config, referenceData), conversation, null);
   }
 
-  var parsed = parseFinancialEventWithOpenAI_(text, config, referenceData);
+  var runtimeCheck = verifyFinancialRuntimeConfig_(config);
+  if (!runtimeCheck.ok) return runtimeCheck;
+
+  var parsed = parseFinancialEventWithOpenAI_(text, config, referenceData, conversation);
   if (!parsed.ok) return finishConversationTurn_(chatId, text, parsed, conversation, null);
 
   var result = applyParsedFinancialEvent_(update, message, parsed.event, config, referenceData);
+  if (parsed.event.tipo_evento === 'leitura') {
+    return finishConversationTurn_(chatId, text, result, conversation, null);
+  }
   return finishConversationTurn_(chatId, text, result, conversation, pendingIntentFromFailure_(result, parsed.event));
 }
 
 function applyParsedFinancialEvent_(update, message, event, config, referenceData) {
   var closedPeriodCheck = validateClosedPeriodForEvent_(event, referenceData.closedCompetencias);
   if (!closedPeriodCheck.ok) return closedPeriodCheck;
+
+  if (event.tipo_evento === 'leitura') {
+    return buildSafeFinanceQuestionResponse_(event.descricao || event.raw_text || '', config, event);
+  }
+
+  if (!config.pilotFinancialMutationEnabled) {
+    return fail_('FINANCIAL_MUTATION_NOT_ENABLED', 'phase', 'Piloto financeiro ainda nao habilitado neste runtime.');
+  }
 
   if (event.tipo_evento === 'pagamento_fatura') {
     var invoicePaymentCheck = validatePilotInvoicePaymentEvent_(event, referenceData);
@@ -275,7 +300,7 @@ function isSafeFinanceQuestion_(text) {
     containsAliasPhrase_(normalized, 'liquidez');
 }
 
-function buildSafeFinanceQuestionResponse_(text, config) {
+function buildSafeFinanceQuestionResponse_(text, config, event) {
   var result = readCurrentPilotFamilySummary_(config, '');
   if (!result.ok) return result;
   var normalized = normalizeAliasText_(text);
@@ -300,7 +325,7 @@ function buildSafeFinanceQuestionResponse_(text, config) {
   if (containsAliasPhrase_(normalized, 'fatura') || containsAliasPhrase_(normalized, 'faturas') || containsAliasPhrase_(normalized, 'contas proximas')) {
     return {
       ok: true,
-      responseText: formatUpcomingObligationsAnswer_(result.summary),
+      responseText: formatUpcomingObligationsAnswer_(result.summary, event),
       shouldApplyDomainMutation: false,
     };
   }
@@ -314,7 +339,7 @@ function buildSafeFinanceQuestionResponse_(text, config) {
       containsAliasPhrase_(normalized, 'mercado') ||
       containsAliasPhrase_(normalized, 'lazer') ||
       containsAliasPhrase_(normalized, 'transporte')) {
-    var categoryAnswer = formatMentionedCategoryAnswer_(result.summary, text);
+    var categoryAnswer = formatMentionedCategoryAnswer_(result.summary, text, event);
     if (categoryAnswer) {
       return {
         ok: true,
@@ -331,25 +356,25 @@ function buildSafeFinanceQuestionResponse_(text, config) {
   if (containsAliasPhrase_(normalized, 'vence') || containsAliasPhrase_(normalized, 'agenda')) {
     return {
       ok: true,
-      responseText: formatAgendaAnswer_(result.summary),
+      responseText: formatAgendaAnswer_(result.summary, event),
       shouldApplyDomainMutation: false,
     };
   }
   return {
     ok: true,
-    responseText: formatReserveAnswer_(result.summary),
+    responseText: formatReserveAnswer_(result.summary, event),
     shouldApplyDomainMutation: false,
   };
 }
 
-function parseFinancialEventWithOpenAI_(text, config, referenceData) {
+function parseFinancialEventWithOpenAI_(text, config, referenceData, conversation) {
   var response;
   try {
     response = UrlFetchApp.fetch(OPENAI_RESPONSES_URL, {
       method: 'post',
       contentType: 'application/json',
       headers: { Authorization: 'Bearer ' + config.openAiApiKey },
-      payload: JSON.stringify(openAiParserPayload_(text, config, referenceData)),
+      payload: JSON.stringify(openAiParserPayload_(text, config, referenceData, conversation)),
       muteHttpExceptions: true,
     });
   } catch (err) {
@@ -384,10 +409,10 @@ function classifyOpenAIFetchError_(err) {
   return 'OPENAI_FETCH_FAILED';
 }
 
-function openAiParserPayload_(text, config, referenceData) {
+function openAiParserPayload_(text, config, referenceData, conversation) {
   return {
     model: config.openAiModel,
-    input: buildParserPrompt_(text, referenceData),
+    input: buildParserPrompt_(text, referenceData, conversation),
     text: {
       format: {
         type: 'json_object',
@@ -396,7 +421,7 @@ function openAiParserPayload_(text, config, referenceData) {
   };
 }
 
-function buildParserPrompt_(text, referenceData) {
+function buildParserPrompt_(text, referenceData, conversation) {
   var expenseCategory = defaultCategoryForType_(referenceData, 'despesa') || {};
   var cardCategory = defaultCategoryForType_(referenceData, 'compra_cartao') || {};
   var transferCategory = defaultCategoryForType_(referenceData, 'transferencia_interna') || {};
@@ -411,6 +436,16 @@ function buildParserPrompt_(text, referenceData) {
   var invoice = defaultPayableInvoice_(referenceData) || {};
   var asset = defaultActiveAsset_(referenceData) || {};
   var debt = defaultActiveDebt_(referenceData) || {};
+
+  var historyPrompt = '';
+  if (conversation && Array.isArray(conversation.messages) && conversation.messages.length > 0) {
+    historyPrompt = '\n\n# CONVERSATION HISTORY\n' +
+      'Here are the recent messages in this conversation. Use this history to resolve pronouns ("dela", "deste", "daquele") or context references like "essa fatura", "esse cartão", "esse saldo".\n' +
+      conversation.messages.map(function(msg) {
+        return (msg.role === 'user' ? 'User: ' : 'Bot: ') + msg.text;
+      }).join('\n') + '\n';
+  }
+
   return [
     'You are a strict financial event parser for Bot Financeiro Familiar V55.',
     'Return exactly one JSON object. Do not return markdown, comments, arrays, or extra fields. Use empty strings for fields that do not apply.',
@@ -430,6 +465,10 @@ function buildParserPrompt_(text, referenceData) {
     'If the user omits the date, data must default to ' + todaySaoPaulo_() + ' and competencia must default to ' + todaySaoPaulo_().slice(0, 7) + '.',
     'If the user says today or hoje, data must be exactly ' + todaySaoPaulo_() + ' and competencia must be exactly ' + todaySaoPaulo_().slice(0, 7) + '.',
     'This pilot accepts config-driven family launches, one reviewed card purchase path, one reviewed invoice payment path, and reviewed internal family cash entries after parsing; classify the user text correctly.',
+    '- tipo_evento "leitura" is used for safe questions, checks, reports, or queries (e.g. "qual o valor da fatura?", "quanto gastei com mercado?", "saldo nubank"). For tipo_evento "leitura":',
+    '  * valor must be 0.',
+    '  * descricao should be the question/query text.',
+    '  * Set id_cartao, id_categoria, or id_fonte if they are mentioned or resolved from conversation history context.',
     '',
     '# CANONICAL DICTIONARIES',
     formatCategoryDictionaryPrompt_(referenceData),
@@ -452,6 +491,11 @@ function buildParserPrompt_(text, referenceData) {
     'Input: "aporte CDB 1000" -> valor "1000", tipo_evento "aporte", id_categoria "' + stringValue_(assetCategory.id_categoria) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", id_ativo "' + stringValue_(asset.id_ativo) + '".',
     'Input: "paguei financiamento 500" -> valor "500", tipo_evento "divida_pagamento", id_categoria "' + stringValue_(debtCategory.id_categoria) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", id_divida "' + stringValue_(debt.id_divida) + '".',
     'Input: "ajuste revisado 10 erro de importacao" -> valor "10", tipo_evento "ajuste", id_categoria "' + stringValue_(adjustmentCategory.id_categoria) + '".',
+    'Input: "qual o valor da fatura do nubank?" -> tipo_evento "leitura", descricao "qual o valor da fatura do nubank?", id_cartao "' + stringValue_(card.id_cartao) + '".',
+    'Input: "quanto gastei com mercado?" -> tipo_evento "leitura", descricao "quanto gastei com mercado?", id_categoria "OPEX_MERCADO" (or matching category ID).',
+    'Input: "saldo da conta do mercado pago" -> tipo_evento "leitura", descricao "saldo da conta do mercado pago?", id_fonte "mercado_pago_gustavo" (or matching source ID).',
+    'With context "comprei notebook no nubank" -> Input: "qual o valor dessa fatura?" -> tipo_evento "leitura", id_cartao "' + stringValue_(card.id_cartao) + '".',
+    'With context "farmacia 50 no mercado pago" -> Input: "quanto ficou o saldo dela?" -> tipo_evento "leitura", id_fonte "mercado_pago_gustavo".',
     'For a cash expense, use the category default escopo, visibilidade, and afeta_* flags from Config_Categorias; use an active cash source from Config_Fontes; status efetivado.',
     'For receita, aporte, divida_pagamento, and ajuste, use the matching category defaults from Config_Categorias, active references from the canonical dictionaries, and status efetivado.',
     'For a card purchase, use a category whose tipo_evento_padrao is compra_cartao, an active card from Cartoes, that card source from Config_Fontes, and the category default flags; status efetivado.',
@@ -459,7 +503,7 @@ function buildParserPrompt_(text, referenceData) {
     'For an invoice payment, use tipo_evento pagamento_fatura, escopo Familiar, visibilidade detalhada, afeta_dre false, afeta_patrimonio false, afeta_caixa_familiar true, an active cash source, and status efetivado.',
     'For a reviewed internal transfer into family cash, use direcao_caixa_familiar entrada and the transfer category defaults. For movement between active own cash sources, use direcao_caixa_familiar interna and afeta_dre/afeta_patrimonio/afeta_caixa_familiar all false. Use id_fonte empty, id_cartao empty, id_fatura empty, id_divida empty, id_ativo empty, and status efetivado.',
     'Rules: card purchases affect DRE now and cash later; invoice payments never affect DRE; internal transfers never affect DRE or net worth.',
-    'Today: ' + todaySaoPaulo_(),
+    'Today: ' + todaySaoPaulo_() + historyPrompt,
     'User text: ' + JSON.stringify(text.trim()),
   ].join('\n');
 }
@@ -518,6 +562,34 @@ function normalizeParsedEvent_(entry, originalText, referenceData, options) {
   if (!entry || typeof entry !== 'object') return fail_('INVALID_PARSED_EVENT', 'event', GENERIC_RECORD_FAILURE);
   var fieldCheck = validateParsedEventFields_(entry);
   if (!fieldCheck.ok) return fieldCheck;
+
+  if (entry.tipo_evento === 'leitura') {
+    var todayStr = todaySaoPaulo_();
+    var competenciaStr = todayStr.slice(0, 7);
+    var normalized = {
+      tipo_evento: 'leitura',
+      data: entry.data ? stringValue_(entry.data) : todayStr,
+      competencia: entry.competencia ? stringValue_(entry.competencia) : competenciaStr,
+      valor: 0,
+      descricao: stringValue_(entry.descricao) || stringValue_(originalText),
+      id_categoria: stringValue_(entry.id_categoria),
+      id_fonte: stringValue_(entry.id_fonte),
+      pessoa: stringValue_(entry.pessoa),
+      escopo: stringValue_(entry.escopo) || 'Familiar',
+      visibilidade: stringValue_(entry.visibilidade) || 'detalhada',
+      id_cartao: stringValue_(entry.id_cartao),
+      id_fatura: stringValue_(entry.id_fatura),
+      id_divida: stringValue_(entry.id_divida),
+      id_ativo: stringValue_(entry.id_ativo),
+      afeta_dre: false,
+      afeta_patrimonio: false,
+      afeta_caixa_familiar: false,
+      direcao_caixa_familiar: stringValue_(entry.direcao_caixa_familiar),
+      status: 'efetivado',
+      raw_text: stringValue_(originalText),
+    };
+    return { ok: true, shouldApplyDomainMutation: false, event: normalized };
+  }
   var value = normalizeMoneyValue_(entry.valor, originalText, options);
   if (!isFinite(value) || value <= 0) return fail_('INVALID_MONEY', 'valor', GENERIC_RECORD_FAILURE);
   if (value > 1000000.00) return fail_('VALUE_EXCEEDS_LIMIT', 'valor', GENERIC_RECORD_FAILURE);

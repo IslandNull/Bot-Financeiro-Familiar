@@ -641,6 +641,7 @@ test('Apps Script /resumo subtracts effective invoice payments when invoice rows
     assert.strictEqual(result.summary.faturas_60d_detalhe.length, 1);
     assert.deepStrictEqual(result.summary.faturas_60d_detalhe[0], {
         cartao: 'Mercado Pago Gustavo',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
         competencia: '2026-05',
         data_vencimento: '2026-05-10',
         valor: 25,
@@ -694,6 +695,7 @@ test('Apps Script /resumo uses closed invoice total as authority over planned ca
     assert.strictEqual(result.summary.faturas_60d, 2100.97);
     assert.deepStrictEqual(result.summary.faturas_60d_detalhe, [{
         cartao: 'Mercado Pago Gustavo',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
         competencia: '2026-06',
         data_vencimento: '2026-06-10',
         valor: 2100.97,
@@ -764,6 +766,7 @@ test('Apps Script /resumo ignores premature fechada row when closing date is in 
     assert.strictEqual(result.summary.faturas_60d, 2384.04);
     assert.deepStrictEqual(result.summary.faturas_60d_detalhe, [{
         cartao: 'Mercado Pago Gustavo',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
         competencia: '2026-05',
         data_vencimento: '2026-06-10',
         valor: 2384.04,
@@ -1357,9 +1360,9 @@ test('Apps Script runtime uses OpenAI Responses JSON output for parser boundary'
     assert.ok(code.includes("DEFAULT_OPENAI_MODEL = 'gpt-5-nano'"));
     assert.ok(code.includes('https://api.openai.com/v1/responses'));
     assert.ok(code.includes("type: 'json_object'"));
-    assert.ok(code.includes('input: buildParserPrompt_(text, referenceData)'));
+    assert.ok(code.includes('input: buildParserPrompt_(text, referenceData, conversation)'));
     assert.ok(code.includes('extractOpenAIOutputText_'));
-    assert.ok(code.includes('if (!parsed.ok) return parsed;'));
+    assert.ok(code.includes('if (!parsed.ok) return '));
     assert.ok(code.includes('OPENAI_RESPONSE_PROCESSING_FAILED'));
     assert.ok(code.includes('classifyOpenAIFetchError_'));
     assert.ok(code.includes('OPENAI_FETCH_AUTH_REQUIRED'));
@@ -3644,4 +3647,85 @@ test('Apps Script manifest declares runtime service scopes explicitly', () => {
     assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.external_request'));
     assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.storage'));
     assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/spreadsheets'));
+});
+
+test('Apps Script parser prompt formats conversation history context', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const referenceData = context.readRuntimeReferenceData_({ spreadsheetId: 'sheet_1' });
+    
+    // Create a mock conversation state
+    const conversation = {
+        messages: [
+            { role: 'user', text: 'comprei pão no nubank' },
+            { role: 'bot', text: 'Compra registrada.' }
+        ]
+    };
+    
+    const prompt = context.buildParserPrompt_('qual a fatura dele?', referenceData, conversation);
+    
+    assert.ok(prompt.includes('# CONVERSATION HISTORY'));
+    assert.ok(prompt.includes('User: comprei pão no nubank'));
+    assert.ok(prompt.includes('Bot: Compra registrada.'));
+});
+
+test('Apps Script answers read-only query using OpenAI extracted entities', () => {
+    const parsedEvent = {
+        tipo_evento: 'leitura',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        descricao: 'qual o valor dessa fatura?'
+    };
+    
+    const { context, sheets } = createAppsScriptHarness(parsedEvent);
+    
+    sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fonte: 'FONTE_MP_GU',
+        nome: 'Mercado Pago Gustavo',
+        titular: 'Gustavo',
+        fechamento_dia: 30,
+        vencimento_dia: 10,
+        limite: 5000,
+        ativo: true,
+    })[header] ?? ''));
+    
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MP_2026_05',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-05',
+        data_vencimento: '2026-05-10',
+        valor_previsto: 125.50,
+        valor_pago: '',
+        status: 'prevista',
+    });
+    
+    // Call parser with simulated message
+    const result = postPilotMessage(context, 'qual o valor dessa fatura?');
+    
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Contas próximas do Mercado Pago/);
+    assert.match(result.responseText, /R\$ 125,50/);
+    assert.doesNotMatch(result.responseText, /🏠 Compromissos/);
+});
+
+test('Apps Script answers read-only query filtered by category', () => {
+    const parsedEvent = {
+        tipo_evento: 'leitura',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        descricao: 'quanto gastei com mercado?'
+    };
+    
+    const { context, sheets } = createAppsScriptHarness(parsedEvent);
+    
+    appendFakeLaunch(sheets, { data: '2026-04-10', valor: 120, id_categoria: 'OPEX_MERCADO_SEMANA', descricao: 'mercado detalhado' });
+    appendFakeLaunch(sheets, { data: '2026-04-11', valor: 80, id_categoria: 'OPEX_MERCADO_SEMANA', descricao: 'outro mercado' });
+    appendFakeLaunch(sheets, { data: '2026-04-12', valor: 50, id_categoria: 'OPEX_FARMACIA', descricao: 'remedio', visibilidade: 'detalhada' });
+    
+    const result = postPilotMessage(context, 'quanto gastei com mercado?');
+    
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Mercado da semana/);
+    assert.match(result.responseText, /R\$ 200,00/);
+    assert.doesNotMatch(result.responseText, /Farmacia/);
 });

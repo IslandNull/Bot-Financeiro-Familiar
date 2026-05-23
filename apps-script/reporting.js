@@ -140,6 +140,13 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
   var margemPosObrigacoes = roundMoney_(coverageBase - faturas60d - obrigacoes60d);
   var capacity = computePilotDecisionCapacity_(coverageBase, reservaTotal, faturas60d, obrigacoes60d, debts);
 
+  var categoriasDicionario = {};
+  if (categoriesById) {
+    Object.keys(categoriesById).forEach(function(catId) {
+      categoriasDicionario[catId] = categoriesById[catId].nome || catId;
+    });
+  }
+
   return {
     competencia: competencia,
     receitas_dre: dre.receitas_dre,
@@ -163,6 +170,8 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     saldos_fontes_inicial: sourceBalanceSummary.saldos_fontes_inicial,
     saldos_fontes_final: sourceBalanceSummary.saldos_fontes_final,
     saldos_fontes_disponivel: sourceBalanceSummary.saldos_fontes_disponivel,
+    saldos_fontes_detalhe: sourceBalanceSummary.saldos_fontes_detalhe,
+    categorias_dicionario: categoriasDicionario,
     margem_pos_obrigacoes: margemPosObrigacoes,
     capacidade_aporte_segura: capacity.capacidade_aporte_segura,
     parcela_maxima_segura: capacity.parcela_maxima_segura,
@@ -350,12 +359,21 @@ function summarizePilotSourceBalances_(rows, competencia, sourcesById) {
     summary.saldos_fontes_inicial = roundMoney_(summary.saldos_fontes_inicial + numberFromSheetValue_(row.saldo_inicial));
     summary.saldos_fontes_final = roundMoney_(summary.saldos_fontes_final + numberFromSheetValue_(row.saldo_final));
     summary.saldos_fontes_disponivel = roundMoney_(summary.saldos_fontes_disponivel + numberFromSheetValue_(row.saldo_disponivel));
+    summary.saldos_fontes_detalhe.push({
+      id_fonte: row.id_fonte,
+      nome: source ? source.nome : row.id_fonte,
+      saldo_inicial: numberFromSheetValue_(row.saldo_inicial),
+      saldo_final: numberFromSheetValue_(row.saldo_final),
+      saldo_disponivel: numberFromSheetValue_(row.saldo_disponivel),
+      tipo: source ? source.tipo : ''
+    });
     return summary;
   }, {
     saldos_fontes_count: 0,
     saldos_fontes_inicial: 0,
     saldos_fontes_final: 0,
     saldos_fontes_disponivel: 0,
+    saldos_fontes_detalhe: [],
   });
 }
 
@@ -517,6 +535,7 @@ function summarizePilotInvoiceExposure_(invoices, referenceDate, cardsById, invo
     if (!grouped[key]) {
       grouped[key] = {
         cartao: cardName,
+        id_cartao: cardId,
         competencia: competencia,
         data_vencimento: dueDate,
         valor: 0,
@@ -815,7 +834,8 @@ function formatTopSpendingCategoriesAnswer_(summary) {
   return lines.join('\n');
 }
 
-function formatMentionedCategoryAnswer_(summary, text) {
+function formatMentionedCategoryAnswer_(summary, text, event) {
+  var explicitCatId = event && event.id_categoria;
   var normalizedText = normalizeAliasText_(text);
   var byId = {};
   (summary.categorias_previsao || []).forEach(function(item) {
@@ -833,22 +853,44 @@ function formatMentionedCategoryAnswer_(summary, text) {
     if (!byId[id].nome) byId[id].nome = stringValue_(item.categoria);
   });
   var category = null;
-  Object.keys(byId).forEach(function(id) {
-    var item = byId[id];
-    var normalizedName = normalizeAliasText_(item.nome);
-    if (!normalizedName) return;
-    if (containsAliasPhrase_(normalizedText, normalizedName)) {
-      if (!category || normalizedName.length > category.matchLength) {
-        category = {
-          id: id,
-          nome: item.nome,
-          forecast: item.forecast || { valor: 0 },
-          assumed: item.assumed || { valor: 0 },
-          matchLength: normalizedName.length,
-        };
-      }
+  if (explicitCatId) {
+    var item = byId[explicitCatId];
+    if (item) {
+      category = {
+        id: explicitCatId,
+        nome: item.nome,
+        forecast: item.forecast || { valor: 0 },
+        assumed: item.assumed || { valor: 0 },
+        matchLength: 999
+      };
+    } else {
+      var name = (summary.categorias_dicionario && summary.categorias_dicionario[explicitCatId]) || friendlyIdentifier_(explicitCatId);
+      category = {
+        id: explicitCatId,
+        nome: name,
+        forecast: { valor: 0 },
+        assumed: { valor: 0 },
+        matchLength: 999
+      };
     }
-  });
+  } else {
+    Object.keys(byId).forEach(function(id) {
+      var item = byId[id];
+      var normalizedName = normalizeAliasText_(item.nome);
+      if (!normalizedName) return;
+      if (containsAliasPhrase_(normalizedText, normalizedName)) {
+        if (!category || normalizedName.length > category.matchLength) {
+          category = {
+            id: id,
+            nome: item.nome,
+            forecast: item.forecast || { valor: 0 },
+            assumed: item.assumed || { valor: 0 },
+            matchLength: normalizedName.length,
+          };
+        }
+      }
+    });
+  }
   if (!category) return '';
   var forecastValue = numberFromSheetValue_(category.forecast && category.forecast.valor);
   var assumedValue = numberFromSheetValue_(category.assumed && category.assumed.valor);
@@ -892,38 +934,73 @@ function formatMentionedCategoryAnswer_(summary, text) {
   return lines.join('\n');
 }
 
-function formatUpcomingObligationsAnswer_(summary) {
-  var obligations = roundMoney_(summary.faturas_60d + summary.obrigacoes_60d);
+function formatUpcomingObligationsAnswer_(summary, event) {
+  var cardId = event && event.id_cartao;
+  var faturas = summary.faturas_60d_detalhe || [];
+  var cardName = '';
+  if (cardId) {
+    faturas = faturas.filter(function(item) {
+      return item.id_cartao === cardId;
+    });
+    if (faturas.length > 0) {
+      cardName = ' do ' + shortCardName_(faturas[0].cartao);
+    } else {
+      cardName = ' do cartão ' + friendlyIdentifier_(cardId);
+    }
+  }
+  var totalFaturas = faturas.reduce(function(sum, item) { return roundMoney_(sum + item.valor); }, 0);
   var lines = [
-    '🧾 Contas próximas de ' + friendlyCompetencia_(summary.competencia),
+    '🧾 Contas próximas' + cardName + ' de ' + friendlyCompetencia_(summary.competencia),
     '',
     '💳 Faturas abertas',
-    'Total: ' + formatMoney_(summary.faturas_60d),
+    'Total: ' + formatMoney_(totalFaturas),
   ];
-  (summary.faturas_60d_detalhe || []).slice(0, 6).forEach(function(item) {
+  faturas.slice(0, 6).forEach(function(item) {
     lines.push(shortCardName_(item.cartao) + ' ' + formatShortDate_(item.data_vencimento) + ': ' + formatMoney_(item.valor));
   });
-  lines = lines.concat([
-    '',
-    '🏠 Compromissos',
-    'Cadastrados: ' + formatMoney_(summary.obrigacoes_60d),
-    'Total em até 60 dias: ' + formatMoney_(obligations),
-    '',
-    '✅ Depois disso',
-    formatMoney_(summary.margem_pos_obrigacoes),
-    '',
-    'Base: faturas abertas e obrigações ativas registradas. Salário futuro ainda não lançado fica fora.',
-  ]);
+  if (!cardId) {
+    var obligations = roundMoney_(totalFaturas + summary.obrigacoes_60d);
+    lines = lines.concat([
+      '',
+      '🏠 Compromissos',
+      'Cadastrados: ' + formatMoney_(summary.obrigacoes_60d),
+      'Total em até 60 dias: ' + formatMoney_(obligations),
+      '',
+      '✅ Depois disso',
+      formatMoney_(summary.margem_pos_obrigacoes),
+      '',
+      'Base: faturas abertas e obrigações ativas registradas. Salário futuro ainda não lançado fica fora.',
+    ]);
+  } else {
+    lines = lines.concat([
+      '',
+      'Base: faturas abertas do cartão selecionado.',
+    ]);
+  }
   return lines.join('\n');
 }
 
-function formatAgendaAnswer_(summary) {
+function formatAgendaAnswer_(summary, event) {
+  var cardId = event && event.id_cartao;
+  var cardName = '';
+  var invoiceItems = (summary.faturas_60d_detalhe || []).slice();
+  if (cardId) {
+    invoiceItems = invoiceItems.filter(function(item) {
+      return item.id_cartao === cardId;
+    });
+    if (invoiceItems.length > 0) {
+      cardName = ' do ' + shortCardName_(invoiceItems[0].cartao);
+    } else {
+      cardName = ' do cartão ' + friendlyIdentifier_(cardId);
+    }
+  }
+
   var lines = [
-    '📅 Agenda financeira de ' + friendlyCompetencia_(summary.competencia),
+    '📅 Agenda financeira' + cardName + ' de ' + friendlyCompetencia_(summary.competencia),
     '',
     '💳 Faturas',
   ];
-  var invoiceItems = (summary.faturas_60d_detalhe || []).slice().sort(function(a, b) {
+  invoiceItems.sort(function(a, b) {
     var aDate = stringValue_(a.data_vencimento);
     var bDate = stringValue_(b.data_vencimento);
     if (aDate !== bDate) return aDate < bDate ? -1 : 1;
@@ -936,19 +1013,27 @@ function formatAgendaAnswer_(summary) {
       lines.push(formatShortDate_(item.data_vencimento) + ' ' + shortCardName_(item.cartao) + ': ' + formatMoney_(item.valor));
     });
   }
-  lines.push('');
-  lines.push('🏠 Compromissos');
-  var obligationItems = summary.obrigacoes_60d_detalhe || [];
-  if (obligationItems.length === 0) {
-    lines.push('Nenhum compromisso mensal cadastrado.');
-  } else {
-    obligationItems.slice(0, 6).forEach(function(item) {
-      lines.push('Sem data fixa: ' + item.nome + ' ' + formatMoney_(item.valor));
-    });
+
+  if (!cardId) {
+    lines.push('');
+    lines.push('🏠 Compromissos');
+    var obligationItems = summary.obrigacoes_60d_detalhe || [];
+    if (obligationItems.length === 0) {
+      lines.push('Nenhum compromisso mensal cadastrado.');
+    } else {
+      obligationItems.slice(0, 6).forEach(function(item) {
+        lines.push('Sem data fixa: ' + item.nome + ' ' + formatMoney_(item.valor));
+      });
+    }
   }
+
   lines.push('');
   lines.push('📌 Atenção');
-  lines.push('Não é tudo vencendo hoje. Use esta agenda para separar dinheiro antes de assumir gasto novo.');
+  if (cardId) {
+    lines.push('Use esta agenda para planejar o pagamento deste cartão.');
+  } else {
+    lines.push('Não é tudo vencendo hoje. Use esta agenda para separar dinheiro antes de assumir gasto novo.');
+  }
   return lines.join('\n');
 }
 
@@ -1045,7 +1130,31 @@ function shortCardName_(value) {
   return text;
 }
 
-function formatReserveAnswer_(summary) {
+function formatReserveAnswer_(summary, event) {
+  var sourceId = event && event.id_fonte;
+  if (sourceId) {
+    var details = summary.saldos_fontes_detalhe || [];
+    var match = null;
+    for (var i = 0; i < details.length; i++) {
+      if (details[i].id_fonte === sourceId) {
+        match = details[i];
+        break;
+      }
+    }
+    if (match) {
+      return [
+        '🏦 Saldo da fonte ' + match.nome + ' em ' + friendlyCompetencia_(summary.competencia),
+        '',
+        '💰 Detalhamento do saldo',
+        'Inicial: ' + formatMoney_(match.saldo_inicial),
+        'Final: ' + formatMoney_(match.saldo_final),
+        'Disponível: ' + formatMoney_(match.saldo_disponivel),
+        '',
+        'Base: último saldo registrado para a fonte ' + match.nome + '.',
+      ].join('\n');
+    }
+  }
+
   return [
     '🏦 Reserva e liquidez de ' + friendlyCompetencia_(summary.competencia),
     '',
@@ -1702,7 +1811,7 @@ function categoryClarificationText_(rawText, referenceData, eventType) {
 }
 
 function validateClosedPeriodForEvent_(event, closedCompetencias) {
-  if (!event || event.tipo_evento === 'ajuste') return { ok: true };
+  if (!event || event.tipo_evento === 'ajuste' || event.tipo_evento === 'leitura') return { ok: true };
   var competencia = normalizeSheetCompetencia_(event.competencia);
   if (!competencia) return { ok: true };
   if ((closedCompetencias || []).indexOf(competencia) === -1) return { ok: true };

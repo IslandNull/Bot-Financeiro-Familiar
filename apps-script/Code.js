@@ -398,15 +398,27 @@ function exportSnapshotV55() {
     }
     lines.push('');
   }
-  var fatSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
-  if (fatSheet && fatSheet.getLastRow() > 1) {
-    lines.push('## Faturas');
+  var fatResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
+  if (fatResumoSheet && fatResumoSheet.getLastRow() > 1) {
+    lines.push('## Faturas_Resumo');
     lines.push('');
-    var fatRows = readRowsAsObjects_(fatSheet, SHEETS.FATURAS);
-    lines.push('| ID Fatura | ID Cartao | Competencia | Status | Previsto | Fechado | Pago |');
-    lines.push('| --- | --- | --- | --- | ---: | ---: | ---: |');
-    for (var f = 0; f < fatRows.length; f++) {
-      lines.push('| ' + stringValue_(fatRows[f].id_fatura) + ' | ' + stringValue_(fatRows[f].id_cartao) + ' | ' + normalizeSheetCompetencia_(fatRows[f].competencia) + ' | ' + fatRows[f].status + ' | ' + numberFromSheetValue_(fatRows[f].valor_previsto) + ' | ' + numberFromSheetValue_(fatRows[f].valor_fechado) + ' | ' + numberFromSheetValue_(fatRows[f].valor_pago) + ' |');
+    var fatResumoRows = readRowsAsObjects_(fatResumoSheet, SHEETS.FATURAS_RESUMO);
+    lines.push('| ID Fatura | ID Cartao | Competencia | Fechamento | Vencimento | Previsto | Fechado | Pago | Aberto | Status | Authority |');
+    lines.push('| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | ---: |');
+    for (var f = 0; f < fatResumoRows.length; f++) {
+      lines.push('| ' + stringValue_(fatResumoRows[f].id_fatura) + ' | ' + stringValue_(fatResumoRows[f].id_cartao) + ' | ' + normalizeSheetCompetencia_(fatResumoRows[f].competencia) + ' | ' + formatSheetDate_(fatResumoRows[f].data_fechamento) + ' | ' + formatSheetDate_(fatResumoRows[f].data_vencimento) + ' | ' + numberFromSheetValue_(fatResumoRows[f].valor_previsto_total) + ' | ' + numberFromSheetValue_(fatResumoRows[f].valor_fechado) + ' | ' + numberFromSheetValue_(fatResumoRows[f].valor_pago) + ' | ' + numberFromSheetValue_(fatResumoRows[f].valor_aberto) + ' | ' + stringValue_(fatResumoRows[f].status) + ' | ' + numberFromSheetValue_(fatResumoRows[f].authority_count) + ' |');
+    }
+    lines.push('');
+  }
+  var fatLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
+  if (fatLinhasSheet && fatLinhasSheet.getLastRow() > 1) {
+    lines.push('## Faturas_Linhas');
+    lines.push('');
+    var fatLinhasRows = readRowsAsObjects_(fatLinhasSheet, SHEETS.FATURAS_LINHAS);
+    lines.push('| ID Linha | ID Fatura | ID Cartao | Competencia | Previsto | Status Origem |');
+    lines.push('| --- | --- | --- | --- | ---: | --- |');
+    for (var fl = 0; fl < fatLinhasRows.length; fl++) {
+      lines.push('| ' + stringValue_(fatLinhasRows[fl].id_linha_fatura) + ' | ' + stringValue_(fatLinhasRows[fl].id_fatura) + ' | ' + stringValue_(fatLinhasRows[fl].id_cartao) + ' | ' + normalizeSheetCompetencia_(fatLinhasRows[fl].competencia) + ' | ' + numberFromSheetValue_(fatLinhasRows[fl].valor_previsto) + ' | ' + stringValue_(fatLinhasRows[fl].status_origem) + ' |');
     }
     lines.push('');
   }
@@ -420,7 +432,7 @@ function exportSnapshotV55() {
     var transfers = readRowsAsObjects_(transSheet, SHEETS.TRANSFERENCIAS_INTERNAS).filter(function(row) {
       return normalizeSheetCompetencia_(row.competencia) === competencia && row.escopo === 'Familiar';
     });
-    var invoices = fatResumoRows;
+    var invoices = fatResumoSheet && fatResumoSheet.getLastRow() > 1 ? readRowsAsObjects_(fatResumoSheet, SHEETS.FATURAS_RESUMO) : [];
     var assets = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS), SHEETS.PATRIMONIO_ATIVOS);
     var debts = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.DIVIDAS), SHEETS.DIVIDAS);
     var recurringIncomes = readRowsAsObjects_(spreadsheet.getSheetByName(SHEETS.RENDAS_RECORRENTES), SHEETS.RENDAS_RECORRENTES);
@@ -514,272 +526,7 @@ function exportSheetAuditV55() {
   };
 }
 
-function exportInvoiceMigrationPreviewV55() {
-  var config = readConfig_();
-  if (!config.spreadsheetId) return { ok: false, error: 'MISSING_SPREADSHEET_ID' };
-  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
-  var catSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_CATEGORIAS);
-  var fonSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_FONTES);
-  var carSheet = spreadsheet.getSheetByName(SHEETS.CARTOES);
-  var fatResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
-  var fatLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
-  var lanSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
-    
-  if (!catSheet || !fonSheet || !carSheet || !fatResumoSheet || !fatLinhasSheet || !lanSheet) {
-    return { ok: false, error: 'SHEETS_NOT_FOUND' };
-  }
 
-  var fatResumoRows = readRowsAsObjects_(fatResumoSheet, SHEETS.FATURAS_RESUMO);
-  var preview = buildInvoiceMigrationPreview_(fatResumoRows);
-  preview.shouldApplyDomainMutation = false;
-  return preview;
-}
-
-function applyInvoiceMigrationV55(params) {
-  if (stringValue_(params && params.confirm) !== 'APPLY_FATURAS_SPLIT') {
-    return {
-      ok: false,
-      error: 'MISSING_INVOICE_MIGRATION_CONFIRMATION',
-      shouldApplyDomainMutation: false,
-    };
-  }
-  var config = readConfig_();
-  if (!config.spreadsheetId) return { ok: false, error: 'MISSING_SPREADSHEET_ID', shouldApplyDomainMutation: false };
-  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
-  var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS);
-  verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS);
-  var invoices = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS);
-  var preview = buildInvoiceMigrationPreview_(invoices);
-  if ((preview.conflicts || []).length) {
-    return {
-      ok: false,
-      error: 'INVOICE_AUTHORITY_CONFLICTS',
-      shouldApplyDomainMutation: false,
-      conflicts: preview.conflicts,
-    };
-  }
-
-  var backupName = 'Faturas_Backup_' + isoNow_().replace(/[-:TZ]/g, '').slice(0, 15);
-  var backupSheet = createOrReplaceSheet_(spreadsheet, backupName);
-  writeMatrixToSheet_(backupSheet, [HEADERS[SHEETS.FATURAS]].concat(rowsToMatrix_(invoices, SHEETS.FATURAS)));
-
-  var summarySheet = createOrReplaceSheet_(spreadsheet, SHEETS.FATURAS_RESUMO);
-  var lineSheet = createOrReplaceSheet_(spreadsheet, SHEETS.FATURAS_LINHAS);
-  writeMatrixToSheet_(summarySheet, [HEADERS[SHEETS.FATURAS_RESUMO]].concat(invoiceSummaryRows_(preview.invoice_headers || [])));
-  writeMatrixToSheet_(lineSheet, [HEADERS[SHEETS.FATURAS_LINHAS]].concat(invoiceLineRows_(preview.exposure_lines || [])));
-
-  return {
-    ok: true,
-    action: 'invoice_migration_apply',
-    shouldApplyDomainMutation: true,
-    backup_sheet: backupName,
-    summary: preview.summary,
-    written: {
-      faturas_resumo_rows: (preview.invoice_headers || []).length,
-      faturas_linhas_rows: (preview.exposure_lines || []).length,
-    },
-  };
-}
-
-function createOrReplaceSheet_(spreadsheet, name) {
-  var existing = spreadsheet.getSheetByName(name);
-  if (existing) spreadsheet.deleteSheet(existing);
-  return spreadsheet.insertSheet(name);
-}
-
-function writeMatrixToSheet_(sheet, values) {
-  sheet.clear();
-  if (values.length === 0) return;
-  sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
-}
-
-function rowsToMatrix_(rows, sheetName) {
-  var headers = HEADERS[sheetName];
-  return (rows || []).map(function(row) {
-    return headers.map(function(header) { return row[header] === undefined ? '' : row[header]; });
-  });
-}
-
-function invoiceSummaryRows_(headers) {
-  return (headers || []).map(function(row) {
-    var status = row.valor_aberto <= 0 ? 'paga' : (row.has_authority ? 'fechada' : 'prevista');
-    return HEADERS[SHEETS.FATURAS_RESUMO].map(function(header) {
-      if (header === 'status') return status;
-      return row[header] === undefined ? '' : row[header];
-    });
-  });
-}
-
-function invoiceLineRows_(lines) {
-  return (lines || []).map(function(row, index) {
-    var id = stableId_('FATL', [
-      row.id_fatura,
-      row.id_cartao,
-      row.competencia,
-      row.valor_previsto_total,
-      row.status_origem,
-      index,
-    ].join('|'));
-    return HEADERS[SHEETS.FATURAS_LINHAS].map(function(header) {
-      if (header === 'id_linha_fatura') return id;
-      return row[header] === undefined ? '' : row[header];
-    });
-  });
-}
-
-function buildInvoiceMigrationPreview_(invoices) {
-  var rows = invoices || [];
-  var cycles = projectInvoiceMigrationCycles_(rows);
-  var plannedRows = rows.filter(function(row) {
-    var status = stringValue_(row.status);
-    return ['prevista', 'paga'].indexOf(status) !== -1 && !isInvoiceMigrationAuthorityRow_(row);
-  });
-  var invoiceHeaders = cycles.map(function(cycle) {
-    return {
-      id_fatura: cycle.id_fatura,
-      id_cartao: cycle.id_cartao,
-      competencia: cycle.competencia,
-      data_fechamento: cycle.data_fechamento,
-      data_vencimento: cycle.data_vencimento,
-      valor_previsto_total: cycle.planned_amount,
-      valor_fechado: cycle.authority_amount,
-      valor_pago: cycle.paid_amount,
-      valor_aberto: cycle.open_amount,
-      has_authority: cycle.has_authority,
-      has_authority_conflict: cycle.has_authority_conflict,
-      authority_count: cycle.authority_count,
-    };
-  });
-  var exposureLines = plannedRows.map(function(row) {
-    return {
-      id_fatura: stringValue_(row.id_fatura),
-      id_cartao: stringValue_(row.id_cartao),
-      competencia: normalizeSheetCompetencia_(row.competencia) || stringValue_(row.competencia),
-      valor_previsto: roundMoney_(numberFromSheetValue_(row.valor_previsto_total)),
-      status_origem: stringValue_(row.status),
-    };
-  });
-  var conflicts = cycles.filter(function(cycle) {
-    return cycle.has_authority_conflict;
-  }).map(function(cycle) {
-    return {
-      id_cartao: cycle.id_cartao,
-      competencia: cycle.competencia,
-      data_vencimento: cycle.data_vencimento,
-      authority_count: cycle.authority_count,
-    };
-  });
-
-  return {
-    ok: true,
-    summary: {
-      current_rows: rows.length,
-      future_invoice_headers: invoiceHeaders.length,
-      future_exposure_lines: exposureLines.length,
-      authority_cycles: cycles.filter(function(cycle) { return cycle.has_authority; }).length,
-      conflict_cycles: conflicts.length,
-      planned_total: roundMoney_(cycles.reduce(function(sum, cycle) { return sum + cycle.planned_amount; }, 0)),
-      authority_total: roundMoney_(cycles.reduce(function(sum, cycle) { return sum + cycle.authority_amount; }, 0)),
-      paid_total: roundMoney_(cycles.reduce(function(sum, cycle) { return sum + cycle.paid_amount; }, 0)),
-      open_total: roundMoney_(cycles.reduce(function(sum, cycle) { return sum + cycle.open_amount; }, 0)),
-    },
-    invoice_headers: invoiceHeaders,
-    exposure_lines: exposureLines,
-    conflicts: conflicts,
-  };
-}
-
-function projectInvoiceMigrationCycles_(invoices) {
-  var byKey = {};
-  var authorityCountByConflictKey = {};
-  (invoices || []).forEach(function(row, index) {
-    var status = stringValue_(row.status);
-    if (['prevista', 'fechada', 'parcialmente_paga', 'paga'].indexOf(status) === -1) return;
-    var key = invoiceMigrationGroupKey_(row) || ('row_' + index);
-    if (!byKey[key]) byKey[key] = emptyInvoiceMigrationCycle_(row);
-    var cycle = byKey[key];
-    if (!cycle.id_fatura && stringValue_(row.id_fatura)) cycle.id_fatura = stringValue_(row.id_fatura);
-    if (!cycle.id_cartao && stringValue_(row.id_cartao)) cycle.id_cartao = stringValue_(row.id_cartao);
-    if (!cycle.competencia && normalizeSheetCompetencia_(row.competencia)) cycle.competencia = normalizeSheetCompetencia_(row.competencia);
-    if (!cycle.data_fechamento && formatSheetDate_(row.data_fechamento)) cycle.data_fechamento = formatSheetDate_(row.data_fechamento);
-    if (!cycle.data_vencimento && formatSheetDate_(row.data_vencimento)) cycle.data_vencimento = formatSheetDate_(row.data_vencimento);
-
-    if (!isInvoiceMigrationAuthorityRow_(row)) {
-      cycle.planned_amount = roundMoney_(cycle.planned_amount + numberFromSheetValue_(row.valor_previsto_total));
-      cycle.paid_amount = roundMoney_(cycle.paid_amount + numberFromSheetValue_(row.valor_pago));
-      cycle.planned_count += 1;
-      return;
-    }
-
-    cycle.has_authority = true;
-    cycle.authority_count += 1;
-    cycle.authority_amount = roundMoney_(cycle.authority_amount + invoiceMigrationExpectedAmount_(row));
-    cycle.paid_amount = roundMoney_(cycle.paid_amount + numberFromSheetValue_(row.valor_pago));
-    var conflictKey = invoiceMigrationConflictKey_(row);
-    authorityCountByConflictKey[conflictKey] = (authorityCountByConflictKey[conflictKey] || 0) + 1;
-  });
-
-  objectValues_(byKey).forEach(function(cycle) {
-    var sourceAmount = cycle.has_authority ? cycle.authority_amount : cycle.planned_amount;
-    var paidAmount = cycle.paid_amount;
-    cycle.open_amount = roundMoney_(Math.max(0, sourceAmount - paidAmount));
-    cycle.has_authority_conflict = authorityCountByConflictKey[
-      [cycle.id_cartao, cycle.competencia, cycle.data_vencimento].join('|')
-    ] > 1;
-  });
-
-  return objectValues_(byKey).sort(function(a, b) {
-    if (a.data_vencimento !== b.data_vencimento) return a.data_vencimento < b.data_vencimento ? -1 : 1;
-    if (a.id_cartao !== b.id_cartao) return a.id_cartao < b.id_cartao ? -1 : 1;
-    return a.competencia < b.competencia ? -1 : (a.competencia > b.competencia ? 1 : 0);
-  });
-}
-
-function emptyInvoiceMigrationCycle_(row) {
-  return {
-    id_fatura: stringValue_(row.id_fatura),
-    id_cartao: stringValue_(row.id_cartao),
-    competencia: normalizeSheetCompetencia_(row.competencia) || stringValue_(row.competencia),
-    data_fechamento: formatSheetDate_(row.data_fechamento) || stringValue_(row.data_fechamento),
-    data_vencimento: formatSheetDate_(row.data_vencimento) || stringValue_(row.data_vencimento),
-    planned_amount: 0,
-    authority_amount: 0,
-    paid_amount: 0,
-    open_amount: 0,
-    planned_count: 0,
-    authority_count: 0,
-    has_authority: false,
-    has_authority_conflict: false,
-  };
-}
-
-function invoiceMigrationGroupKey_(row) {
-  var cycleKey = [
-    stringValue_(row.id_cartao),
-    normalizeSheetCompetencia_(row.competencia) || stringValue_(row.competencia),
-    formatSheetDate_(row.data_vencimento) || stringValue_(row.data_vencimento),
-  ].join('|');
-  if (cycleKey !== '||') return cycleKey;
-  return stringValue_(row.id_fatura);
-}
-
-function invoiceMigrationConflictKey_(row) {
-  return [
-    stringValue_(row.id_cartao),
-    normalizeSheetCompetencia_(row.competencia) || stringValue_(row.competencia),
-    formatSheetDate_(row.data_vencimento) || stringValue_(row.data_vencimento),
-  ].join('|');
-}
-
-function invoiceMigrationExpectedAmount_(row) {
-  var closed = numberFromSheetValue_(row.valor_fechado);
-  return closed > 0 ? closed : numberFromSheetValue_(row.valor_previsto_total);
-}
-
-function isInvoiceMigrationAuthorityRow_(row) {
-  var status = stringValue_(row.status);
-  return ['fechada', 'parcialmente_paga'].indexOf(status) !== -1 || numberFromSheetValue_(row.valor_fechado) > 0;
-}
 
 function objectValues_(object) {
   return Object.keys(object).map(function(key) { return object[key]; });
@@ -812,7 +559,7 @@ function auditCardReferences_(findings, cards, sources) {
 
 function auditInvoiceReferences_(findings, invoices, cards) {
   (invoices || []).forEach(function(row) {
-    checkSheetAuditReference_(findings, SHEETS.FATURAS, 'id_cartao', row.id_cartao, cards, true);
+    checkSheetAuditReference_(findings, SHEETS.FATURAS_RESUMO, 'id_cartao', row.id_cartao, cards, true);
   });
 }
 
@@ -844,7 +591,7 @@ function auditDuplicateInvoices_(findings, invoices) {
   });
   Object.keys(byClosedInvoiceGroup).forEach(function(key) {
     if (byClosedInvoiceGroup[key] > 1) {
-      addSheetAuditFinding_(findings, 'CONCURRENT_CLOSED_INVOICE', 'warning', SHEETS.FATURAS, 'competencia', byClosedInvoiceGroup[key], 'multiple closed invoice authority rows for same card, competence, and due date');
+      addSheetAuditFinding_(findings, 'CONCURRENT_CLOSED_INVOICE', 'warning', SHEETS.FATURAS_RESUMO, 'competencia', byClosedInvoiceGroup[key], 'multiple closed invoice authority rows for same card, competence, and due date');
     }
   });
 }

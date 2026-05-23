@@ -73,5 +73,5 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 ## Next Work
 
 1. Clean up extra backup sheets (`Faturas_Backup_*`) and retired `Telegram_Send_Log` from the real spreadsheet behind explicit approval.
-2. Design budget/envelope config before implementing category limits; do not infer limits from category names.
-3. Expand conversational read-only answers to resolve references like "essa fatura" from recent context.
+2. Expand conversational read-only answers to resolve references like "essa fatura" or "nesse cartão" from recent context.
+3. Design budget/envelope config before implementing category limits; do not infer limits from category names.
