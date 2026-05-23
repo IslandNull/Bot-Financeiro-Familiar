@@ -135,7 +135,7 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
   var recurringIncome = summarizePilotRecurringIncome_(recurringIncomes || []);
   var sourceBalanceSummary = summarizePilotSourceBalances_(sourceBalances || [], competencia, sourcesById || {});
   var benefitBalances = computePilotBenefitBalances_(launches, sourceBalances, recurringIncomes || [], sourcesById || {}, competencia);
-  var projectedCashFlow = computePilotProjectedCashFlow_(competencia, recurringIncome, dre, sourceBalanceSummary, currentInvoiceExposure.total, obrigacoes60d);
+  var projectedCashFlow = computePilotProjectedCashFlow_(competencia, recurringIncome, dre, sourceBalanceSummary, currentInvoiceExposure.total, obligationExposure.cycle_total);
   var coverageBase = sourceBalanceSummary.saldos_fontes_count > 0
     ? roundMoney_(sourceBalanceSummary.saldos_fontes_disponivel + reservaTotal)
     : cash.sobra_caixa;
@@ -163,6 +163,7 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     faturas_atuais_detalhe: currentInvoiceExposure.items,
     obrigacoes_60d: obrigacoes60d,
     obrigacoes_60d_detalhe: obligationExposure.items,
+    obrigacoes_ciclo: obligationExposure.cycle_total,
     reserva_total: reservaTotal,
     patrimonio_liquido: roundMoney_(ativosTotal - dividasTotal),
     rendas_recorrentes_ativas: recurringIncome.rendas_recorrentes_ativas,
@@ -222,6 +223,9 @@ function summarizePilotObligationExposure_(debts) {
   return {
     total: roundMoney_(items.reduce(function(sum, item) {
       return roundMoney_(sum + item.exposure);
+    }, 0)),
+    cycle_total: roundMoney_(items.reduce(function(sum, item) {
+      return roundMoney_(sum + numberFromSheetValue_(item.valor));
     }, 0)),
     items: items,
   };
@@ -354,15 +358,25 @@ function summarizePilotRecurringIncome_(rows) {
 function computePilotProjectedCashFlow_(competencia, recurringIncome, dre, sourceBalanceSummary, currentInvoices, obligations) {
   var plannedCashIncome = numberFromSheetValue_(recurringIncome && recurringIncome.renda_caixa_planejada);
   var actualRevenue = numberFromSheetValue_(dre && dre.receitas_dre);
-  var pendingIncome = roundMoney_(Math.max(0, plannedCashIncome - actualRevenue));
+  var incomeDate = nextSalaryBusinessDate_(todaySaoPaulo_());
+  var pendingIncome = incomeDate.slice(0, 7) === normalizeSheetCompetencia_(competencia)
+    ? roundMoney_(Math.max(0, plannedCashIncome - actualRevenue))
+    : plannedCashIncome;
   var scheduledPayments = roundMoney_(numberFromSheetValue_(currentInvoices) + numberFromSheetValue_(obligations));
   var availableCash = numberFromSheetValue_(sourceBalanceSummary && sourceBalanceSummary.saldos_fontes_disponivel);
   return {
-    renda_prevista_data: salaryBusinessDateForCompetencia_(competencia),
+    renda_prevista_data: incomeDate,
     renda_prevista_pendente: pendingIncome,
     pagamentos_programados: scheduledPayments,
     sobra_projetada_pos_pagamentos: roundMoney_(availableCash + pendingIncome - scheduledPayments),
   };
+}
+
+function nextSalaryBusinessDate_(referenceDate) {
+  var competencia = stringValue_(referenceDate).slice(0, 7);
+  var candidate = salaryBusinessDateForCompetencia_(competencia);
+  if (candidate && candidate >= stringValue_(referenceDate)) return candidate;
+  return salaryBusinessDateForCompetencia_(addMonthsToCompetencia_(competencia, 1));
 }
 
 function salaryBusinessDateForCompetencia_(competencia) {
@@ -373,6 +387,13 @@ function salaryBusinessDateForCompetencia_(competencia) {
     result = addDaysIsoDate_(result, -1);
   }
   return result;
+}
+
+function addMonthsToCompetencia_(competencia, months) {
+  var parts = stringValue_(competencia).split('-');
+  if (parts.length !== 2) return '';
+  var date = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1 + Number(months || 0), 1, 12, 0, 0));
+  return date.toISOString().slice(0, 7);
 }
 
 function isWeekendIsoDate_(isoDate) {
@@ -801,7 +822,7 @@ function buildPilotProjectedFlowLines_(summary) {
     '🔭 Fluxo projetado',
     'Renda prevista ' + formatShortDate_(summary.renda_prevista_data) + ': ' + formatMoney_(summary.renda_prevista_pendente),
     'Faturas atuais: ' + formatMoney_(currentInvoices),
-    'Obrigacoes proximas: ' + formatMoney_(summary.obrigacoes_60d),
+    'Obrigacoes do ciclo: ' + formatMoney_(summary.obrigacoes_ciclo),
     'Pagamentos programados: ' + formatMoney_(summary.pagamentos_programados),
     'Sobra projetada: ' + formatMoney_(summary.sobra_projetada_pos_pagamentos),
   ];

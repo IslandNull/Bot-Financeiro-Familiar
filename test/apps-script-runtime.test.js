@@ -429,8 +429,8 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.match(result.responseText, /Sobra projetada positiva/);
     assert.match(result.responseText, /Contas: R\$ 330,00/);
     assert.match(result.responseText, /Reserva: R\$ 1000,00/);
-    assert.match(result.responseText, /Renda prevista 03\/04: R\$ 5000,00/);
-    assert.match(result.responseText, /Sobra projetada: R\$ 4287,50/);
+    assert.match(result.responseText, /Renda prevista 05\/05: R\$ 5000,00/);
+    assert.match(result.responseText, /Sobra projetada: R\$ 4787,50/);
     assert.match(result.responseText, /Nubank( Gu)? 07\/05: R\$ 42,50/);
     assert.match(result.responseText, /Total: R\$ 42,50/);
     assert.doesNotMatch(result.responseText, /Compromissos cadastrados/);
@@ -557,13 +557,15 @@ test('Apps Script /resumo projects salary before scheduled invoices and obligati
     const result = runRemoteAction(context, 'summary');
 
     assert.strictEqual(result.ok, true);
-    assert.strictEqual(result.summary.renda_prevista_data, '2026-04-03');
-    assert.strictEqual(result.summary.renda_prevista_pendente, 4000);
-    assert.strictEqual(result.summary.pagamentos_programados, 1800);
-    assert.strictEqual(result.summary.sobra_projetada_pos_pagamentos, 2700);
-    assert.match(result.responseText, /Renda prevista 03\/04: R\$ 4000,00/);
-    assert.match(result.responseText, /Pagamentos programados: R\$ 1800,00/);
-    assert.match(result.responseText, /Sobra projetada: R\$ 2700,00/);
+    assert.strictEqual(result.summary.renda_prevista_data, '2026-05-05');
+    assert.strictEqual(result.summary.renda_prevista_pendente, 5000);
+    assert.strictEqual(result.summary.obrigacoes_ciclo, 300);
+    assert.strictEqual(result.summary.pagamentos_programados, 1500);
+    assert.strictEqual(result.summary.sobra_projetada_pos_pagamentos, 4000);
+    assert.match(result.responseText, /Renda prevista 05\/05: R\$ 5000,00/);
+    assert.match(result.responseText, /Obrigacoes do ciclo: R\$ 300,00/);
+    assert.match(result.responseText, /Pagamentos programados: R\$ 1500,00/);
+    assert.match(result.responseText, /Sobra projetada: R\$ 4000,00/);
     assert.doesNotMatch(result.responseText, /Saldos de benef/);
     assert.doesNotMatch(result.responseText, /Maior impacto/);
 });
