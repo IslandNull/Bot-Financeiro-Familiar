@@ -17,9 +17,6 @@ Codebase navigation guide for V55.
 | `test/*.js` | Node.js tests. Run with `npm test`. |
 | `scripts/clasp-run.js` | HTTP-based remote execution helper. Reads `.env` for `WEBAPP_URL`, `WEBHOOK_SECRET`, `DEPLOY_ID`. |
 | `scripts/sheet-audit.js` | Read-only sheet auditor. With no args, calls remote `sheet_audit`; with a JSON state file, audits offline. |
-| `scripts/invoice-migration-preview.js` | Read-only formatter for the remote `invoice_migration_preview` dry-run. |
-| `scripts/invoice-migration-plan.js` | Read-only gate combining sheet audit and invoice preview before any `Faturas` migration apply design. |
-| `scripts/invoice-migration-design.js` | Read-only guarded migration design for future `Faturas` split apply; no spreadsheet writes. |
 | `EXECUTION_PLAN.md` | Operational authority: current state, rules, next steps. |
 | `DOMAIN_RULES.md` | Financial domain rules (event types, scopes, visibility, mandatory rules). |
 | `SHEET_SCHEMA.md` | Canonical live V55 sheet schema (12 sheets). |
@@ -35,7 +32,7 @@ Codebase navigation guide for V55.
 | `validator.js` | Parsed event validation, financial mapping |
 | `domain.js` | Family closing, DRE, cash, reserve, destination calculations |
 | `card-cycle.js` | Invoice cycle assignment from card closing/due dates |
-| `invoice-ledger.js` | Compatibility projection from overloaded `Faturas` rows into invoice cycles |
+| `invoice-ledger.js` | Invoice summary helper for open amounts from `Faturas_Resumo` rows |
 | `parser-context.js` | Parser prompt context builder from seed data |
 | `parser-contract.js` | Strict JSON extraction and validation from model output |
 | `parser-runtime.js` | Parser execution with injected fetch |
@@ -58,7 +55,7 @@ doPost(e)
        ├─ /help, /start → static text
        ├─ /resumo → readCurrentPilotFamilySummary_() (read-only)
        └─ Financial mutation path:
-            ├─ readRuntimeReferenceData_() → active Config_Categorias, Config_Fontes, Cartoes, Faturas, closed Fechamento_Familiar
+            ├─ readRuntimeReferenceData_() → active Config_Categorias, Config_Fontes, Cartoes, Faturas_Resumo, closed Fechamento_Familiar
             ├─ parseFinancialEventWithOpenAI_()
             ├─ normalizeParsedEvent_() → canonicalizePilotEvent_()
             ├─ validateClosedPeriodForEvent_() + validatePilot*Event_()
@@ -72,9 +69,7 @@ doGet(e)
        ├─ closing_draft → writeDraftFamilyClosingV55()
        ├─ closing_close → closeReviewedFamilyClosingV55()
        ├─ selftest → runHelpSmokeSelfTest()
-       ├─ sheet_audit → exportSheetAuditV55()
-       ├─ invoice_migration_preview → exportInvoiceMigrationPreviewV55()
-       └─ invoice_migration_apply → applyInvoiceMigrationV55()
+       └─ sheet_audit → exportSheetAuditV55()
 ```
 
 **Runtime file split:**
@@ -95,7 +90,7 @@ doGet(e)
 
 ## Google Sheets (V55) — 12 live sheets
 
-**Core data:** `Lancamentos`, `Transferencias_Internas`, `Faturas`, `Faturas_Resumo`, `Faturas_Linhas`, `Fechamento_Familiar`
+**Core data:** `Lancamentos`, `Transferencias_Internas`, `Faturas_Resumo`, `Faturas_Linhas`, `Fechamento_Familiar`
 **Config:** `Config_Categorias`, `Config_Fontes`, `Cartoes`
 **Tracking:** `Patrimonio_Ativos`, `Dividas`, `Rendas_Recorrentes`, `Saldos_Fontes`
 **Operational:** `Idempotency_Log`

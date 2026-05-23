@@ -2,7 +2,7 @@
 
 Operational authority for Bot Financeiro Familiar V55.
 
-## Current State (2026-05-22)
+## Current State (2026-05-23)
 
 ### Verified
 
@@ -19,11 +19,9 @@ Operational authority for Bot Financeiro Familiar V55.
 - Telegram runtime keeps a short persistent conversation state in Script Properties per chat: last 25 user messages plus one pending intent for guided source/card/invoice completion.
 - Read-only views keep private personal detail aggregate-only in shared reports.
 - Current real closing state in snapshot: 2026-04 closed; 2026-05 open with May usage in progress.
-- `sheet:audit` is read-only; post-migration audit reports 0 errors, 3 warnings (2 backup sheets + retired `Telegram_Send_Log`).
-- `Faturas` migration applied on 2026-05-22: 155 original rows split into 23 `Faturas_Resumo` headers and 152 `Faturas_Linhas` exposure lines. Backup: `Faturas_Backup_20260522201042`. Original `Faturas` remains intact as compatibility source.
-- Post-apply verification: selftest passed, audit 0 errors, 0 authority conflicts, 2 authority cycles confirmed.
-- `invoice:preview`, `invoice:plan`, `invoice:design` remain available as read-only planning/audit tools.
-- Runtime still consumes original `Faturas` for compatibility; switch to `Faturas_Resumo`/`Faturas_Linhas` is the next reviewed step.
+- Current schema/runtime use split invoice sheets: `Faturas_Resumo` for invoice authority/summary and `Faturas_Linhas` for purchase/installment exposure.
+- Snapshot generated on 2026-05-23 reports 13 real sheets, all live schema headers matching, 2026-04 closed, and 2026-05 open with May usage in progress.
+- Historical invoice migration planning/apply helpers are no longer live runtime actions or local scripts. Future invoice corrections must use current runtime paths or explicit reviewed adjustments.
 
 ### Unverified
 
@@ -48,7 +46,7 @@ Operational authority for Bot Financeiro Familiar V55.
 The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>`.
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env`.
 
-Available actions: `snapshot`, `summary`, `closing_draft`, `closing_close`, `selftest`, `sheet_audit`, `invoice_migration_preview`, and `invoice_migration_apply`.
+Available actions: `snapshot`, `summary`, `closing_draft`, `closing_close`, `selftest`, and `sheet_audit`.
 
 On Windows with PowerShell execution policy, use `npm.cmd` and `clasp.cmd` if needed.
 
@@ -72,6 +70,6 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 
 ## Next Work
 
-1. Clean up extra backup sheets (`Faturas_Backup_*`) and retired `Telegram_Send_Log` from the real spreadsheet behind explicit approval.
+1. Re-run remote `sheet:audit`; if it still reports extra backup sheets or retired `Telegram_Send_Log`, clean the real spreadsheet behind explicit approval.
 2. Expand conversational read-only answers to resolve references like "essa fatura" or "nesse cartão" from recent context.
 3. Design budget/envelope config before implementing category limits; do not infer limits from category names.

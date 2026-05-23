@@ -328,12 +328,12 @@ The bot is used for real family financial decisions. Clear wording and determini
 
 ## V55-D023 - Faturas Separate Exposure From Authority
 
-Status: Accepted
+Status: Accepted (migration completed; compatibility phase retired 2026-05-23)
 Date: 2026-05-20
 
 Decision:
-Treat current `Faturas` rows as a compatibility ledger with two meanings: planned exposure lines from purchases/installments, and authority rows from reviewed/closed/paid invoice state. Local and runtime code project those rows into invoice cycles before summing open exposure. `invoice:preview` provides a read-only aggregate dry-run for the future split into invoice headers/authority and purchase/installment exposure lines.
-The guarded apply creates `Faturas_Resumo` and `Faturas_Linhas` plus a timestamped `Faturas` backup while leaving original `Faturas` intact as the compatibility source until a later reviewed switch.
+Treat the former `Faturas` rows as a compatibility ledger with two meanings: planned exposure lines from purchases/installments, and authority rows from reviewed/closed/paid invoice state. The reviewed migration split that model into `Faturas_Resumo` for invoice authority/summary and `Faturas_Linhas` for purchase/installment exposure.
+The historical migration preview/apply helpers are no longer live runtime actions. Current runtime reads and writes the split invoice sheets directly.
 
 Reason:
 The live sheet legitimately has many `prevista` rows per card and competence because each purchase or installment contributes exposure. Those rows are not duplicates. Closed or partially paid invoice rows are stronger authority and must prevent double counting planned exposure for the same card, competence, and due date.

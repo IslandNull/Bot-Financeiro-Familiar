@@ -4,6 +4,8 @@ These actions were one-off runtime mutations for the April/May 2026 cleanup and 
 
 The reviewed historical JSONL import flow (`historical_import_reviewed`, `scripts/historical-validate.js`, `scripts/historical-write.js`) was also retired after the April rebuild. Future historical corrections must use the live Telegram/runtime paths or explicit reviewed adjustments.
 
+The transitional local splitter `scripts/split-code.js` was removed on 2026-05-23 after the Apps Script runtime had already been split into `apps-script/Code.js`, `infra.js`, `parser.js`, `reporting.js`, and `mutation.js`. It was not part of current npm workflows.
+
 Removed from `doGet`, V55 exports, global wrappers, and local tests:
 
 - `reset_april_2026_clean_rebuild`
