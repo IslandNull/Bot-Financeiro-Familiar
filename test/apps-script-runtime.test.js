@@ -1760,6 +1760,45 @@ test('Apps Script pilot expense still blocks card-like references', () => {
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
+test('Apps Script pilot expense prefers Luana cash source when text omits explicit owner', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '',
+        competencia: '',
+        valor: '39,46',
+        descricao: '',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_NUBANK_GU',
+        pessoa: 'Luana',
+        escopo: '',
+        visibilidade: '',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_CONTA_NUBANK_LU',
+        nome: 'Conta Nubank Luana',
+        tipo: 'conta_corrente',
+        titular: 'Luana',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+
+    const result = postPilotMessage(context, 'Paguei 39,46 mercado da semana pela conta nubank');
+
+    assert.strictEqual(result.ok, true);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_NUBANK_LU');
+    assert.strictEqual(launch.pessoa, 'Luana');
+});
+
 test('Apps Script expense accepts config-valid category without text alias gate', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'despesa',
@@ -1981,6 +2020,56 @@ test('Apps Script pilot card purchase writes launch and expected invoice rows', 
     assert.strictEqual(invoice.status, 'prevista');
     const invoiceLine = Object.fromEntries(faturasLinhasHeaders.map((header, index) => [header, sheets.Faturas_Linhas.rows[1][index]]));
     assert.strictEqual(invoiceLine.valor_previsto, 42.5);
+});
+
+test('Apps Script pilot card purchase prefers Luana card when text omits explicit owner', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '',
+        competencia: '',
+        valor: '39,46',
+        descricao: '',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: 'Luana',
+        escopo: '',
+        visibilidade: '',
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_NUBANK_LU',
+        nome: 'Nubank Luana',
+        tipo: 'cartao_credito',
+        titular: 'Luana',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+    sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
+        id_cartao: 'CARD_NUBANK_LU',
+        id_fonte: 'FONTE_NUBANK_LU',
+        nome: 'Nubank Luana',
+        titular: 'Luana',
+        fechamento_dia: 30,
+        vencimento_dia: 7,
+        limite: 5000,
+        ativo: true,
+    })[header] ?? ''));
+
+    const result = postPilotMessage(context, 'Comprei 39,46 mercado da semana no nubank');
+
+    assert.strictEqual(result.ok, true);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_fonte, 'FONTE_NUBANK_LU');
+    assert.strictEqual(launch.id_cartao, 'CARD_NUBANK_LU');
+    assert.strictEqual(launch.pessoa, 'Luana');
 });
 
 test('Apps Script card purchase blocks unrelated fallback category and asks for confirmation', () => {

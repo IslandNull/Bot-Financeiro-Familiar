@@ -31,12 +31,21 @@ if (!fs.existsSync(envPath)) {
 }
 
 const env = {};
+function parseEnvValue(value) {
+  const trimmed = value.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
 fs.readFileSync(envPath, 'utf8').split('\n').forEach(function(line) {
   const trimmed = line.trim();
   if (!trimmed || trimmed.startsWith('#')) return;
   const eqIdx = trimmed.indexOf('=');
   if (eqIdx > 0) {
-    env[trimmed.slice(0, eqIdx).trim()] = trimmed.slice(eqIdx + 1).trim();
+    env[trimmed.slice(0, eqIdx).trim()] = parseEnvValue(trimmed.slice(eqIdx + 1));
   }
 });
 

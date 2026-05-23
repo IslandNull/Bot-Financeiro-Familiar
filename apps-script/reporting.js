@@ -1302,7 +1302,8 @@ function canonicalizePilotExpenseEvent_(event, referenceData) {
   if (explicitCategory) event.id_categoria = explicitCategory.id_categoria;
   var category = categoryForEvent_(referenceData, event.id_categoria, 'despesa');
   if (!category) return event;
-  var source = event.id_fonte ? sourceForEvent_(referenceData, event.id_fonte) : defaultCashSourceForScope_(referenceData, category.escopo_padrao);
+  var source = ownerPreferredCashSourceFromText_(event, referenceData) ||
+    (event.id_fonte ? sourceForEvent_(referenceData, event.id_fonte) : defaultCashSourceForScope_(referenceData, category.escopo_padrao));
   if (!source || source.tipo === 'cartao_credito') return event;
   if (event.id_cartao || event.id_fatura || event.id_divida || event.id_ativo) return event;
   event.id_fonte = source.id_fonte;
@@ -1345,9 +1346,11 @@ function canonicalizePilotCardPurchaseEvent_(event, referenceData) {
   if (explicitCategory) event.id_categoria = explicitCategory.id_categoria;
   var category = categoryForEvent_(referenceData, event.id_categoria, 'compra_cartao');
   if (!category) return event;
-  var card = event.id_cartao ? cardForEvent_(referenceData, event.id_cartao) : (inferActiveCardFromText_(event.raw_text || event.descricao, referenceData) || defaultActiveCard_(referenceData));
+  var ownerPreferredCard = ownerPreferredCardFromText_(event, referenceData);
+  var card = ownerPreferredCard ||
+    (event.id_cartao ? cardForEvent_(referenceData, event.id_cartao) : (inferActiveCardFromText_(event.raw_text || event.descricao, referenceData) || defaultActiveCard_(referenceData)));
   if (!card) return event;
-  if (event.id_fonte && event.id_fonte !== card.id_fonte) return event;
+  if (event.id_fonte && event.id_fonte !== card.id_fonte && !ownerPreferredCard) return event;
   if (event.id_fatura || event.id_divida || event.id_ativo) return event;
   event.id_fonte = card.id_fonte;
   event.id_cartao = card.id_cartao;
@@ -1396,9 +1399,10 @@ function canonicalizePilotGenericLaunchEvent_(event, referenceData) {
   if (!isGenericLaunchEventType_(event.tipo_evento)) return event;
   var category = categoryForEvent_(referenceData, event.id_categoria, event.tipo_evento);
   if (!category) return event;
-  var source = event.id_fonte
-    ? sourceForEvent_(referenceData, event.id_fonte)
-    : (inferCashSourceFromText_(event.raw_text || event.descricao, referenceData) || defaultCashSourceForScope_(referenceData, category.escopo_padrao));
+  var source = ownerPreferredCashSourceFromText_(event, referenceData) ||
+    (event.id_fonte
+      ? sourceForEvent_(referenceData, event.id_fonte)
+      : (inferCashSourceFromText_(event.raw_text || event.descricao, referenceData) || defaultCashSourceForScope_(referenceData, category.escopo_padrao)));
   if (category.afeta_caixa_familiar_padrao === true && (!source || source.tipo === 'cartao_credito')) return event;
   if (source && source.tipo === 'cartao_credito') return event;
   if (event.id_cartao || event.id_fatura) return event;
@@ -1556,6 +1560,55 @@ function defaultCashSourceForScope_(referenceData, scope) {
 
 function defaultActiveCard_(referenceData) {
   return referenceData.cards.length ? referenceData.cards[0] : null;
+}
+
+function eventOwner_(event) {
+  var person = stringValue_(event && event.pessoa);
+  if (person === 'Gustavo' || person === 'Luana') return person;
+  var scope = stringValue_(event && event.escopo);
+  if (scope === 'Gustavo' || scope === 'Luana') return scope;
+  return '';
+}
+
+function explicitOwnerFromText_(text) {
+  var normalized = normalizeAliasText_(text);
+  if (containsAliasPhrase_(normalized, 'gustavo')) return 'Gustavo';
+  if (containsAliasPhrase_(normalized, 'luana')) return 'Luana';
+  return '';
+}
+
+function paymentBrandMatchesText_(name, text) {
+  var normalizedName = normalizeAliasText_(name);
+  var normalizedText = normalizeAliasText_(text);
+  if (!normalizedName || !normalizedText) return false;
+  if (containsAliasPhrase_(normalizedText, 'nubank') && containsAliasPhrase_(normalizedName, 'nubank')) return true;
+  if ((containsAliasPhrase_(normalizedText, 'mercado pago') || containsAliasPhrase_(normalizedText, 'mp')) &&
+      containsAliasPhrase_(normalizedName, 'mercado pago')) return true;
+  return false;
+}
+
+function ownerPreferredCardFromText_(event, referenceData) {
+  var text = event.raw_text || event.descricao;
+  var owner = eventOwner_(event);
+  if (!owner || explicitOwnerFromText_(text)) return null;
+  for (var i = 0; i < referenceData.cards.length; i += 1) {
+    var card = referenceData.cards[i];
+    if (card.titular !== owner) continue;
+    if (paymentBrandMatchesText_(card.nome, text)) return card;
+  }
+  return null;
+}
+
+function ownerPreferredCashSourceFromText_(event, referenceData) {
+  var text = event.raw_text || event.descricao;
+  var owner = eventOwner_(event);
+  if (!owner || explicitOwnerFromText_(text)) return null;
+  for (var i = 0; i < referenceData.sources.length; i += 1) {
+    var source = referenceData.sources[i];
+    if (source.titular !== owner || source.tipo === 'cartao_credito') continue;
+    if (paymentBrandMatchesText_(source.nome, text)) return source;
+  }
+  return null;
 }
 
 function defaultPayableInvoice_(referenceData) {
