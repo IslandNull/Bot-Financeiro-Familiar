@@ -115,6 +115,12 @@ function doGet(e) {
   if (action === 'sheet_audit') {
     return json_(exportSheetAuditV55());
   }
+  if (action === 'reconcile_faturas') {
+    return json_(reconcileAllFaturas());
+  }
+  if (action === 'debug_70') {
+    return json_(debug70());
+  }
   return json_({ ok: false, error: 'UNKNOWN_ACTION', action: action });
 }
 
@@ -686,4 +692,38 @@ function summarizeSheetAuditFindings_(findings) {
     summary[finding.severity] = (summary[finding.severity] || 0) + count;
     return summary;
   }, { total: 0, error: 0, warning: 0 });
+}
+
+function reconcileAllFaturas() {
+  var config = readConfig_();
+  if (!config.spreadsheetId) return { ok: false, error: 'MISSING_SPREADSHEET_ID' };
+  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+  var invoiceResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
+  var invoiceLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
+  if (!invoiceResumoSheet || !invoiceLinhasSheet) {
+    return { ok: false, error: 'MISSING_SHEETS' };
+  }
+  var resumoHeaders = HEADERS[SHEETS.FATURAS_RESUMO];
+  var resumoLastRow = invoiceResumoSheet.getLastRow();
+  if (resumoLastRow < 2) return { ok: true, reconciled: 0 };
+
+  var resumoRows = invoiceResumoSheet.getRange(2, 1, resumoLastRow - 1, resumoHeaders.length).getValues();
+  var resumoIdIndex = resumoHeaders.indexOf('id_fatura');
+  var reconciledCount = 0;
+  for (var i = 0; i < resumoRows.length; i += 1) {
+    var invoiceId = String(resumoRows[i][resumoIdIndex]);
+    if (!invoiceId) continue;
+    reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, invoiceId);
+    reconciledCount += 1;
+  }
+  return { ok: true, reconciled: reconciledCount };
+}
+
+function debug70() {
+  var config = readConfig_();
+  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+  var sheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+  var rows = readRowsAsObjects_(sheet, SHEETS.LANCAMENTOS);
+  var found = rows.filter(function(r) { return numberFromSheetValue_(r.valor) === 70.36 || String(r.descricao).indexOf('70,36') !== -1; });
+  return { ok: true, found: found };
 }
