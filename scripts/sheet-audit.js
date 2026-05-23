@@ -55,6 +55,7 @@ function rowsBySheet(sheets) {
 function auditStatuses(findings, rows) {
   checkStatus(findings, rows[SHEETS.LANCAMENTOS], SHEETS.LANCAMENTOS, 'status', ENUMS.lancamento_status.concat(['cancelado_revisao']));
   checkStatus(findings, rows[SHEETS.FATURAS_RESUMO], SHEETS.FATURAS_RESUMO, 'status', ENUMS.invoice_status.concat(['cancelado_revisao']));
+  checkStatus(findings, rows[SHEETS.FATURAS_LINHAS], SHEETS.FATURAS_LINHAS, 'status_origem', ['prevista', 'compra_cartao', 'fatura_prevista', 'paga']);
   checkStatus(findings, rows[SHEETS.DIVIDAS], SHEETS.DIVIDAS, 'status', ['ativa', 'em_aberto', 'renegociada', 'quitada', 'inativa', 'cancelada']);
   checkStatus(findings, rows[SHEETS.FECHAMENTO_FAMILIAR], SHEETS.FECHAMENTO_FAMILIAR, 'status', ['draft', 'closed']);
 }
@@ -63,7 +64,7 @@ function checkStatus(findings, rows, sheetName, field, allowed) {
   (rows || []).forEach((row) => {
     const value = stringValue(row[field]);
     if (value && !allowed.includes(value)) {
-      add(findings, 'UNKNOWN_STATUS', 'warning', sheetName, field, 1, 'status not recognized by audit policy');
+      add(findings, 'UNKNOWN_STATUS', 'warning', sheetName, field, 1, 'status not recognized by audit policy: ' + value);
     }
   });
 }
@@ -95,7 +96,7 @@ function checkReference(findings, sheetName, field, value, index, activeMatters)
   if (!key) return;
   const target = index[key];
   if (!target) {
-    add(findings, 'BROKEN_REFERENCE', 'error', sheetName, field, 1, 'referenced row was not found');
+    add(findings, 'BROKEN_REFERENCE', 'error', sheetName, field, 1, 'referenced row was not found: ' + key);
     return;
   }
   if (activeMatters && target.ativo === false) {

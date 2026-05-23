@@ -1164,6 +1164,23 @@ test('Apps Script sheet_audit accepts planned invoice lines but flags concurrent
     assert.ok(withClosedConflict.findings.some((finding) => finding.code === 'CONCURRENT_CLOSED_INVOICE' && finding.count === 2));
 });
 
+test('Apps Script sheet_audit accepts paid historical invoice exposure lines', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    sheets.Faturas_Linhas.appendRow(faturasLinhasHeaders.map((header) => ({
+        id_linha_fatura: 'FATL_HIST_PAID',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        id_cartao: 'CARD_NUBANK_GU',
+        competencia: '2026-04',
+        valor_previsto: 42,
+        status_origem: 'paga',
+    })[header] || ''));
+
+    const result = runRemoteAction(context, 'sheet_audit');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.ok(!result.findings.some((finding) => finding.code === 'UNKNOWN_STATUS' && finding.sheet === 'Faturas_Linhas' && finding.field === 'status_origem'));
+});
+
 test('Apps Script closing_draft action writes schema-compatible family closing draft once', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,

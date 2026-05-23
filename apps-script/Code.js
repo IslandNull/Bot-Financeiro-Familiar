@@ -562,7 +562,7 @@ function exportSheetAuditV55() {
 
   auditStatusRows_(findings, rows[SHEETS.LANCAMENTOS], SHEETS.LANCAMENTOS, 'status', ['agendado', 'pendente', 'efetivado', 'cancelado', 'cancelado_revisao']);
   auditStatusRows_(findings, rows[SHEETS.FATURAS_RESUMO], SHEETS.FATURAS_RESUMO, 'status', ['prevista', 'fechada', 'paga', 'parcialmente_paga', 'divergente', 'ajustada', 'cancelada', 'cancelado_revisao']);
-  auditStatusRows_(findings, rows[SHEETS.FATURAS_LINHAS], SHEETS.FATURAS_LINHAS, 'status_origem', ['prevista', 'compra_cartao', 'fatura_prevista']);
+  auditStatusRows_(findings, rows[SHEETS.FATURAS_LINHAS], SHEETS.FATURAS_LINHAS, 'status_origem', ['prevista', 'compra_cartao', 'fatura_prevista', 'paga']);
   auditStatusRows_(findings, rows[SHEETS.DIVIDAS], SHEETS.DIVIDAS, 'status', ['ativa', 'em_aberto', 'renegociada', 'quitada', 'inativa', 'cancelada']);
   auditStatusRows_(findings, rows[SHEETS.FECHAMENTO_FAMILIAR], SHEETS.FECHAMENTO_FAMILIAR, 'status', ['draft', 'closed']);
 
@@ -589,7 +589,7 @@ function auditStatusRows_(findings, rows, sheetName, field, allowed) {
   (rows || []).forEach(function(row) {
     var value = stringValue_(row[field]);
     if (value && allowed.indexOf(value) === -1) {
-      addSheetAuditFinding_(findings, 'UNKNOWN_STATUS', 'warning', sheetName, field, 1, 'status not recognized by audit policy');
+      addSheetAuditFinding_(findings, 'UNKNOWN_STATUS', 'warning', sheetName, field, 1, 'status not recognized by audit policy: ' + value);
     }
   });
 }
@@ -621,7 +621,7 @@ function checkSheetAuditReference_(findings, sheetName, field, value, index, act
   if (!key) return;
   var target = index[key];
   if (!target) {
-    addSheetAuditFinding_(findings, 'BROKEN_REFERENCE', 'error', sheetName, field, 1, 'referenced row was not found');
+    addSheetAuditFinding_(findings, 'BROKEN_REFERENCE', 'error', sheetName, field, 1, 'referenced row was not found: ' + key);
     return;
   }
   if (activeMatters && target.ativo === false) {

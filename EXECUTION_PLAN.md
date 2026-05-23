@@ -22,13 +22,13 @@ Operational authority for Bot Financeiro Familiar V55.
 - Current schema/runtime use split invoice sheets: `Faturas_Resumo` for invoice authority/summary and `Faturas_Linhas` for purchase/installment exposure.
 - Snapshot generated on 2026-05-23 reports 13 real sheets, all live schema headers matching, 2026-04 closed, and 2026-05 open with May usage in progress.
 - Historical invoice migration planning/apply helpers are no longer live runtime actions or local scripts. Future invoice corrections must use current runtime paths or explicit reviewed adjustments.
+- Remote `sheet:audit` after spreadsheet cleanup and debt-reference repair reports 0 errors and 0 warnings.
 
 ### Unverified
 
 - Full production readiness beyond owner pilot usage.
 - UX readiness with Luana using real Telegram messages.
 - Budget/envelope limits; no category-limit behavior exists until reviewed config/schema is designed.
-- Remote `sheet:audit` after the manual spreadsheet cleanup.
 
 ## Execution Rules
 
@@ -70,6 +70,5 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 
 ## Next Work
 
-1. Re-run remote `sheet:audit` to confirm the manual spreadsheet cleanup.
-2. Expand conversational read-only answers to resolve references like "essa fatura" or "nesse cartão" from recent context.
-3. Design budget/envelope config before implementing category limits; do not infer limits from category names.
+1. Expand conversational read-only answers to resolve references like "essa fatura" or "nesse cartão" from recent context.
+2. Design budget/envelope config before implementing category limits; do not infer limits from category names.

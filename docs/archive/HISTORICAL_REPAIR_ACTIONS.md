@@ -26,5 +26,6 @@ Removed from `doGet`, V55 exports, global wrappers, and local tests:
 - `ensure_april_2026_house_debts`
 - `migrateV55Parcelas`
 - `clean_spreadsheet_v55` (Consolidated duplicate credit cards `CARD_MP_GU` and `CARD_MERCADO_PAGO_GU`, updated limit to 10300, deleted duplicate sources, duplicate house debts, and consolidated category `OPEX_MERCADO_SEMANA_CARTAO` into `OPEX_MERCADO_SEMANA`, migrating all affected rows in `Lancamentos`, `Faturas_Linhas`, and `Faturas_Resumo` on 2026-05-23).
+- `repair_debt_reference_ids_20260523` (Updated two `Lancamentos.id_divida` references from historical debt IDs to current debt IDs: `DIV_FINANCIAMENTO_CAIXA_CASA` -> `DIV_CAIXA_IMOVEL`; `DIV_CONSTRUTORA_VASCO_CASA` -> `DIV_VASCO`. Applied on 2026-05-23, then removed from runtime.)
 
 This archive intentionally contains no executable code.
