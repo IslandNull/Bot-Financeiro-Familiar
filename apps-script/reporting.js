@@ -410,7 +410,7 @@ function summarizePilotSourceBalances_(rows, competencia, sourcesById) {
     if (competencia && normalizeSheetCompetencia_(row.competencia) !== competencia) return;
     var key = stringValue_(row.id_fonte) || ('row_' + index);
     var current = selectedBySource[key];
-    if (!current || stringValue_(row.data_referencia) >= stringValue_(current.data_referencia)) {
+    if (!current || formatSheetDate_(row.data_referencia) >= formatSheetDate_(current.data_referencia)) {
       selectedBySource[key] = row;
     }
   });
@@ -1870,7 +1870,7 @@ function latestSourceBalanceForEvent_(event, sourceBalances) {
     var row = sourceBalances[i];
     if (row.id_fonte !== event.id_fonte) continue;
     if (normalizeSheetCompetencia_(row.competencia) !== event.competencia) continue;
-    if (!latest || stringValue_(row.data_referencia) >= stringValue_(latest.data_referencia)) latest = row;
+    if (!latest || formatSheetDate_(row.data_referencia) >= formatSheetDate_(latest.data_referencia)) latest = row;
   }
   return latest;
 }

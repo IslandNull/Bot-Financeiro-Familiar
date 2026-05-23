@@ -534,6 +534,35 @@ test('Apps Script /resumo uses informed liquidity and reserve to evaluate obliga
     assert.doesNotMatch(result.responseText, /Falta para cobrir tudo/);
 });
 
+test('Apps Script /resumo picks latest source balance when sheet dates are Date cells', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeSourceBalance(sheets, {
+        id_snapshot: 'SALDO_CONTA_FAMILIA_OLD',
+        competencia: '2026-04',
+        data_referencia: new Date('2026-04-19T03:00:00Z'),
+        saldo_final: 103.01,
+        saldo_disponivel: 103.01,
+    });
+    appendFakeSourceBalance(sheets, {
+        id_snapshot: 'SALDO_CONTA_FAMILIA_NEW',
+        competencia: '2026-04',
+        data_referencia: new Date('2026-04-23T03:00:00Z'),
+        saldo_final: 113.15,
+        saldo_disponivel: 113.15,
+    });
+
+    const result = runRemoteAction(context, 'summary', { competencia: '2026-04' });
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.summary.saldos_fontes_disponivel, 113.15);
+});
+
 test('Apps Script /resumo projects salary before scheduled invoices and obligations', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
