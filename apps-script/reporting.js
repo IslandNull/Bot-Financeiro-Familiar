@@ -135,6 +135,7 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
   var recurringIncome = summarizePilotRecurringIncome_(recurringIncomes || []);
   var sourceBalanceSummary = summarizePilotSourceBalances_(sourceBalances || [], competencia, sourcesById || {});
   var benefitBalances = computePilotBenefitBalances_(launches, sourceBalances, recurringIncomes || [], sourcesById || {}, competencia);
+  var projectedCashFlow = computePilotProjectedCashFlow_(competencia, recurringIncome, dre, sourceBalanceSummary, currentInvoiceExposure.total, obrigacoes60d);
   var coverageBase = sourceBalanceSummary.saldos_fontes_count > 0
     ? roundMoney_(sourceBalanceSummary.saldos_fontes_disponivel + reservaTotal)
     : cash.sobra_caixa;
@@ -166,7 +167,12 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     patrimonio_liquido: roundMoney_(ativosTotal - dividasTotal),
     rendas_recorrentes_ativas: recurringIncome.rendas_recorrentes_ativas,
     rendas_recorrentes_planejadas: recurringIncome.rendas_recorrentes_planejadas,
+    renda_caixa_planejada: recurringIncome.renda_caixa_planejada,
     beneficios_restritos_planejados: recurringIncome.beneficios_restritos_planejados,
+    renda_prevista_data: projectedCashFlow.renda_prevista_data,
+    renda_prevista_pendente: projectedCashFlow.renda_prevista_pendente,
+    pagamentos_programados: projectedCashFlow.pagamentos_programados,
+    sobra_projetada_pos_pagamentos: projectedCashFlow.sobra_projetada_pos_pagamentos,
     saldos_fontes_count: sourceBalanceSummary.saldos_fontes_count,
     saldos_fontes_inicial: sourceBalanceSummary.saldos_fontes_inicial,
     saldos_fontes_final: sourceBalanceSummary.saldos_fontes_final,
@@ -333,13 +339,48 @@ function summarizePilotRecurringIncome_(rows) {
     summary.rendas_recorrentes_planejadas = roundMoney_(summary.rendas_recorrentes_planejadas + amount);
     if (row.beneficio_restrito === true) {
       summary.beneficios_restritos_planejados = roundMoney_(summary.beneficios_restritos_planejados + amount);
+    } else {
+      summary.renda_caixa_planejada = roundMoney_(summary.renda_caixa_planejada + amount);
     }
     return summary;
   }, {
     rendas_recorrentes_ativas: 0,
     rendas_recorrentes_planejadas: 0,
+    renda_caixa_planejada: 0,
     beneficios_restritos_planejados: 0,
   });
+}
+
+function computePilotProjectedCashFlow_(competencia, recurringIncome, dre, sourceBalanceSummary, currentInvoices, obligations) {
+  var plannedCashIncome = numberFromSheetValue_(recurringIncome && recurringIncome.renda_caixa_planejada);
+  var actualRevenue = numberFromSheetValue_(dre && dre.receitas_dre);
+  var pendingIncome = roundMoney_(Math.max(0, plannedCashIncome - actualRevenue));
+  var scheduledPayments = roundMoney_(numberFromSheetValue_(currentInvoices) + numberFromSheetValue_(obligations));
+  var availableCash = numberFromSheetValue_(sourceBalanceSummary && sourceBalanceSummary.saldos_fontes_disponivel);
+  return {
+    renda_prevista_data: salaryBusinessDateForCompetencia_(competencia),
+    renda_prevista_pendente: pendingIncome,
+    pagamentos_programados: scheduledPayments,
+    sobra_projetada_pos_pagamentos: roundMoney_(availableCash + pendingIncome - scheduledPayments),
+  };
+}
+
+function salaryBusinessDateForCompetencia_(competencia) {
+  var base = stringValue_(competencia) + '-05';
+  if (!isValidIsoDate_(base)) return '';
+  var result = base;
+  while (isWeekendIsoDate_(result)) {
+    result = addDaysIsoDate_(result, -1);
+  }
+  return result;
+}
+
+function isWeekendIsoDate_(isoDate) {
+  var parts = stringValue_(isoDate).split('-');
+  if (parts.length !== 3) return false;
+  var date = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0));
+  var day = date.getUTCDay();
+  return day === 0 || day === 6;
 }
 
 function summarizePilotSourceBalances_(rows, competencia, sourcesById) {
@@ -719,45 +760,18 @@ function suggestPilotDestination_(coverageBase, reservaTotal, faturas60d, obriga
 function formatPilotFamilySummary_(summary) {
   var obligations = roundMoney_(summary.faturas_60d + summary.obrigacoes_60d);
   var guidance = buildPilotGuidance_(summary, obligations);
-  var liquidezTotal = roundMoney_(summary.saldos_fontes_disponivel + summary.reserva_total);
-  var currentInvoices = numberFromSheetValue_(summary.faturas_atuais);
-  var currentAfterLiquidity = roundMoney_(liquidezTotal - currentInvoices);
   var lines = [
     '📊 Resumo de ' + friendlyCompetencia_(summary.competencia),
     '',
     '✅ Situação',
     buildPilotSituationText_(summary, obligations),
-    '',
-    '💰 Dinheiro disponível',
-    'Contas: ' + formatMoney_(summary.saldos_fontes_disponivel),
-    'Reserva: ' + formatMoney_(summary.reserva_total),
-    'Após faturas atuais: ' + formatMoney_(currentAfterLiquidity),
   ];
-  if (summary.beneficios_detalhe && summary.beneficios_detalhe.length > 0) {
-    lines.push('');
-    lines.push('🥗 Saldos de benefícios');
-    summary.beneficios_detalhe.forEach(function(b) {
-      lines.push(b.nome + ': ' + formatMoney_(b.saldo_disponivel) + ' (de ' + formatMoney_(b.saldo_inicial) + ')');
-    });
-  }
-  lines.push('');
-  lines.push('💳 Faturas atuais');
-  var currentInvoiceItems = summary.faturas_atuais_detalhe || [];
-  if (currentInvoiceItems.length === 0) lines.push('Nenhuma fatura atual aberta registrada.');
-  currentInvoiceItems.forEach(function(item) {
-    lines.push(shortCardName_(item.cartao) + ' ' + formatShortDate_(item.data_vencimento) + ': ' + formatMoney_(item.valor));
-  });
-  lines.push('Total: ' + formatMoney_(currentInvoices));
+  Array.prototype.push.apply(lines, buildPilotCashPositionLines_(summary));
+  Array.prototype.push.apply(lines, buildPilotProjectedFlowLines_(summary));
+  Array.prototype.push.apply(lines, buildPilotCurrentInvoiceLines_(summary));
   lines.push('');
   lines.push('📌 Atenção');
-  Array.prototype.push.apply(lines, buildPilotAttentionLines_(summary, currentAfterLiquidity));
-  if (summary.categorias_previsao && summary.categorias_previsao.length > 0) {
-    lines.push('');
-    lines.push('🔎 Maior impacto do mês');
-    summary.categorias_previsao.slice(0, 3).forEach(function(item) {
-      lines.push(item.categoria + ': ' + formatMoney_(item.valor));
-    });
-  }
+  Array.prototype.push.apply(lines, buildPilotAttentionLines_(summary));
   lines = lines.concat([
     '',
     '🧭 Próximo passo',
@@ -771,32 +785,69 @@ function formatPilotFamilySummary_(summary) {
   return lines.join('\n');
 }
 
-function buildPilotAttentionLines_(summary, currentAfterLiquidity) {
+function buildPilotCashPositionLines_(summary) {
+  return [
+    '',
+    '💰 Dinheiro hoje',
+    'Contas: ' + formatMoney_(summary.saldos_fontes_disponivel),
+    'Reserva: ' + formatMoney_(summary.reserva_total),
+  ];
+}
+
+function buildPilotProjectedFlowLines_(summary) {
+  var currentInvoices = numberFromSheetValue_(summary.faturas_atuais);
+  return [
+    '',
+    '🔭 Fluxo projetado',
+    'Renda prevista ' + formatShortDate_(summary.renda_prevista_data) + ': ' + formatMoney_(summary.renda_prevista_pendente),
+    'Faturas atuais: ' + formatMoney_(currentInvoices),
+    'Obrigacoes proximas: ' + formatMoney_(summary.obrigacoes_60d),
+    'Pagamentos programados: ' + formatMoney_(summary.pagamentos_programados),
+    'Sobra projetada: ' + formatMoney_(summary.sobra_projetada_pos_pagamentos),
+  ];
+}
+
+function buildPilotCurrentInvoiceLines_(summary) {
+  var currentInvoices = numberFromSheetValue_(summary.faturas_atuais);
+  var lines = ['', '💳 Faturas atuais'];
+  var currentInvoiceItems = summary.faturas_atuais_detalhe || [];
+  if (currentInvoiceItems.length === 0) lines.push('Nenhuma fatura atual aberta registrada.');
+  currentInvoiceItems.forEach(function(item) {
+    lines.push(shortCardName_(item.cartao) + ' ' + formatShortDate_(item.data_vencimento) + ': ' + formatMoney_(item.valor));
+  });
+  lines.push('Total: ' + formatMoney_(currentInvoices));
+  return lines;
+}
+
+function buildPilotAttentionLines_(summary) {
   if (numberFromSheetValue_(summary.saldos_fontes_count) === 0) {
     return [
       'Ainda falta saldo real das contas.',
       'Sem esse dado eu evito sugerir investimento, reserva ou amortização.',
     ];
   }
-  if (currentAfterLiquidity < 0) {
+  if (summary.sobra_projetada_pos_pagamentos < 0) {
     return [
-      'As faturas atuais passam do saldo + reserva registrados.',
-      'Separar dinheiro para pagamento vem antes de gasto novo.',
+      'A projecao ainda fica negativa depois da renda prevista.',
+      'Separar dinheiro para pagamentos vem antes de gasto novo.',
     ];
   }
   if (summary.saldos_fontes_disponivel < summary.faturas_atuais) {
     return [
-      'Saldo em conta está baixo.',
-      'A reserva cobre as faturas, mas o ideal é preservar liquidez até entrar renda.',
+      'Saldo em conta esta baixo.',
+      'A renda prevista deve aliviar a pressao sem transformar reserva em gasto do mes.',
     ];
   }
   return [
-    'As faturas atuais cabem no saldo informado.',
+    'O fluxo projetado cobre os pagamentos registrados.',
     'Ainda vale conferir agenda e parcelas antes de gasto grande.',
   ];
 }
 
 function buildPilotSituationText_(summary, obligations) {
+  if (numberFromSheetValue_(summary.saldos_fontes_count) === 0) return 'Falta saldo real das contas para projetar sobra com confianca.';
+  if (summary.sobra_projetada_pos_pagamentos < 0) return 'Atencao: a projecao fica negativa apos renda e pagamentos.';
+  if (summary.sobra_projetada_pos_pagamentos > 0) return 'Sobra projetada positiva apos renda e pagamentos registrados.';
   if (summary.margem_pos_obrigacoes < 0) return 'Atenção: falta cobertura para tudo que está registrado.';
   if (numberFromSheetValue_(summary.faturas_atuais) > 0) return 'Faturas atuais cobertas pela liquidez registrada.';
   if (obligations > 0) return 'Contas registradas cabem na liquidez registrada.';
@@ -809,10 +860,10 @@ function buildPilotGuidance_(summary, obligations) {
   var caveat = lacksSourceBalances
     ? 'Nota: ainda falta saldo real das contas para uma orientacao mais completa.'
     : '';
-  if (obligations > 0 && summary.margem_pos_obrigacoes < 0) {
+  if (obligations > 0 && summary.sobra_projetada_pos_pagamentos < 0) {
     return {
       action: 'Separar dinheiro para os pagamentos registrados.',
-      reason: 'O total registrado para pagar ate 60 dias supera o saldo + reserva informados. Salario futuro so entra nessa leitura depois de registrado.',
+      reason: 'Mesmo com a renda prevista, os pagamentos registrados superam o saldo de contas projetado.',
       caveat: caveat,
     };
   }
@@ -825,15 +876,15 @@ function buildPilotGuidance_(summary, obligations) {
   }
   if (summary.reserva_total < 15000) {
     return {
-      action: 'Pagar as faturas atuais e preservar a reserva.',
-      reason: 'O saldo de conta está baixo, mas a reserva cobre as faturas atuais. Quando entrar salário, ele deve aliviar essa pressão sem transformar a reserva em gasto do mês.',
+      action: 'Pagar faturas e contas programadas; preservar a reserva.',
+      reason: 'A renda prevista entra na sobra projetada, mas a reserva continua separada da decisao do dia a dia.',
       caveat: '',
     };
   }
-  if (summary.sobra_caixa <= 0) {
+  if (summary.sobra_projetada_pos_pagamentos <= 0) {
     return {
       action: 'Manter a liquidez e revisar antes de assumir gasto novo.',
-      reason: 'A sobra do mes esta negativa, mas os saldos e reservas informados cobrem os pagamentos registrados. A decisao deve olhar liquidez, faturas e renda que ainda vai entrar.',
+      reason: 'A sobra projetada nao abre espaco confortavel para gasto novo.',
       caveat: '',
     };
   }

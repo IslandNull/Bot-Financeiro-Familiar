@@ -426,10 +426,11 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Resumo de abril/);
-    assert.match(result.responseText, /Faturas atuais cobertas pela liquidez registrada\./);
+    assert.match(result.responseText, /Sobra projetada positiva/);
     assert.match(result.responseText, /Contas: R\$ 330,00/);
     assert.match(result.responseText, /Reserva: R\$ 1000,00/);
-    assert.match(result.responseText, /Ap[oó]s faturas atuais: R\$ 1287,50/);
+    assert.match(result.responseText, /Renda prevista 03\/04: R\$ 5000,00/);
+    assert.match(result.responseText, /Sobra projetada: R\$ 4287,50/);
     assert.match(result.responseText, /Nubank( Gu)? 07\/05: R\$ 42,50/);
     assert.match(result.responseText, /Total: R\$ 42,50/);
     assert.doesNotMatch(result.responseText, /Compromissos cadastrados/);
@@ -438,7 +439,7 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.doesNotMatch(result.responseText, /Folga ap/);
     assert.doesNotMatch(result.responseText, /Caixa registrado/);
     assert.doesNotMatch(result.responseText, /Gastos assumidos \(DRE\)/);
-    assert.match(result.responseText, /Pagar as faturas atuais e preservar a reserva\./);
+    assert.match(result.responseText, /Pagar faturas e contas programadas; preservar a reserva\./);
     assert.doesNotMatch(result.responseText, /Nota: ainda falta saldo real das contas/);
     assert.doesNotMatch(result.responseText, /Ultimos gastos/);
     assert.doesNotMatch(result.responseText, /30\/04 Mercado da semana - R\$ 43,90/);
@@ -447,7 +448,7 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.match(result.responseText, /para onde foi meu dinheiro/);
     assert.match(result.responseText, /\/revisar_mes/);
     assert.doesNotMatch(result.responseText, /OPEX_MERCADO_SEMANA/);
-    assert.match(result.responseText, /Mercado da semana/);
+    assert.doesNotMatch(result.responseText, /Mercado da semana/);
     assert.doesNotMatch(result.responseText, /privado/);
     assert.doesNotMatch(result.responseText, /agregado/);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
@@ -471,7 +472,7 @@ test('Apps Script /resumo normalizes sheet date cells used as competencia', () =
     const result = postPilotMessage(context, '/resumo_familiar');
 
     assert.strictEqual(result.ok, true);
-    assert.match(result.responseText, /Mercado da semana: R\$ 43,90/);
+    assert.doesNotMatch(result.responseText, /Mercado da semana: R\$ 43,90/);
     assert.doesNotMatch(result.responseText, /Gastos assumidos \(DRE\)/);
     assert.doesNotMatch(result.responseText, /Caixa registrado/);
     assert.match(result.responseText, /Ainda nao vou sugerir investimento, reserva ou amortizacao/);
@@ -529,8 +530,42 @@ test('Apps Script /resumo uses informed liquidity and reserve to evaluate obliga
     assert.strictEqual(result.summary.reserva_total, 9482.99);
     assert.strictEqual(result.summary.margem_pos_obrigacoes, 9507.9);
     assert.strictEqual(result.summary.destino_sugerido, 'reforcar_reserva');
-    assert.match(result.responseText, /Após faturas atuais: R\$ 9507,90/);
+    assert.match(result.responseText, /Sobra projetada: R\$ 24,91/);
     assert.doesNotMatch(result.responseText, /Falta para cobrir tudo/);
+});
+
+test('Apps Script /resumo projects salary before scheduled invoices and obligations', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeSourceBalance(sheets, { id_fonte: 'FONTE_CONTA_FAMILIA', saldo_final: 500, saldo_disponivel: 500 });
+    appendFakeRecurringIncome(sheets, { valor_planejado: 5000, beneficio_restrito: false });
+    appendFakeRecurringIncome(sheets, { valor_planejado: 700, beneficio_restrito: true });
+    appendFakeLaunch(sheets, {
+        tipo_evento: 'receita',
+        valor: 1000,
+        afeta_dre: true,
+        afeta_caixa_familiar: true,
+    });
+    appendFakeInvoice(sheets, { valor_previsto: 1200, valor_pago: '', status: 'prevista' });
+    appendFakeDebt(sheets, { valor_parcela: 300 });
+
+    const result = runRemoteAction(context, 'summary');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.summary.renda_prevista_data, '2026-04-03');
+    assert.strictEqual(result.summary.renda_prevista_pendente, 4000);
+    assert.strictEqual(result.summary.pagamentos_programados, 1800);
+    assert.strictEqual(result.summary.sobra_projetada_pos_pagamentos, 2700);
+    assert.match(result.responseText, /Renda prevista 03\/04: R\$ 4000,00/);
+    assert.match(result.responseText, /Pagamentos programados: R\$ 1800,00/);
+    assert.match(result.responseText, /Sobra projetada: R\$ 2700,00/);
+    assert.doesNotMatch(result.responseText, /Saldos de benef/);
+    assert.doesNotMatch(result.responseText, /Maior impacto/);
 });
 
 test('Apps Script /resumo separates current liquidity from 60-day exposure and shows latest expenses first', () => {
@@ -3914,7 +3949,7 @@ test('Apps Script dynamic benefit balance calculates correctly in summary and fo
     assert.strictEqual(aleloDetail.total_gasto, 550);
     assert.strictEqual(aleloDetail.saldo_disponivel, 950);
 
-    // Format output check (Telegram response)
-    assert.match(result.responseText, /🥗 Saldos de benefícios/);
-    assert.match(result.responseText, /Alelo Gustavo: R\$ 950,00 \(de R\$ 1500,00\)/);
+    // /resumo stays compact; benefit detail remains available in the summary payload.
+    assert.doesNotMatch(result.responseText, /Saldos de benef/);
+    assert.doesNotMatch(result.responseText, /Alelo Gustavo: R\$ 950,00 \(de R\$ 1500,00\)/);
 });
