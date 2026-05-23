@@ -206,7 +206,8 @@ function summarizePilotObligationExposure_(debts) {
     var exposure = numberFromSheetValue_(row.valor_parcela) * monthsDue;
     return {
       nome: stringValue_(row.nome) || friendlyIdentifier_(row.id_divida),
-      valor: roundMoney_(exposure),
+      valor: numberFromSheetValue_(row.valor_parcela),
+      exposure: roundMoney_(exposure),
     };
   }).sort(function(a, b) {
     if (b.valor !== a.valor) return b.valor - a.valor;
@@ -214,7 +215,7 @@ function summarizePilotObligationExposure_(debts) {
   });
   return {
     total: roundMoney_(items.reduce(function(sum, item) {
-      return roundMoney_(sum + item.valor);
+      return roundMoney_(sum + item.exposure);
     }, 0)),
     items: items,
   };
@@ -636,17 +637,6 @@ function authoritativeClosedInvoiceGroups_(invoices, cardsById) {
   return (invoices || []).reduce(function(result, row) {
     if (row.status !== 'fechada') return result;
     if (numberFromSheetValue_(row.valor_fechado) <= 0) return result;
-    var closingDate = formatSheetDate_(row.data_fechamento);
-    if (!closingDate) {
-      var cardId = stringValue_(row.id_cartao);
-      var cardConfig = cardsById[cardId] || {};
-      var closingDay = Number(cardConfig.fechamento_dia);
-      var comp = normalizeSheetCompetencia_(row.competencia);
-      if (closingDay && comp && comp.length >= 7) {
-        closingDate = comp.slice(0, 8) + String(closingDay > 9 ? closingDay : '0' + closingDay);
-      }
-    }
-    if (closingDate && closingDate > today) return result;
     var cardId = stringValue_(row.id_cartao);
     var card = cardsById[cardId] || {};
     var cardName = stringValue_(card.nome) || friendlyIdentifier_(cardId);

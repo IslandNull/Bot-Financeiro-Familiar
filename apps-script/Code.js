@@ -687,5 +687,3 @@ function summarizeSheetAuditFindings_(findings) {
     return summary;
   }, { total: 0, error: 0, warning: 0 });
 }
-
-

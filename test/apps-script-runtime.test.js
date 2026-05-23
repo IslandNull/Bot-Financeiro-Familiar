@@ -704,7 +704,7 @@ test('Apps Script /resumo uses closed invoice total as authority over planned ca
     assert.doesNotMatch(result.responseText, /R\$ 2157,52/);
 });
 
-test('Apps Script /resumo ignores premature fechada row when closing date is in the future', () => {
+test('Apps Script /resumo respects fechada row even when closing date is in the future', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
         properties: {
@@ -762,16 +762,16 @@ test('Apps Script /resumo ignores premature fechada row when closing date is in 
     const result = runRemoteAction(context, 'summary');
 
     assert.strictEqual(result.ok, true);
-    // Should use sum of prevista rows (2100.97 + 283.07 = 2384.04), not the premature fechada value
-    assert.strictEqual(result.summary.faturas_60d, 2384.04);
+    // Should respect the fechada row (2100.97), ignoring the prevista rows
+    assert.strictEqual(result.summary.faturas_60d, 2100.97);
     assert.deepStrictEqual(result.summary.faturas_60d_detalhe, [{
         cartao: 'Mercado Pago Gustavo',
         id_cartao: 'CARD_MERCADO_PAGO_GU',
         competencia: '2026-05',
         data_vencimento: '2026-06-10',
-        valor: 2384.04,
+        valor: 2100.97,
     }]);
-    assert.match(result.responseText, /R\$ 2384,04/);
+    assert.match(result.responseText, /R\$ 2100,97/);
 });
 
 test('Apps Script answers cost-of-life question without calling the parser', () => {
@@ -1003,7 +1003,7 @@ test('Apps Script answers agenda command with dated invoices and obligations', (
     assert.match(result.responseText, /📌 Atenção/);
     assert.match(result.responseText, /07\/05 .*Nubank.*R\$ 300,00/);
     assert.match(result.responseText, /07\/06 .*Nubank.*R\$ 200,00/);
-    assert.match(result.responseText, /Financiamento casa.*R\$ 1756,82/);
+    assert.match(result.responseText, /Financiamento casa.*R\$ 878,41/);
     assert.match(result.responseText, /N[ãa]o [ée] tudo vencendo hoje/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
