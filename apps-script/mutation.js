@@ -165,6 +165,52 @@ function findOrAppendInvoiceHeader_(sheet, invoice) {
   });
 }
 
+function reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, invoiceId) {
+  var resumoHeaders = HEADERS[SHEETS.FATURAS_RESUMO];
+  var linhasHeaders = HEADERS[SHEETS.FATURAS_LINHAS];
+  var resumoLastRow = invoiceResumoSheet.getLastRow();
+  if (resumoLastRow < 2) return;
+
+  var resumoRows = invoiceResumoSheet.getRange(2, 1, resumoLastRow - 1, resumoHeaders.length).getValues();
+  var resumoIdIndex = resumoHeaders.indexOf('id_fatura');
+  var statusIndex = resumoHeaders.indexOf('status');
+  var fechadoIndex = resumoHeaders.indexOf('valor_fechado');
+  var pagoIndex = resumoHeaders.indexOf('valor_pago');
+  var targetRowNumber = 0;
+  var targetRow = null;
+  for (var i = 0; i < resumoRows.length; i += 1) {
+    if (String(resumoRows[i][resumoIdIndex]) === invoiceId) {
+      targetRowNumber = i + 2;
+      targetRow = resumoRows[i];
+      break;
+    }
+  }
+  if (!targetRowNumber) return;
+  var status = String(targetRow[statusIndex] || '');
+  if (['prevista', 'parcialmente_paga', ''].indexOf(status) === -1) return;
+  if (numberFromSheetValue_(targetRow[fechadoIndex]) > 0) return;
+
+  var total = 0;
+  var linhasLastRow = invoiceLinhasSheet.getLastRow();
+  if (linhasLastRow >= 2) {
+    var linhaRows = invoiceLinhasSheet.getRange(2, 1, linhasLastRow - 1, linhasHeaders.length).getValues();
+    var linhaInvoiceIndex = linhasHeaders.indexOf('id_fatura');
+    var linhaValorIndex = linhasHeaders.indexOf('valor_previsto');
+    var linhaStatusIndex = linhasHeaders.indexOf('status_origem');
+    for (var j = 0; j < linhaRows.length; j += 1) {
+      if (String(linhaRows[j][linhaInvoiceIndex]) !== invoiceId) continue;
+      if (String(linhaRows[j][linhaStatusIndex] || '') === 'paga') continue;
+      total = roundMoney_(total + numberFromSheetValue_(linhaRows[j][linhaValorIndex]));
+    }
+  }
+  if (total <= 0) return;
+
+  var paid = numberFromSheetValue_(targetRow[pagoIndex]);
+  invoiceResumoSheet.getRange(targetRowNumber, resumoHeaders.indexOf('valor_previsto_total') + 1).setValue(total);
+  invoiceResumoSheet.getRange(targetRowNumber, resumoHeaders.indexOf('valor_aberto') + 1).setValue(roundMoney_(Math.max(0, total - paid)));
+  if (!status) invoiceResumoSheet.getRange(targetRowNumber, statusIndex + 1).setValue('prevista');
+}
+
 function updateIdempotencyStatus_(sheet, rowNumber, status, resultRef, updatedAt, errorCode) {
   var headers = HEADERS[SHEETS.IDEMPOTENCY_LOG];
   sheet.getRange(rowNumber, headers.indexOf('status') + 1).setValue(status);

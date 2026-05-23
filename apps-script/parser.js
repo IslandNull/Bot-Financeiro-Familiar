@@ -113,6 +113,12 @@ function applyParsedFinancialEvent_(update, message, event, config, referenceDat
     return recordPilotInvoicePayment_(update, message, event, config, referenceData);
   }
 
+  if (event.tipo_evento === 'fatura_prevista') {
+    var invoiceExposureCheck = validatePilotInvoiceExposureEvent_(event, referenceData);
+    if (!invoiceExposureCheck.ok) return invoiceExposureCheck;
+    return recordPilotInvoiceExposure_(update, message, event, config, referenceData);
+  }
+
   if (event.tipo_evento === 'compra_cartao') {
     var cardCheck = validatePilotCardPurchaseEvent_(event, referenceData);
     if (!cardCheck.ok) return cardCheck;

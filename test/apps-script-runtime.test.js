@@ -2059,6 +2059,45 @@ test('Apps Script pilot card purchase writes launch and expected invoice rows', 
     assert.strictEqual(invoiceLine.valor_previsto, 42.5);
 });
 
+test('Apps Script pilot invoice exposure writes forecast line without launch', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'fatura_prevista',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '595.13',
+        descricao: 'Complemento fatura Nubank Gustavo',
+        id_categoria: '',
+        id_fonte: '',
+        pessoa: 'Gustavo',
+        escopo: 'Gustavo',
+        visibilidade: 'privada',
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const result = postPilotMessage(context, 'Complemento fatura Nubank Gustavo 595,13. Nao e despesa nova.');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 2);
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
+    assert.strictEqual(invoice.valor_previsto_total, 595.13);
+    assert.strictEqual(invoice.valor_aberto, 595.13);
+    const invoiceLine = Object.fromEntries(faturasLinhasHeaders.map((header, index) => [header, sheets.Faturas_Linhas.rows[1][index]]));
+    assert.strictEqual(invoiceLine.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
+    assert.strictEqual(invoiceLine.id_cartao, 'CARD_NUBANK_GU');
+    assert.strictEqual(invoiceLine.valor_previsto, 595.13);
+    assert.strictEqual(invoiceLine.status_origem, 'fatura_prevista');
+});
+
 test('Apps Script pilot card purchase prefers Luana card when text omits explicit owner', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'compra_cartao',

@@ -2627,6 +2627,7 @@ function recordPilotInvoiceExposure_(update, message, event, config, referenceDa
       valor_previsto: event.valor,
       status_origem: 'fatura_prevista',
     });
+    reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, event.id_fatura);
     updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
     return { ok: true, responseText: SUCCESS_TEXT, shouldApplyDomainMutation: true, result_ref: resultRef };
   } catch (_err) {
