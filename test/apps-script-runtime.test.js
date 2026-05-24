@@ -1510,7 +1510,7 @@ test('Apps Script parser prompt uses V54-learned hard output and quoted raw text
     assert.ok(code.includes('Allowed payable invoice ids'));
     assert.ok(code.includes('# PILOT CANONICAL EXAMPLES'));
     assert.ok(code.includes('Never invent ids'));
-    assert.ok(code.includes('STRICTLY PROHIBIT comma money formats'));
+    assert.ok(code.includes('Convert any comma money formats like "12,34" to dot-decimal "12.34". Never output commas in money fields.'));
     assert.ok(code.includes('Use real JSON booleans true/false'));
     assert.ok(code.includes('farmacia 10 no nubank'));
     assert.ok(code.includes('OPEX_ELETRONICOS_E_EQUIPAMENTOS'));

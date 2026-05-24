@@ -17,8 +17,16 @@ async function handleTelegramWebhook(input) {
         return fail('INVALID_UPDATE', 'update', GENERIC_FAILURE_TEXT);
     }
 
-    const message = update.message || update.edited_message;
-    const text = message && typeof message.text === 'string' ? message.text.trim() : '';
+    if (update.edited_message) {
+        return {
+            ok: false,
+            responseText: 'Não processo edição de mensagem para evitar duplicidade. Para corrigir, envie: corrigir último lançamento para ...',
+            shouldApplyDomainMutation: false,
+        };
+    }
+
+    const message = update.message;
+    const text = message && typeof (message.text || message.caption) === 'string' ? (message.text || message.caption).trim() : '';
 
     if (isSmokeCommand(text)) {
         const chatId = message && message.chat && message.chat.id;

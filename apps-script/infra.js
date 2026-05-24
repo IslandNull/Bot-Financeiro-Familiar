@@ -266,7 +266,9 @@ function numberFromSheetValue_(value) {
 }
 
 function roundMoney_(value) {
-  return Math.round((Number(value) || 0) * 100) / 100;
+  var n = Number(value);
+  if (!isFinite(n)) return 0;
+  return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
 function formatMoney_(value) {

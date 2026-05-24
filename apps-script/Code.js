@@ -175,7 +175,7 @@ function runTelegramWebhookSetupApply() {
         url: config.valTownWebhookUrl,
         secret_token: config.webhookSecret,
         drop_pending_updates: true,
-        allowed_updates: ['message', 'edited_message'],
+        allowed_updates: ['message'],
       }),
       muteHttpExceptions: true,
     }

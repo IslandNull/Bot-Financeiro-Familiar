@@ -2642,9 +2642,30 @@ function recordPilotCardPurchase_(update, message, event, config, referenceData)
       var baseParcelaCents = Math.floor(totalCents / parcelas);
       var remainderCents = totalCents % parcelas;
       var reconciledInstallmentIds = {};
+
+      var firstInvoice = assignPilotInvoiceCycle_(event.data, card);
+      var firstClosingDate = parseIsoDateUtc_(firstInvoice.data_fechamento);
+      var closingDay = numberFromSheetValue_(card.fechamento_dia);
+      var dueDay = numberFromSheetValue_(card.vencimento_dia);
+
       for (var pi = 0; pi < parcelas; pi += 1) {
-        var offsetDate = pi === 0 ? event.data : formatUtcDate_(addUtcMonths_(parseIsoDateUtc_(event.data), pi));
-        var installmentInvoice = assignPilotInvoiceCycle_(offsetDate, card);
+        var installmentInvoice;
+        if (pi === 0) {
+          installmentInvoice = firstInvoice;
+        } else {
+          var nextMonthDate = addUtcMonths_(firstClosingDate, pi);
+          var cDate = buildClampedUtcDate_(nextMonthDate.getUTCFullYear(), nextMonthDate.getUTCMonth(), closingDay);
+          var dueMonth = dueDay > closingDay ? cDate : addUtcMonths_(cDate, 1);
+          var dDate = buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay);
+          var comp = formatUtcCompetencia_(cDate);
+          installmentInvoice = {
+            id_fatura: 'FAT_' + card.id_cartao + '_' + comp.replace('-', '_'),
+            id_cartao: card.id_cartao,
+            competencia: comp,
+            data_fechamento: formatUtcDate_(cDate),
+            data_vencimento: formatUtcDate_(dDate),
+          };
+        }
         findOrAppendInvoiceHeader_(invoiceResumoSheet, installmentInvoice);
         var parcelaCents = baseParcelaCents + (pi < remainderCents ? 1 : 0);
         var valorParcela = roundMoney_(parcelaCents / 100);

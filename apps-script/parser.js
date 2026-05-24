@@ -3,14 +3,22 @@ function handleTelegramUpdate_(update, config) {
     return fail_('INVALID_UPDATE', 'update', GENERIC_MESSAGE_FAILURE);
   }
 
-  var message = update.message || update.edited_message;
+  if (update.edited_message) {
+    return {
+      ok: false,
+      responseText: 'Não processo edição de mensagem para evitar duplicidade. Para corrigir, envie: corrigir último lançamento para ...',
+      shouldApplyDomainMutation: false,
+    };
+  }
+
+  var message = update.message;
   var chatId = message && message.chat && message.chat.id;
   var userId = message && message.from && message.from.id;
   if (!isAuthorized_(config, chatId, userId)) {
     return fail_('UNAUTHORIZED', 'authorization', GENERIC_MESSAGE_FAILURE);
   }
 
-  var text = message && typeof message.text === 'string' ? message.text.trim() : '';
+  var text = message && typeof (message.text || message.caption) === 'string' ? (message.text || message.caption).trim() : '';
   var conversation = readConversationState_(chatId);
   if (isClearConversationCommand_(text)) {
     clearConversationState_(chatId);
@@ -657,7 +665,7 @@ function buildParserPrompt_(text, referenceData, conversation) {
     '',
     '# HARD OUTPUT RULES',
     '- Use dot-decimal positive money strings, for example 12.34.',
-    '- STRICTLY PROHIBIT comma money formats like "12,34" or any other non-dot-decimal formats.',
+    '- Convert any comma money formats like "12,34" to dot-decimal "12.34". Never output commas in money fields.',
     '- Use ISO date YYYY-MM-DD and competencia YYYY-MM.',
     '- Use real JSON booleans true/false, never "true" or "false" strings.',
     '- Use only canonical IDs listed below. Never invent ids.',

@@ -90,16 +90,29 @@ function assignInstallmentCycles(purchaseDateValue, card, parcelas) {
     validateCard(card);
     const count = Number(parcelas) || 1;
     if (count < 1 || count > 24) throw new Error('parcelas must be 1-24');
-    if (count === 1) return [assignInvoiceCycle(purchaseDateValue, card)];
 
-    const purchaseDate = parseIsoDate(purchaseDateValue, 'purchaseDate');
-    const cycles = [];
-    for (let i = 0; i < count; i += 1) {
-        const offsetDate = i === 0 ? purchaseDate : addMonths(purchaseDate, i);
-        const dateStr = formatIsoDate(
-            i === 0 ? purchaseDate : buildClampedDate(offsetDate.getUTCFullYear(), offsetDate.getUTCMonth(), purchaseDate.getUTCDate())
-        );
-        cycles.push(assignInvoiceCycle(dateStr, card));
+    const firstCycle = assignInvoiceCycle(purchaseDateValue, card);
+    if (count === 1) return [firstCycle];
+
+    const cycles = [firstCycle];
+    const firstClosingDate = parseIsoDate(firstCycle.data_fechamento);
+    const closingDay = Number(card.fechamento_dia);
+    const dueDay = Number(card.vencimento_dia);
+
+    for (let i = 1; i < count; i += 1) {
+        const nextMonthDate = addMonths(firstClosingDate, i);
+        const cDate = buildClampedDate(nextMonthDate.getUTCFullYear(), nextMonthDate.getUTCMonth(), closingDay);
+        const dueMonth = dueDay > closingDay ? cDate : addMonths(cDate, 1);
+        const dDate = buildClampedDate(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay);
+        const competencia = formatCompetencia(cDate);
+
+        cycles.push({
+            id_fatura: `FAT_${String(card.id_cartao).toUpperCase()}_${competencia.replace('-', '_')}`,
+            id_cartao: card.id_cartao,
+            competencia,
+            data_fechamento: formatIsoDate(cDate),
+            data_vencimento: formatIsoDate(dDate),
+        });
     }
     return cycles;
 }

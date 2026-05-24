@@ -405,27 +405,35 @@ function deleteFinancialTransaction_(id_lancamento, config, closedCompetencias, 
       }
     }
     
-    if (!dryRun) {
-      // B. Restore invoice payment if pagamento_fatura
-      if (launchObj.tipo_evento === 'pagamento_fatura') {
-        var resumoHeaders = HEADERS[SHEETS.FATURAS_RESUMO];
-        var resumoLastRow = invoiceResumoSheet.getLastRow();
-        if (resumoLastRow >= 2) {
-          var resumoRows = invoiceResumoSheet.getRange(2, 1, resumoLastRow - 1, resumoHeaders.length).getValues();
-          var idFaturaIndex = resumoHeaders.indexOf('id_fatura');
-          var statusIndex = resumoHeaders.indexOf('status');
-          var pagoIndex = resumoHeaders.indexOf('valor_pago');
-          
-          for (var idx = 0; idx < resumoRows.length; idx += 1) {
-            if (String(resumoRows[idx][idFaturaIndex]) === String(launchObj.id_fatura)) {
-              var rowNum = idx + 2;
-              invoiceResumoSheet.getRange(rowNum, statusIndex + 1).setValue('prevista');
-              invoiceResumoSheet.getRange(rowNum, pagoIndex + 1).setValue('');
-              reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, String(launchObj.id_fatura));
-              break;
-            }
+    var foundInvoice = false;
+    var resumoRow = -1;
+    if (launchObj.tipo_evento === 'pagamento_fatura') {
+      var resumoHeaders = HEADERS[SHEETS.FATURAS_RESUMO];
+      var resumoLastRow = invoiceResumoSheet.getLastRow();
+      if (resumoLastRow >= 2) {
+        var resumoRows = invoiceResumoSheet.getRange(2, 1, resumoLastRow - 1, resumoHeaders.length).getValues();
+        var idFaturaIndex = resumoHeaders.indexOf('id_fatura');
+        for (var idx = 0; idx < resumoRows.length; idx += 1) {
+          if (String(resumoRows[idx][idFaturaIndex]) === String(launchObj.id_fatura)) {
+            foundInvoice = true;
+            resumoRow = idx + 2;
+            break;
           }
         }
+      }
+      if (!foundInvoice) {
+        return { ok: false, error: 'INVOICE_NOT_FOUND', row: launchObj };
+      }
+    }
+
+    if (!dryRun) {
+      // B. Restore invoice payment if pagamento_fatura
+      if (launchObj.tipo_evento === 'pagamento_fatura' && foundInvoice) {
+        var statusIndex = HEADERS[SHEETS.FATURAS_RESUMO].indexOf('status');
+        var pagoIndex = HEADERS[SHEETS.FATURAS_RESUMO].indexOf('valor_pago');
+        invoiceResumoSheet.getRange(resumoRow, statusIndex + 1).setValue('prevista');
+        invoiceResumoSheet.getRange(resumoRow, pagoIndex + 1).setValue('');
+        reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, String(launchObj.id_fatura));
         
         // Also delete any reconciliation row in Faturas_Linhas matching the paid invoice
         var linesHeaders = HEADERS[SHEETS.FATURAS_LINHAS];

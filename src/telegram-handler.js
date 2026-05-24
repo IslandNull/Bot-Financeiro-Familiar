@@ -13,15 +13,23 @@ async function handleTelegramUpdate(input) {
     if (typeof deps.parseText !== 'function') return fail('MISSING_PARSER', 'parseText', GENERIC_FAILURE_TEXT);
     if (typeof deps.recordEvent !== 'function') return fail('MISSING_WRITER', 'recordEvent', GENERIC_FAILURE_TEXT);
 
-    const message = update.message || update.edited_message;
+    if (update.edited_message) {
+        return {
+            ok: false,
+            responseText: 'Não processo edição de mensagem para evitar duplicidade. Para corrigir, envie: corrigir último lançamento para ...',
+            shouldApplyDomainMutation: false,
+        };
+    }
+
+    const message = update.message;
     const chatId = message && message.chat && message.chat.id;
     const userId = message && message.from && message.from.id;
     if (!isAuthorized(config, { chatId, userId })) {
         return fail('UNAUTHORIZED', 'authorization', UNAUTHORIZED_TEXT);
     }
 
-    const text = message && message.text;
-    if (typeof text !== 'string' || text.trim() === '') {
+    const text = message && typeof (message.text || message.caption) === 'string' ? (message.text || message.caption).trim() : '';
+    if (!text) {
         return fail('MISSING_TEXT', 'text', GENERIC_FAILURE_TEXT);
     }
 

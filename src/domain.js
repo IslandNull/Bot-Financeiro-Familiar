@@ -6,7 +6,9 @@ const { HEADERS, SHEETS } = require('./schema');
 const { validateParsedEvent } = require('./validator');
 
 function roundMoney(value) {
-    return Math.round((Number(value) || 0) * 100) / 100;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
 const CASH_EVENT_TYPES = {

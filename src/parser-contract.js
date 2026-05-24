@@ -19,7 +19,7 @@ function buildParserPrompt(input) {
             'You are a strict financial event parser for Bot Financeiro Familiar V55.',
             'Return exactly one JSON object. Do not return markdown, comments, arrays, or extra fields.',
             'Use dot-decimal positive money strings, ISO date YYYY-MM-DD, and competencia YYYY-MM.',
-            'STRICTLY PROHIBIT comma money formats like "12,34" or any other non-dot-decimal formats.',
+            '- Convert any comma money formats like "12,34" to dot-decimal "12.34". Never output commas in money fields.',
             'Do NOT include any extra keys or properties outside the required schema. Fail closed if there are unknown fields.',
             'Do NOT guess or use a default fallback category if none clearly matches the user text. Leave id_categoria empty.',
             `Allowed event types: ${ENUMS.tipo_evento.join(', ')}.`,
