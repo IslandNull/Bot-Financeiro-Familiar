@@ -2,6 +2,10 @@
 
 These actions were one-off runtime mutations for the April/May 2026 cleanup and pilot repairs. They were removed from `apps-script/Code.js` in the cleanup branch after the project state recorded in `EXECUTION_PLAN.md` showed the repairs had already been applied or were historical setup.
 
+The reviewed historical JSONL import flow (`historical_import_reviewed`, `scripts/historical-validate.js`, `scripts/historical-write.js`) was also retired after the April rebuild. Future historical corrections must use the live Telegram/runtime paths or explicit reviewed adjustments.
+
+The transitional local splitter `scripts/split-code.js` was removed on 2026-05-23 after the Apps Script runtime had already been split into `apps-script/Code.js`, `infra.js`, `parser.js`, `reporting.js`, and `mutation.js`. It was not part of current npm workflows.
+
 Removed from `doGet`, V55 exports, global wrappers, and local tests:
 
 - `reset_april_2026_clean_rebuild`
@@ -21,5 +25,7 @@ Removed from `doGet`, V55 exports, global wrappers, and local tests:
 - `ensure_april_2026_config`
 - `ensure_april_2026_house_debts`
 - `migrateV55Parcelas`
+- `clean_spreadsheet_v55` (Consolidated duplicate credit cards `CARD_MP_GU` and `CARD_MERCADO_PAGO_GU`, updated limit to 10300, deleted duplicate sources, duplicate house debts, and consolidated category `OPEX_MERCADO_SEMANA_CARTAO` into `OPEX_MERCADO_SEMANA`, migrating all affected rows in `Lancamentos`, `Faturas_Linhas`, and `Faturas_Resumo` on 2026-05-23).
+- `repair_debt_reference_ids_20260523` (Updated two `Lancamentos.id_divida` references from historical debt IDs to current debt IDs: `DIV_FINANCIAMENTO_CAIXA_CASA` -> `DIV_CAIXA_IMOVEL`; `DIV_CONSTRUTORA_VASCO_CASA` -> `DIV_VASCO`. Applied on 2026-05-23, then removed from runtime.)
 
 This archive intentionally contains no executable code.

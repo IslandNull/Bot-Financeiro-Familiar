@@ -92,7 +92,7 @@ Status: Accepted
 Date: 2026-04-29
 
 Decision:
-Represent Telegram sending as a local dependency-injected boundary with fake sender tests and fake `Telegram_Send_Log` rows. Send observability must not mutate financial sheets and must redact token-like strings, webhook URLs, and stack traces.
+Represent Telegram sending as a local dependency-injected boundary with redacted diagnostics. Send observability must not mutate financial sheets and must redact token-like strings, webhook URLs, and stack traces. `Telegram_Send_Log` was later retired from the live V55 schema.
 
 Reason:
 The project needs delivery observability before a real webhook, but no Telegram service should be called until spreadsheet setup and controlled pilot gates are verified.
@@ -325,4 +325,21 @@ Use short Telegram replies with light emoji markers, explicit outcome, financial
 
 Reason:
 The bot is used for real family financial decisions. Clear wording and deterministic read-only answers reduce panic, ambiguity, and LLM hallucination risk while preserving privacy for personal details.
+
+## V55-D023 - Faturas Separate Exposure From Authority
+
+Status: Accepted (migration completed; compatibility phase retired 2026-05-23)
+Date: 2026-05-20
+
+Decision:
+Treat the former `Faturas` rows as a compatibility ledger with two meanings: planned exposure lines from purchases/installments, and authority rows from reviewed/closed/paid invoice state. The reviewed migration split that model into `Faturas_Resumo` for invoice authority/summary and `Faturas_Linhas` for purchase/installment exposure.
+The historical migration preview/apply helpers are no longer live runtime actions. Current runtime reads and writes the split invoice sheets directly.
+
+Reason:
+The live sheet legitimately has many `prevista` rows per card and competence because each purchase or installment contributes exposure. Those rows are not duplicates. Closed or partially paid invoice rows are stronger authority and must prevent double counting planned exposure for the same card, competence, and due date.
+Historical `paga` rows without `valor_fechado` are treated as paid exposure lines, not competing authority rows, because they represent already-paid line items from the overloaded ledger.
+
+Rejected:
+- Treating multiple planned rows in one cycle as duplicate invoices.
+- Mutating the real spreadsheet before a dry-run migration and owner approval.
 

@@ -11,6 +11,8 @@ const configCategoriasHeaders = ['id_categoria', 'nome', 'grupo', 'tipo_evento_p
 const configFontesHeaders = ['id_fonte', 'nome', 'tipo', 'titular', 'moeda', 'ativo'];
 const cartoesHeaders = ['id_cartao', 'id_fonte', 'nome', 'titular', 'fechamento_dia', 'vencimento_dia', 'limite', 'ativo'];
 const faturasHeaders = ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'];
+const faturasResumoHeaders = ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto_total', 'valor_fechado', 'valor_pago', 'valor_aberto', 'status', 'authority_count'];
+const faturasLinhasHeaders = ['id_linha_fatura', 'id_fatura', 'id_cartao', 'competencia', 'valor_previsto', 'status_origem'];
 const rendasRecorrentesHeaders = ['id_renda', 'pessoa', 'descricao', 'valor_planejado', 'tipo_renda', 'beneficio_restrito', 'ativo', 'observacao'];
 const saldosFontesHeaders = ['id_snapshot', 'competencia', 'data_referencia', 'id_fonte', 'saldo_inicial', 'saldo_final', 'saldo_disponivel', 'observacao', 'created_at'];
 const patrimonioAtivosHeaders = ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'];
@@ -25,6 +27,9 @@ function createFakeSheet(headers) {
         rows,
         appendRow(row) {
             rows.push(row.slice());
+        },
+        deleteRow(row) {
+            rows.splice(row - 1, 1);
         },
         deleteRows(row, rowCount) {
             rows.splice(row - 1, rowCount);
@@ -44,7 +49,18 @@ function createFakeSheet(headers) {
                     while (rows.length < row) rows.push([]);
                     rows[row - 1][column - 1] = value;
                 },
+                setValues(values) {
+                    values.forEach((sourceRow, rowIndex) => {
+                        while (rows.length < row + rowIndex) rows.push([]);
+                        sourceRow.forEach((value, columnIndex) => {
+                            rows[row - 1 + rowIndex][column - 1 + columnIndex] = value;
+                        });
+                    });
+                },
             };
+        },
+        clear() {
+            rows.splice(0, rows.length);
         },
     };
 }
@@ -70,6 +86,8 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
         Idempotency_Log: createFakeSheet(idempotencyHeaders),
         Lancamentos: createFakeSheet(lancamentosHeaders),
         Faturas: createFakeSheet(faturasHeaders),
+        Faturas_Resumo: createFakeSheet(faturasResumoHeaders),
+        Faturas_Linhas: createFakeSheet(faturasLinhasHeaders),
         Rendas_Recorrentes: createFakeSheet(rendasRecorrentesHeaders),
         Saldos_Fontes: createFakeSheet(saldosFontesHeaders),
         Patrimonio_Ativos: createFakeSheet(patrimonioAtivosHeaders),
@@ -91,13 +109,21 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
         OPENAI_MODEL: 'gpt-5.4-nano',
         ...(options.properties || {}),
     };
+    const scriptProperties = { ...properties };
     const context = {
         console,
+        __scriptProperties: scriptProperties,
         PropertiesService: {
             getScriptProperties() {
                 return {
                     getProperty(name) {
-                        return properties[name] || '';
+                        return scriptProperties[name] || '';
+                    },
+                    setProperty(name, value) {
+                        scriptProperties[name] = String(value);
+                    },
+                    deleteProperty(name) {
+                        delete scriptProperties[name];
                     },
                 };
             },
@@ -140,6 +166,16 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
                     },
                     getSheetByName(name) {
                         return sheets[name] || null;
+                    },
+                    insertSheet(name) {
+                        if (sheets[name]) throw new Error(`Sheet already exists: ${name}`);
+                        sheets[name] = createFakeSheet([]);
+                        sheets[name].getName = () => name;
+                        return sheets[name];
+                    },
+                    deleteSheet(sheet) {
+                        const name = sheet.getName();
+                        delete sheets[name];
                     },
                 };
             },
@@ -189,35 +225,22 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
     return { context, sheets };
 }
 
-function postPilotMessage(context, text) {
+function postPilotMessage(context, text, options = {}) {
+    const updateId = options.updateId || 'update_1';
+    const messageId = options.messageId || 'message_1';
+    const chatId = options.chatId || 'chat_1';
+    const userId = options.userId || 'user_1';
     const output = context.doPost({
         parameter: { secret: 'test_secret' },
         postData: {
             contents: JSON.stringify({
-                update_id: 'update_1',
+                update_id: updateId,
                 message: {
-                    message_id: 'message_1',
-                    chat: { id: 'chat_1' },
-                    from: { id: 'user_1' },
+                    message_id: messageId,
+                    chat: { id: chatId },
+                    from: { id: userId },
                     text,
                 },
-            }),
-        },
-    });
-    return JSON.parse(output.getContentText());
-}
-
-function postHistoricalImport(context, entries, options = {}) {
-    const output = context.doPost({
-        parameter: { secret: 'test_secret' },
-        postData: {
-            contents: JSON.stringify({
-                action: 'historical_import_reviewed',
-                reviewed: options.reviewed !== undefined ? options.reviewed : true,
-                competencia: options.competencia || '2026-04',
-                batch_id: options.batch_id || 'test-batch',
-                dry_run: options.dry_run !== undefined ? options.dry_run : true,
-                entries,
             }),
         },
     });
@@ -462,13 +485,14 @@ function appendFakeInvoice(sheets, overrides = {}) {
         competencia: '2026-04',
         data_fechamento: '2026-04-30',
         data_vencimento: '2026-05-07',
-        valor_previsto: 42.5,
+        valor_previsto_total: overrides.valor_previsto ?? 42.5,
         valor_fechado: '',
         valor_pago: '',
+        valor_aberto: overrides.valor_aberto ?? overrides.valor_previsto ?? 42.5,
         status: 'prevista',
         ...overrides,
     };
-    sheets.Faturas.appendRow(faturasHeaders.map((header) => invoice[header] === undefined ? '' : invoice[header]));
+    sheets.Faturas_Resumo.appendRow(faturasResumoHeaders.map((header) => invoice[header] === undefined ? '' : invoice[header]));
 }
 
 function appendFakeLaunch(sheets, overrides = {}) {
@@ -622,7 +646,6 @@ module.exports = {
     createFakeSheet,
     createAppsScriptHarness,
     postPilotMessage,
-    postHistoricalImport,
     appendRuntimeConfigRows,
     runRemoteAction,
     appendFakeInvoice,
@@ -638,6 +661,8 @@ module.exports = {
     configFontesHeaders,
     cartoesHeaders,
     faturasHeaders,
+    faturasResumoHeaders,
+    faturasLinhasHeaders,
     rendasRecorrentesHeaders,
     saldosFontesHeaders,
     patrimonioAtivosHeaders,

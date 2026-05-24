@@ -1,6 +1,6 @@
 # SHEET_SCHEMA.md
 
-This is the V55 sheet schema authority for the clean base. Real spreadsheet presence is VERIFIED for the Phase 6 target by the redacted evidence in `EXECUTION_PLAN.md`.
+This is the V55 sheet schema authority for the live clean base. Real spreadsheet state is tracked by the redacted evidence in `docs/SPREADSHEET_SNAPSHOT.md` and read-only audits.
 
 For the current redacted state of the real spreadsheet, use `docs/SPREADSHEET_SNAPSHOT.md`. That file is operational evidence only; this file remains the schema authority.
 
@@ -18,9 +18,14 @@ For the current redacted state of the real spreadsheet, use `docs/SPREADSHEET_SN
 
 `id_cartao | id_fonte | nome | titular | fechamento_dia | vencimento_dia | limite | ativo`
 
-### Faturas
 
-`id_fatura | id_cartao | competencia | data_fechamento | data_vencimento | valor_previsto | valor_fechado | valor_pago | status`
+### Faturas_Resumo
+
+`id_fatura | id_cartao | competencia | data_fechamento | data_vencimento | valor_previsto_total | valor_fechado | valor_pago | valor_aberto | status | authority_count`
+
+### Faturas_Linhas
+
+`id_linha_fatura | id_fatura | id_cartao | competencia | valor_previsto | status_origem`
 
 ### Lancamentos
 
@@ -54,10 +59,6 @@ For the current redacted state of the real spreadsheet, use `docs/SPREADSHEET_SN
 
 `idempotency_key | source | external_update_id | external_message_id | chat_id | payload_hash | status | result_ref | created_at | updated_at | error_code | observacao`
 
-### Telegram_Send_Log
-
-`id_notificacao | created_at | route | chat_id | phase | status | status_code | error | result_ref | id_lancamento | idempotency_key | text_preview | sent_at`
-
 ## Formula Standard
 
-When formula injection exists later, use Apps Script `range.setFormula()`, English function names, and semicolon separators.
+No live formula-injection workflow exists. If one is added later, use Apps Script `range.setFormula()`, English function names, and semicolon separators.

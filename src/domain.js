@@ -1,6 +1,7 @@
 'use strict';
 
 const { assignInstallmentCycles, assignInvoiceCycle } = require('./card-cycle');
+const { sumInvoiceOpenAmount } = require('./invoice-ledger');
 const { HEADERS, SHEETS } = require('./schema');
 const { validateParsedEvent } = require('./validator');
 
@@ -88,22 +89,22 @@ function summarizeCash(events) {
 }
 
 function sumInvoiceExposure(invoices) {
-    return roundMoney(
-        (invoices || [])
-            .filter((invoice) => ['prevista', 'fechada', 'parcialmente_paga'].includes(invoice.status))
-            .reduce((sum, invoice) => {
-                const expected = Number(invoice.valor_fechado || invoice.valor_previsto || 0);
-                const paid = Number(invoice.valor_pago || 0);
-                return sum + Math.max(0, expected - paid);
-            }, 0)
-    );
+    return sumInvoiceOpenAmount(invoices);
 }
 
 function sumActiveDebtObligations(debts) {
     return roundMoney(
         (debts || [])
             .filter((debt) => debt.status === 'ativa')
-            .reduce((sum, debt) => sum + Number(debt.valor_parcela || 0), 0)
+            .reduce((sum, debt) => {
+                let remainingInstallments = Number(debt.parcelas_total) - Number(debt.parcela_atual) + 1;
+                if (isNaN(remainingInstallments) || remainingInstallments < 1) {
+                    remainingInstallments = 2; // Default to 2 months if unspecified
+                }
+                const monthsDue = Math.min(2, remainingInstallments);
+                const exposure = Number(debt.valor_parcela || 0) * monthsDue;
+                return sum + exposure;
+            }, 0)
     );
 }
 
@@ -136,7 +137,14 @@ function summarizeRecurringIncome(recurringIncomes) {
         );
 }
 
-function summarizeSourceBalances(sourceBalances, competencia) {
+function indexById(rows, field) {
+    return (rows || []).reduce((index, row) => {
+        if (row && row[field]) index[row[field]] = row;
+        return index;
+    }, {});
+}
+
+function summarizeSourceBalances(sourceBalances, competencia, sourcesById) {
     const selectedBySource = {};
     (sourceBalances || [])
         .filter((snapshot) => !competencia || snapshot.competencia === competencia)
@@ -150,6 +158,8 @@ function summarizeSourceBalances(sourceBalances, competencia) {
 
     return Object.values(selectedBySource).reduce(
         (summary, snapshot) => {
+            const source = sourcesById && sourcesById[snapshot.id_fonte];
+            if (source && (source.tipo === 'cartao_credito' || source.tipo === 'beneficio')) return summary;
             summary.saldos_fontes_count += 1;
             summary.saldos_fontes_inicial = roundMoney(summary.saldos_fontes_inicial + Number(snapshot.saldo_inicial || 0));
             summary.saldos_fontes_final = roundMoney(summary.saldos_fontes_final + Number(snapshot.saldo_final || 0));
@@ -163,6 +173,67 @@ function summarizeSourceBalances(sourceBalances, competencia) {
             saldos_fontes_disponivel: 0,
         }
     );
+}
+
+function computeBenefitBalances(events, sourceBalances, recurringIncomes, sourcesById, competencia) {
+    const benefitSources = Object.values(sourcesById || {}).filter(
+        (s) => s.tipo === 'beneficio' && s.ativo !== false
+    );
+
+    const detail = [];
+    benefitSources.forEach((source) => {
+        const snapshots = (sourceBalances || []).filter(
+            (b) => b.id_fonte === source.id_fonte && (!competencia || b.competencia === competencia)
+        );
+        let latestSnapshot = null;
+        snapshots.forEach((snap) => {
+            if (!latestSnapshot || String(snap.data_referencia || '') >= String(latestSnapshot.data_referencia || '')) {
+                latestSnapshot = snap;
+            }
+        });
+
+        let saldoInicial = 0;
+        let snapshotDate = null;
+        let hasSnapshot = false;
+
+        if (latestSnapshot) {
+            saldoInicial = Number(latestSnapshot.saldo_disponivel !== undefined ? latestSnapshot.saldo_disponivel : latestSnapshot.saldo_final || 0);
+            snapshotDate = latestSnapshot.data_referencia || null;
+            hasSnapshot = true;
+        } else {
+            const income = (recurringIncomes || []).find(
+                (inc) => inc.ativo !== false && inc.beneficio_restrito === true && inc.descricao.toLowerCase() === source.nome.toLowerCase()
+            );
+            if (income) {
+                saldoInicial = Number(income.valor_planejado || 0);
+            }
+        }
+
+        const relevantExpenses = (events || []).filter((event) => {
+            if (event.id_fonte !== source.id_fonte) return false;
+            if (event.status !== 'efetivado') return false;
+            if (event.tipo_evento !== 'despesa' && event.tipo_evento !== 'compra_cartao') return false;
+            if (competencia && event.competencia !== competencia) return false;
+            if (hasSnapshot && snapshotDate) {
+                return String(event.data || '') > String(snapshotDate);
+            }
+            return true;
+        });
+
+        const totalSpent = relevantExpenses.reduce((sum, exp) => sum + Number(exp.valor || 0), 0);
+        const saldoDisponivel = roundMoney(saldoInicial - totalSpent);
+
+        detail.push({
+            id_fonte: source.id_fonte,
+            nome: source.nome,
+            saldo_inicial: roundMoney(saldoInicial),
+            total_gasto: roundMoney(totalSpent),
+            saldo_disponivel: saldoDisponivel,
+            has_snapshot: hasSnapshot
+        });
+    });
+
+    return detail;
 }
 
 function computeNetWorth(assets, debts) {
@@ -183,17 +254,18 @@ function computeNetWorth(assets, debts) {
     };
 }
 
-function suggestDestination({ sobra_caixa, reserva_total, faturas_60d, obrigacoes_60d }, options) {
+function suggestDestination({ coverage_base, sobra_caixa, reserva_total, faturas_60d, obrigacoes_60d }, options) {
     const reserveTarget = Number((options && options.reserveTarget) || 15000);
+    const coverageBase = Number(coverage_base !== undefined ? coverage_base : sobra_caixa || 0);
     const immediateObligations = Number(faturas_60d || 0) + Number(obrigacoes_60d || 0);
-    if (sobra_caixa <= 0) return 'sem_sobra';
-    if (sobra_caixa < immediateObligations) return 'manter_caixa';
+    if (coverageBase <= 0) return 'sem_sobra';
+    if (coverageBase < immediateObligations) return 'manter_caixa';
     if (reserva_total < reserveTarget) return 'reforcar_reserva';
     return 'investir_ou_amortizar_revisar';
 }
 
 function computeDecisionCapacity(input) {
-    const sobraCaixa = Number(input.sobra_caixa || 0);
+    const coverageBase = Number(input.coverage_base !== undefined ? input.coverage_base : input.sobra_caixa || 0);
     const faturas60d = Number(input.faturas_60d || 0);
     const obrigacoes60d = Number(input.obrigacoes_60d || 0);
     const reservaTotal = Number(input.reserva_total || 0);
@@ -203,7 +275,7 @@ function computeDecisionCapacity(input) {
         .every((debt) => Number(debt.saldo_devedor || 0) > 0 && Number(debt.valor_parcela || 0) > 0 && debt.taxa_juros && debt.sistema_amortizacao);
 
     const immediateObligations = roundMoney(faturas60d + obrigacoes60d);
-    const margemPosObrigacoes = roundMoney(sobraCaixa - immediateObligations);
+    const margemPosObrigacoes = roundMoney(coverageBase - immediateObligations);
     const reservaGap = roundMoney(Math.max(0, reserveTarget - reservaTotal));
     const capacidadeAporteSegura = roundMoney(Math.max(0, margemPosObrigacoes - reservaGap));
     const parcelaMaximaSegura = roundMoney(Math.max(0, margemPosObrigacoes * 0.25));
@@ -221,7 +293,7 @@ function computeDecisionCapacity(input) {
         pode_avaliar_amortizacao: podeAvaliarAmortizacao,
         motivo_bloqueio_amortizacao: motivoBloqueioAmortizacao,
         destino_reserva: roundMoney(Math.min(Math.max(0, margemPosObrigacoes), reservaGap)),
-        destino_obrigacoes: roundMoney(Math.min(Math.max(0, sobraCaixa), immediateObligations)),
+        destino_obrigacoes: roundMoney(Math.min(Math.max(0, coverageBase), immediateObligations)),
         destino_investimentos: capacidadeAporteSegura,
         destino_amortizacao: podeAvaliarAmortizacao ? capacidadeAporteSegura : 0,
     };
@@ -234,6 +306,7 @@ function computeFamilyClosing(input) {
     const invoices = (input && input.invoices) || [];
     const recurringIncomes = (input && input.recurringIncomes) || [];
     const sourceBalances = (input && input.sourceBalances) || [];
+    const sourcesById = (input && input.sourcesById) || indexById(input && input.sources, 'id_fonte');
     const competencia = input && input.competencia;
 
     const dre = summarizeDre(events);
@@ -243,7 +316,12 @@ function computeFamilyClosing(input) {
     const reservaTotal = sumEmergencyReserve(assets);
     const netWorth = computeNetWorth(assets, debts);
     const recurringIncome = summarizeRecurringIncome(recurringIncomes);
-    const sourceBalanceSummary = summarizeSourceBalances(sourceBalances, competencia);
+    const sourceBalanceSummary = summarizeSourceBalances(sourceBalances, competencia, sourcesById);
+    const coverageBase = sourceBalanceSummary.saldos_fontes_count > 0
+        ? roundMoney(sourceBalanceSummary.saldos_fontes_disponivel + reservaTotal)
+        : cash.sobra_caixa;
+
+    const benefitBalances = computeBenefitBalances(events, sourceBalances, recurringIncomes, sourcesById, competencia);
 
     const closing = {
         competencia,
@@ -256,14 +334,16 @@ function computeFamilyClosing(input) {
         patrimonio_liquido: netWorth.patrimonio_liquido,
         ...recurringIncome,
         ...sourceBalanceSummary,
+        beneficios_detalhe: benefitBalances,
     };
 
     Object.assign(closing, computeDecisionCapacity({
         ...closing,
+        coverage_base: coverageBase,
         debts,
         options: input && input.options,
     }));
-    closing.destino_sugerido = suggestDestination(closing, input && input.options);
+    closing.destino_sugerido = suggestDestination({ ...closing, coverage_base: coverageBase }, input && input.options);
     return closing;
 }
 
@@ -335,6 +415,7 @@ function buildFamilySummaryView(input) {
             destino_amortizacao: closing.destino_amortizacao,
             destino_sugerido: closing.destino_sugerido,
         },
+        beneficios_detalhe: closing.beneficios_detalhe,
         eventos_detalhados: filterSharedDetailedEvents(source.events),
     };
 }

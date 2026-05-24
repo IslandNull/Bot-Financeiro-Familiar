@@ -13,7 +13,7 @@ module.exports = {
     ...require('./write-adapter'),
     ...require('./parser-runtime'),
     ...require('./telegram-handler'),
-    ...require('./telegram-send'),
     ...require('./telegram-webhook'),
     ...require('./pilot-evidence'),
+    ...require('./invoice-ledger'),
 };

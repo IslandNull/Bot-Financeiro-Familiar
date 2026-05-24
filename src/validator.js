@@ -90,9 +90,60 @@ function validateParsedEvent(entry) {
         errors.push(error('INVALID_ENUM', 'tipo_evento', 'tipo_evento is not supported'));
     }
 
+    if (normalized.tipo_evento === 'leitura') {
+        const now = new Date();
+        const offset = -3;
+        const spTime = new Date(now.getTime() + (offset * 60 * 60 * 1000) + (now.getTimezoneOffset() * 60 * 1000));
+        const todayStr = spTime.toISOString().slice(0, 10);
+        const competenciaStr = todayStr.slice(0, 7);
+
+        normalized.data = (entry.data && typeof entry.data === 'string') ? entry.data.trim() : todayStr;
+        normalized.competencia = (entry.competencia && typeof entry.competencia === 'string') ? entry.competencia.trim() : competenciaStr;
+        normalized.valor = 0;
+        normalized.descricao = (entry.descricao && typeof entry.descricao === 'string') ? entry.descricao.trim() : '';
+        normalized.escopo = (entry.escopo && typeof entry.escopo === 'string') ? entry.escopo.trim() : 'Familiar';
+        normalized.visibilidade = (entry.visibilidade && typeof entry.visibilidade === 'string') ? entry.visibilidade.trim() : 'detalhada';
+        normalized.afeta_dre = false;
+        normalized.afeta_patrimonio = false;
+        normalized.afeta_caixa_familiar = false;
+        normalized.status = 'efetivado';
+
+        [
+            'id_categoria',
+            'id_fonte',
+            'pessoa',
+            'id_cartao',
+            'id_fatura',
+            'id_divida',
+            'id_ativo',
+            'direcao_caixa_familiar',
+        ].forEach((field) => {
+            if (entry[field] !== undefined && entry[field] !== null && entry[field] !== '') {
+                normalized[field] = String(entry[field]).trim();
+            }
+        });
+
+        return { ok: errors.length === 0, normalized: errors.length === 0 ? normalized : undefined, errors };
+    }
+
     normalized.data = requireString(entry, 'data', errors);
     if (normalized.data && !isIsoDate(normalized.data)) {
         errors.push(error('INVALID_DATE', 'data', 'data must be YYYY-MM-DD'));
+    } else if (normalized.data) {
+        const year = Number(normalized.data.slice(0, 4));
+        if (year < 2000 || year > 2100) {
+            errors.push(error('INVALID_YEAR', 'data', 'year must be between 2000 and 2100'));
+        }
+        const now = new Date();
+        const offset = -3;
+        const spTime = new Date(now.getTime() + (offset * 60 * 60 * 1000) + (now.getTimezoneOffset() * 60 * 1000));
+        const todayStr = spTime.toISOString().slice(0, 10);
+        const tDate = new Date(todayStr + 'T00:00:00Z');
+        const nDate = new Date(normalized.data + 'T00:00:00Z');
+        const diffDays = (nDate.getTime() - tDate.getTime()) / (1000 * 60 * 60 * 24);
+        if (diffDays > 365 && normalized.tipo_evento !== 'fatura_prevista') {
+            errors.push(error('FUTURE_DATE_LIMIT', 'data', 'data is more than 365 days in the future'));
+        }
     }
 
     normalized.competencia = requireString(entry, 'competencia', errors);
@@ -103,6 +154,8 @@ function validateParsedEvent(entry) {
     const value = parseMoney(entry.valor);
     if (value === null) {
         errors.push(error('INVALID_MONEY', 'valor', 'valor must be positive dot-decimal money'));
+    } else if (value > 1000000.00) {
+        errors.push(error('VALUE_EXCEEDS_LIMIT', 'valor', 'valor must not exceed 1000000.00'));
     } else {
         normalized.valor = value;
     }

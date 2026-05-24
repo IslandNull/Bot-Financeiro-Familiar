@@ -18,7 +18,8 @@ test('schema contains the clean V55 sheets', () => {
         'Config_Categorias',
         'Config_Fontes',
         'Cartoes',
-        'Faturas',
+        'Faturas_Resumo',
+        'Faturas_Linhas',
         'Lancamentos',
         'Transferencias_Internas',
         'Rendas_Recorrentes',
@@ -27,7 +28,6 @@ test('schema contains the clean V55 sheets', () => {
         'Dividas',
         'Fechamento_Familiar',
         'Idempotency_Log',
-        'Telegram_Send_Log',
     ]);
 });
 

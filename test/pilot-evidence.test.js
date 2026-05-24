@@ -6,7 +6,6 @@ const {
     buildPilotEvidence,
     createEmptyFakeSheetState,
     recordEventV55,
-    sendTelegramResponse,
 } = require('../src');
 
 const tests = [];
@@ -73,35 +72,6 @@ test('pilot evidence records sheet deltas without raw financial rows or private 
     assert.ok(!serialized.includes('piloto mercado com dado privado'));
     assert.ok(!serialized.includes('example.invalid'));
     assert.ok(!serialized.includes(written.result_ref));
-});
-
-test('pilot evidence captures send observability without exposing preview text', async () => {
-    const before = createEmptyFakeSheetState();
-    const sent = await sendTelegramResponse({
-        state: before,
-        chat_id: 'chat_raw_secret',
-        text: 'Registro recebido com sk-secret-token',
-        result_ref: 'MUT_123456',
-        idempotency_key: 'telegram:901:1',
-        created_at: '2026-04-29T12:01:00Z',
-        deps: { sendMessage: async () => ({ ok: true, status_code: 200 }) },
-    });
-
-    const evidence = buildPilotEvidence({
-        scenario: 'telegram send attempt',
-        beforeState: before,
-        afterState: sent.state,
-        result: sent,
-    });
-
-    assert.strictEqual(evidence.ok, true, JSON.stringify(evidence.errors));
-    assert.deepStrictEqual(evidence.evidence.touched_sheets, [SHEETS.TELEGRAM_SEND_LOG]);
-    assert.strictEqual(evidence.evidence.row_deltas[SHEETS.TELEGRAM_SEND_LOG], 1);
-
-    const serialized = JSON.stringify(evidence);
-    assert.ok(!serialized.includes('chat_raw_secret'));
-    assert.ok(!serialized.includes('sk-secret-token'));
-    assert.ok(!serialized.includes('Registro recebido'));
 });
 
 test('pilot evidence fails closed without scenario name', () => {

@@ -12,14 +12,17 @@ function test(name, fn) {
 }
 
 const root = path.resolve(__dirname, '..');
-const code = fs.readFileSync(path.join(root, 'apps-script', 'Code.js'), 'utf8');
+const appsScriptDir = path.join(root, 'apps-script');
+const code = fs.readdirSync(appsScriptDir)
+    .filter(file => file.endsWith('.js'))
+    .map(file => fs.readFileSync(path.join(appsScriptDir, file), 'utf8'))
+    .join('\n');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'apps-script', 'appsscript.json'), 'utf8'));
 
 const {
     createFakeSheet,
     createAppsScriptHarness,
     postPilotMessage,
-    postHistoricalImport,
     appendRuntimeConfigRows,
     runRemoteAction,
     appendFakeInvoice,
@@ -34,7 +37,8 @@ const {
     configCategoriasHeaders,
     configFontesHeaders,
     cartoesHeaders,
-    faturasHeaders,
+    faturasResumoHeaders,
+    faturasLinhasHeaders,
     rendasRecorrentesHeaders,
     saldosFontesHeaders,
     patrimonioAtivosHeaders,
@@ -49,8 +53,8 @@ test('Apps Script runtime exposes webhook and self-test functions', () => {
     assert.ok(code.includes('function doGet(e)'));
     assert.ok(code.includes('function runWebhookSecretNegativeSelfTest()'));
     assert.ok(code.includes('function runHelpSmokeSelfTest()'));
-    assert.ok(code.includes('function exportPilotFamilySummaryV55()'));
-    assert.ok(code.includes('function writeDraftFamilyClosingV55()'));
+    assert.ok(code.includes('function exportPilotFamilySummaryV55('));
+    assert.ok(code.includes('function writeDraftFamilyClosingV55('));
     assert.ok(code.includes('function closeReviewedFamilyClosingV55('));
     assert.ok(code.includes('function runTelegramWebhookSetupDryRun()'));
     assert.ok(code.includes('function runTelegramWebhookSetupApply()'));
@@ -86,8 +90,8 @@ test('Apps Script runtime gates and narrows financial mutation', () => {
 });
 
 test('Apps Script runtime schema knows every V55 sheet header used by local contracts', () => {
-    assert.ok(code.includes("TELEGRAM_SEND_LOG: 'Telegram_Send_Log'"));
-    assert.ok(code.includes("Telegram_Send_Log: ['id_notificacao', 'created_at', 'route', 'chat_id', 'phase', 'status', 'status_code', 'error', 'result_ref', 'id_lancamento', 'idempotency_key', 'text_preview', 'sent_at']"));
+    assert.ok(!code.includes("TELEGRAM_SEND_LOG: 'Telegram_Send_Log'"));
+    assert.ok(!code.includes('Telegram_Send_Log'));
     assert.ok(code.includes("'parcelas', 'created_at']"));
 });
 
@@ -422,11 +426,12 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Resumo de abril/);
-    assert.match(result.responseText, /Faturas atuais cobertas pela liquidez registrada\./);
+    assert.match(result.responseText, /Sobra projetada positiva/);
     assert.match(result.responseText, /Contas: R\$ 330,00/);
     assert.match(result.responseText, /Reserva: R\$ 1000,00/);
-    assert.match(result.responseText, /Ap[oó]s faturas atuais: R\$ 1287,50/);
-    assert.match(result.responseText, /Nubank 07\/05: R\$ 42,50/);
+    assert.match(result.responseText, /Renda prevista 05\/05: R\$ 5000,00/);
+    assert.match(result.responseText, /Sobra projetada: R\$ 4787,50/);
+    assert.match(result.responseText, /Nubank( Gu)? 07\/05: R\$ 42,50/);
     assert.match(result.responseText, /Total: R\$ 42,50/);
     assert.doesNotMatch(result.responseText, /Compromissos cadastrados/);
     assert.doesNotMatch(result.responseText, /Financiamento: R\$ 500,00/);
@@ -434,7 +439,7 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.doesNotMatch(result.responseText, /Folga ap/);
     assert.doesNotMatch(result.responseText, /Caixa registrado/);
     assert.doesNotMatch(result.responseText, /Gastos assumidos \(DRE\)/);
-    assert.match(result.responseText, /Pagar as faturas atuais e preservar a reserva\./);
+    assert.match(result.responseText, /Pagar faturas e contas programadas; preservar a reserva\./);
     assert.doesNotMatch(result.responseText, /Nota: ainda falta saldo real das contas/);
     assert.doesNotMatch(result.responseText, /Ultimos gastos/);
     assert.doesNotMatch(result.responseText, /30\/04 Mercado da semana - R\$ 43,90/);
@@ -443,12 +448,12 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.match(result.responseText, /para onde foi meu dinheiro/);
     assert.match(result.responseText, /\/revisar_mes/);
     assert.doesNotMatch(result.responseText, /OPEX_MERCADO_SEMANA/);
-    assert.match(result.responseText, /Mercado da semana/);
+    assert.doesNotMatch(result.responseText, /Mercado da semana/);
     assert.doesNotMatch(result.responseText, /privado/);
     assert.doesNotMatch(result.responseText, /agregado/);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 5);
-    assert.strictEqual(sheets.Faturas.rows.length, 3);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 3);
     assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
 });
 
@@ -467,7 +472,7 @@ test('Apps Script /resumo normalizes sheet date cells used as competencia', () =
     const result = postPilotMessage(context, '/resumo_familiar');
 
     assert.strictEqual(result.ok, true);
-    assert.match(result.responseText, /Mercado da semana: R\$ 43,90/);
+    assert.doesNotMatch(result.responseText, /Mercado da semana: R\$ 43,90/);
     assert.doesNotMatch(result.responseText, /Gastos assumidos \(DRE\)/);
     assert.doesNotMatch(result.responseText, /Caixa registrado/);
     assert.match(result.responseText, /Ainda nao vou sugerir investimento, reserva ou amortizacao/);
@@ -525,8 +530,103 @@ test('Apps Script /resumo uses informed liquidity and reserve to evaluate obliga
     assert.strictEqual(result.summary.reserva_total, 9482.99);
     assert.strictEqual(result.summary.margem_pos_obrigacoes, 9507.9);
     assert.strictEqual(result.summary.destino_sugerido, 'reforcar_reserva');
-    assert.match(result.responseText, /Após faturas atuais: R\$ 9507,90/);
+    assert.match(result.responseText, /Sobra projetada: R\$ 24,91/);
     assert.doesNotMatch(result.responseText, /Falta para cobrir tudo/);
+});
+
+test('Apps Script /resumo picks latest source balance when sheet dates are Date cells', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeSourceBalance(sheets, {
+        id_snapshot: 'SALDO_CONTA_FAMILIA_OLD',
+        competencia: '2026-04',
+        data_referencia: new Date('2026-04-19T03:00:00Z'),
+        saldo_final: 103.01,
+        saldo_disponivel: 103.01,
+    });
+    appendFakeSourceBalance(sheets, {
+        id_snapshot: 'SALDO_CONTA_FAMILIA_NEW',
+        competencia: '2026-04',
+        data_referencia: new Date('2026-04-23T03:00:00Z'),
+        saldo_final: 113.15,
+        saldo_disponivel: 113.15,
+    });
+
+    const result = runRemoteAction(context, 'summary', { competencia: '2026-04' });
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.summary.saldos_fontes_disponivel, 113.15);
+});
+
+test('Apps Script /resumo ignores source balance rows not present in active Config_Fontes', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeSourceBalance(sheets, {
+        id_snapshot: 'SALDO_LEGADO',
+        id_fonte: 'FONTE_MP_GU',
+        competencia: '2026-04',
+        saldo_final: 324.41,
+        saldo_disponivel: 324.41,
+    });
+    appendFakeSourceBalance(sheets, {
+        id_snapshot: 'SALDO_ATIVO',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        competencia: '2026-04',
+        saldo_final: 113.15,
+        saldo_disponivel: 113.15,
+    });
+
+    const result = runRemoteAction(context, 'summary', { competencia: '2026-04' });
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.summary.saldos_fontes_disponivel, 113.15);
+    assert.deepStrictEqual(result.summary.saldos_fontes_detalhe.map((item) => item.id_fonte), ['FONTE_CONTA_FAMILIA']);
+});
+
+test('Apps Script /resumo projects salary before scheduled invoices and obligations', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeSourceBalance(sheets, { id_fonte: 'FONTE_CONTA_FAMILIA', saldo_final: 500, saldo_disponivel: 500 });
+    appendFakeRecurringIncome(sheets, { valor_planejado: 5000, beneficio_restrito: false });
+    appendFakeRecurringIncome(sheets, { valor_planejado: 700, beneficio_restrito: true });
+    appendFakeLaunch(sheets, {
+        tipo_evento: 'receita',
+        valor: 1000,
+        afeta_dre: true,
+        afeta_caixa_familiar: true,
+    });
+    appendFakeInvoice(sheets, { valor_previsto: 1200, valor_pago: '', status: 'prevista' });
+    appendFakeDebt(sheets, { valor_parcela: 300 });
+
+    const result = runRemoteAction(context, 'summary');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.summary.renda_prevista_data, '2026-05-05');
+    assert.strictEqual(result.summary.renda_prevista_pendente, 5000);
+    assert.strictEqual(result.summary.obrigacoes_ciclo, 300);
+    assert.strictEqual(result.summary.pagamentos_programados, 1500);
+    assert.strictEqual(result.summary.sobra_projetada_pos_pagamentos, 4000);
+    assert.match(result.responseText, /Renda prevista 05\/05: R\$ 5000,00/);
+    assert.match(result.responseText, /Obrigacoes do ciclo: R\$ 300,00/);
+    assert.match(result.responseText, /Pagamentos programados: R\$ 1500,00/);
+    assert.match(result.responseText, /Sobra projetada: R\$ 4000,00/);
+    assert.doesNotMatch(result.responseText, /Saldos de benef/);
+    assert.doesNotMatch(result.responseText, /Maior impacto/);
 });
 
 test('Apps Script /resumo separates current liquidity from 60-day exposure and shows latest expenses first', () => {
@@ -569,7 +669,7 @@ test('Apps Script /resumo separates current liquidity from 60-day exposure and s
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Contas: R\$ 324,91/);
     assert.match(result.responseText, /Reserva: R\$ 9482,99/);
-    assert.match(result.responseText, /Nubank 07\/05: R\$ 1260,47/);
+    assert.match(result.responseText, /Nubank( Gu)? 07\/05: R\$ 1260,47/);
     assert.match(result.responseText, /Total: R\$ 1260,47/);
     assert.doesNotMatch(result.responseText, /Compromissos cadastrados/);
     assert.doesNotMatch(result.responseText, /Contas proximas: R\$ 4239,85/);
@@ -604,7 +704,7 @@ test('Apps Script /resumo subtracts effective invoice payments when invoice rows
     });
     sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
         id_cartao: 'CARD_MP_GU',
-        id_fonte: 'FONTE_MP_GU',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
         nome: 'Mercado Pago Gustavo',
         titular: 'Gustavo',
         fechamento_dia: 30,
@@ -614,7 +714,7 @@ test('Apps Script /resumo subtracts effective invoice payments when invoice rows
     })[header] ?? ''));
     sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
         id_cartao: 'CARD_MERCADO_PAGO_GU',
-        id_fonte: 'FONTE_MP_GU',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
         nome: 'Mercado Pago Gustavo',
         titular: 'Gustavo',
         fechamento_dia: 30,
@@ -637,12 +737,13 @@ test('Apps Script /resumo subtracts effective invoice payments when invoice rows
     assert.strictEqual(result.summary.faturas_60d_detalhe.length, 1);
     assert.deepStrictEqual(result.summary.faturas_60d_detalhe[0], {
         cartao: 'Mercado Pago Gustavo',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
         competencia: '2026-05',
         data_vencimento: '2026-05-10',
         valor: 25,
     });
     assert.match(result.responseText, /Total: R\$ 25,00/);
-    assert.match(result.responseText, /Mercado Pago 10\/05: R\$ 25,00/);
+    assert.match(result.responseText, /Mercado Pago( Gu)? 10\/05: R\$ 25,00/);
 });
 
 test('Apps Script /resumo uses closed invoice total as authority over planned card rows', () => {
@@ -655,7 +756,7 @@ test('Apps Script /resumo uses closed invoice total as authority over planned ca
     });
     sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
         id_cartao: 'CARD_MERCADO_PAGO_GU',
-        id_fonte: 'FONTE_MP_GU',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
         nome: 'Mercado Pago Gustavo',
         titular: 'Gustavo',
         fechamento_dia: 31,
@@ -690,12 +791,83 @@ test('Apps Script /resumo uses closed invoice total as authority over planned ca
     assert.strictEqual(result.summary.faturas_60d, 2100.97);
     assert.deepStrictEqual(result.summary.faturas_60d_detalhe, [{
         cartao: 'Mercado Pago Gustavo',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
         competencia: '2026-06',
         data_vencimento: '2026-06-10',
         valor: 2100.97,
     }]);
     assert.match(result.responseText, /Total: R\$ 2100,97/);
     assert.doesNotMatch(result.responseText, /R\$ 2157,52/);
+});
+
+test('Apps Script /resumo respects fechada row even when closing date is in the future', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        nome: 'Mercado Pago Gustavo',
+        titular: 'Gustavo',
+        fechamento_dia: 31,
+        vencimento_dia: 10,
+        limite: 5000,
+        ativo: true,
+    })[header] ?? ''));
+    // Old prevista row (represents charges already in the system)
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_05',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-05',
+        data_fechamento: '2026-05-31',
+        data_vencimento: '2026-06-10',
+        valor_previsto: 2100.97,
+        valor_fechado: '',
+        valor_pago: '',
+        status: 'prevista',
+    });
+    // Premature fechada row with future closing date
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_05',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-05',
+        data_fechamento: '2026-05-31',
+        data_vencimento: '2026-06-10',
+        valor_previsto: 0,
+        valor_fechado: 2100.97,
+        valor_pago: '',
+        status: 'fechada',
+    });
+    // New purchase added after the premature fechada
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MERCADO_PAGO_GU_2026_05',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-05',
+        data_fechamento: '2026-05-31',
+        data_vencimento: '2026-06-10',
+        valor_previsto: 283.07,
+        valor_fechado: '',
+        valor_pago: '',
+        status: 'prevista',
+    });
+
+    const result = runRemoteAction(context, 'summary');
+
+    assert.strictEqual(result.ok, true);
+    // Should respect the fechada row (2100.97), ignoring the prevista rows
+    assert.strictEqual(result.summary.faturas_60d, 2100.97);
+    assert.deepStrictEqual(result.summary.faturas_60d_detalhe, [{
+        cartao: 'Mercado Pago Gustavo',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-05',
+        data_vencimento: '2026-06-10',
+        valor: 2100.97,
+    }]);
+    assert.match(result.responseText, /R\$ 2100,97/);
 });
 
 test('Apps Script answers cost-of-life question without calling the parser', () => {
@@ -954,7 +1126,7 @@ test('Apps Script simulates whether a new installment purchase fits safely', () 
     assert.match(result.responseText, /📌 Leitura/);
     assert.match(result.responseText, /Compra: R\$ 900,00 em 3x/);
     assert.match(result.responseText, /Parcela estimada: R\$ 300,00/);
-    assert.match(result.responseText, /Folga depois da compra: R\$ 1500,00/);
+    assert.match(result.responseText, /Folga depois da compra: R\$ 1100,00/);
     assert.match(result.responseText, /Cabe nos dados registrados/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
@@ -1058,323 +1230,51 @@ test('Apps Script snapshot includes family closing status without financial deta
     assert.strictEqual(result.snapshot.includes('existing'), false);
 });
 
-test('Apps Script reviewed historical import dry-run validates without writing private details', () => {
+test('Apps Script sheet_audit action reports retired extra sheets without mutating', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    sheets.Telegram_Send_Log = createFakeSheet(['id_notificacao']);
+    sheets.Telegram_Send_Log.getName = () => 'Telegram_Send_Log';
 
-    const result = postHistoricalImport(context, [{
-        lineNumber: 7,
-        event: {
-            tipo_evento: 'compra_cartao',
-            data: '2026-04-02',
-            competencia: '2026-04',
-            valor: '20.00',
-            descricao: 'historico privado',
-            id_categoria: 'OPEX_FARMACIA',
-            id_fonte: 'FONTE_MERCADO_PAGO_GU',
-            pessoa: 'Gustavo',
-            escopo: 'Familiar',
-            visibilidade: 'detalhada',
-            id_cartao: 'CARD_MERCADO_PAGO_GU',
-            afeta_dre: true,
-            afeta_patrimonio: false,
-            afeta_caixa_familiar: false,
-        },
-    }]);
+    const result = runRemoteAction(context, 'sheet_audit');
 
-    assert.strictEqual(result.ok, true);
-    assert.strictEqual(result.dry_run, true);
-    assert.strictEqual(result.summary.validEvents, 1);
-    assert.strictEqual(result.summary.appliedEvents, 0);
-    assert.deepStrictEqual(result.summary.byType, { compra_cartao: 1 });
-    assert.strictEqual(JSON.stringify(result).includes('historico privado'), false);
-    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
-    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    assert.strictEqual(sheets.Faturas.rows.length, 1);
-});
-
-test('Apps Script reviewed historical import applies narrowly and suppresses duplicates', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    const entries = [{
-        lineNumber: 7,
-        event: {
-            tipo_evento: 'compra_cartao',
-            data: '2026-04-02',
-            competencia: '2026-04',
-            valor: '20.00',
-            descricao: 'historico privado',
-            id_categoria: 'OPEX_FARMACIA',
-            id_fonte: 'FONTE_MERCADO_PAGO_GU',
-            pessoa: 'Gustavo',
-            escopo: 'Familiar',
-            visibilidade: 'detalhada',
-            id_cartao: 'CARD_MERCADO_PAGO_GU',
-            afeta_dre: true,
-            afeta_patrimonio: false,
-            afeta_caixa_familiar: false,
-        },
-    }];
-
-    const first = postHistoricalImport(context, entries, { dry_run: false });
-    const second = postHistoricalImport(context, entries, { dry_run: false });
-
-    assert.strictEqual(first.ok, true);
-    assert.strictEqual(first.summary.appliedEvents, 1);
-    assert.strictEqual(first.summary.duplicateEvents, 0);
-    assert.strictEqual(second.ok, true);
-    assert.strictEqual(second.summary.appliedEvents, 0);
-    assert.strictEqual(second.summary.duplicateEvents, 1);
-    assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
-    assert.strictEqual(sheets.Idempotency_Log.rows[1][idempotencyHeaders.indexOf('source')], 'historical_jsonl');
-    assert.strictEqual(sheets.Idempotency_Log.rows[1][idempotencyHeaders.indexOf('idempotency_key')], 'historical:2026-04:test-batch:7');
-    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
-    assert.strictEqual(sheets.Faturas.rows.length, 2);
-});
-
-test('Apps Script reviewed historical import records invoice exposure without DRE launch', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    const entries = [{
-        lineNumber: 1,
-        event: {
-            tipo_evento: 'fatura_prevista',
-            data: '2026-04-30',
-            competencia: '2026-04',
-            valor: '203.64',
-            descricao: 'parcela herdada',
-            id_categoria: '',
-            id_fonte: '',
-            pessoa: 'Gustavo',
-            escopo: 'Gustavo',
-            visibilidade: 'privada',
-            id_cartao: 'CARD_NUBANK_GU',
-            id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
-            afeta_dre: false,
-            afeta_patrimonio: false,
-            afeta_caixa_familiar: false,
-        },
-    }];
-
-    const result = postHistoricalImport(context, entries, { dry_run: false });
-
-    assert.strictEqual(result.ok, true, JSON.stringify(result));
-    assert.deepStrictEqual(result.summary.byType, { fatura_prevista: 1 });
-    assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
-    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    assert.strictEqual(sheets.Faturas.rows.length, 2);
-    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
-    assert.strictEqual(invoice.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
-    assert.strictEqual(invoice.valor_previsto, 203.64);
-    assert.strictEqual(invoice.status, 'prevista');
-});
-
-test('Apps Script reviewed historical import allows future invoice exposure in April rebuild', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    const result = postHistoricalImport(context, [{
-        lineNumber: 1,
-        event: {
-            tipo_evento: 'fatura_prevista',
-            data: '2026-05-31',
-            competencia: '2026-05',
-            valor: '203.64',
-            descricao: 'parcela herdada futura',
-            id_categoria: '',
-            id_fonte: '',
-            pessoa: 'Gustavo',
-            escopo: 'Gustavo',
-            visibilidade: 'privada',
-            id_cartao: 'CARD_NUBANK_GU',
-            id_fatura: 'FAT_CARD_NUBANK_GU_2026_05',
-            afeta_dre: false,
-            afeta_patrimonio: false,
-            afeta_caixa_familiar: false,
-        },
-    }]);
-
-    assert.strictEqual(result.ok, true, JSON.stringify(result));
-    assert.deepStrictEqual(result.summary.byType, { fatura_prevista: 1 });
-    assert.deepStrictEqual(result.summary.byCompetencia, { '2026-05': 1 });
-    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    assert.strictEqual(sheets.Faturas.rows.length, 1);
-});
-
-test('Apps Script reviewed historical import accepts reviewed private visibility override', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    const result = postHistoricalImport(context, [{
-        lineNumber: 1,
-        event: {
-            tipo_evento: 'compra_cartao',
-            data: '2026-04-05',
-            competencia: '2026-04',
-            valor: '348.21',
-            descricao: 'historico privado',
-            id_categoria: 'OPEX_DESENVOLVIMENTO_PROFISSIONAL',
-            id_fonte: 'FONTE_MERCADO_PAGO_GU',
-            pessoa: 'Gustavo',
-            escopo: 'Gustavo',
-            visibilidade: 'privada',
-            id_cartao: 'CARD_MERCADO_PAGO_GU',
-            afeta_dre: true,
-            afeta_patrimonio: false,
-            afeta_caixa_familiar: false,
-        },
-    }]);
-
-    assert.strictEqual(result.ok, true, JSON.stringify(result));
-    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    assert.strictEqual(sheets.Faturas.rows.length, 1);
-});
-
-test('Apps Script reviewed historical import validates whole batch before writing', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-
-    const result = postHistoricalImport(context, [
-        {
-            lineNumber: 1,
-            event: {
-                tipo_evento: 'compra_cartao',
-                data: '2026-04-02',
-                competencia: '2026-04',
-                valor: '20.00',
-                descricao: 'historico privado',
-                id_categoria: 'OPEX_FARMACIA',
-                id_fonte: 'FONTE_MERCADO_PAGO_GU',
-                pessoa: 'Gustavo',
-                escopo: 'Familiar',
-                visibilidade: 'detalhada',
-                id_cartao: 'CARD_MERCADO_PAGO_GU',
-                afeta_dre: true,
-                afeta_patrimonio: false,
-                afeta_caixa_familiar: false,
-            },
-        },
-        {
-            lineNumber: 2,
-            event: {
-                tipo_evento: 'compra_cartao',
-                data: '2026-04-02',
-                competencia: '2026-04',
-                valor: 'valor_invalido',
-                descricao: 'historico privado invalido',
-                id_categoria: 'OPEX_FARMACIA',
-                id_fonte: 'FONTE_MERCADO_PAGO_GU',
-                pessoa: 'Gustavo',
-                escopo: 'Familiar',
-                visibilidade: 'detalhada',
-                id_cartao: 'CARD_MERCADO_PAGO_GU',
-                afeta_dre: true,
-                afeta_patrimonio: false,
-                afeta_caixa_familiar: false,
-            },
-        },
-    ], { dry_run: false });
-
-    assert.strictEqual(result.ok, false);
-    assert.strictEqual(result.summary.validEvents, 1);
-    assert.strictEqual(result.validationErrors[0].lineNumber, 2);
-    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
-    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    assert.strictEqual(sheets.Faturas.rows.length, 1);
-});
-
-test('Apps Script reviewed historical import rejects money fallback and unknown invoices in dry-run', () => {
-    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-
-    const result = postHistoricalImport(context, [
-        {
-            lineNumber: 1,
-            event: {
-                tipo_evento: 'despesa',
-                data: '2026-04-02',
-                competencia: '2026-04',
-                valor: '',
-                descricao: 'historico privado 39,90',
-                id_categoria: 'OPEX_MERCADO_SEMANA',
-                id_fonte: 'FONTE_CONTA_FAMILIA',
-                pessoa: 'Gustavo',
-                escopo: 'Familiar',
-                visibilidade: 'detalhada',
-                id_cartao: '',
-                id_fatura: '',
-                id_divida: '',
-                id_ativo: '',
-                afeta_dre: true,
-                afeta_patrimonio: false,
-                afeta_caixa_familiar: true,
-            },
-        },
-        {
-            lineNumber: 2,
-            event: {
-                tipo_evento: 'pagamento_fatura',
-                data: '2026-04-30',
-                competencia: '2026-04',
-                valor: '42.50',
-                descricao: 'pagamento fatura inexistente',
-                id_categoria: '',
-                id_fonte: 'FONTE_CONTA_FAMILIA',
-                pessoa: 'Gustavo',
-                escopo: 'Familiar',
-                visibilidade: 'detalhada',
-                id_cartao: '',
-                id_fatura: 'FAT_INEXISTENTE_2026_04',
-                id_divida: '',
-                id_ativo: '',
-                afeta_dre: false,
-                afeta_patrimonio: false,
-                afeta_caixa_familiar: true,
-            },
-        },
-    ]);
-
-    assert.strictEqual(result.ok, false);
-    assert.deepStrictEqual(result.validationErrors.map((item) => item.lineNumber), [1, 2]);
-    assert.strictEqual(result.validationErrors[0].errors[0].code, 'INVALID_MONEY');
-    assert.strictEqual(result.validationErrors[1].errors[0].code, 'PILOT_INVOICE_NOT_FOUND');
-    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.ok(result.findings.some((finding) => finding.code === 'EXTRA_SHEET' && finding.sheet === 'Telegram_Send_Log'));
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
-test('Apps Script reviewed historical import blocks closed competencia before apply writes', () => {
+test('Apps Script sheet_audit accepts planned invoice lines but flags concurrent closed authorities', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
-    appendFakeClosing(sheets, { status: 'closed', closed_at: '2026-05-01T10:00:00Z' });
+    appendFakeInvoice(sheets, { valor_previsto: 40, status: 'prevista' });
+    appendFakeInvoice(sheets, { valor_previsto: 60, status: 'prevista' });
 
-    const result = postHistoricalImport(context, [{
-        lineNumber: 1,
-        event: {
-            tipo_evento: 'despesa',
-            data: '2026-04-02',
-            competencia: '2026-04',
-            valor: '20.00',
-            descricao: 'historico fechado',
-            id_categoria: 'OPEX_MERCADO_SEMANA',
-            id_fonte: 'FONTE_CONTA_FAMILIA',
-            pessoa: 'Gustavo',
-            escopo: 'Familiar',
-            visibilidade: 'detalhada',
-            id_cartao: '',
-            id_fatura: '',
-            id_divida: '',
-            id_ativo: '',
-            afeta_dre: true,
-            afeta_patrimonio: false,
-            afeta_caixa_familiar: true,
-        },
-    }], { dry_run: false });
+    const plannedOnly = runRemoteAction(context, 'sheet_audit');
+    assert.strictEqual(plannedOnly.ok, true, JSON.stringify(plannedOnly.errors));
+    assert.ok(!plannedOnly.findings.some((finding) => finding.code === 'DUPLICATE_INVOICE_COMPETENCE'));
+    assert.ok(!plannedOnly.findings.some((finding) => finding.code === 'CONCURRENT_CLOSED_INVOICE'));
 
-    assert.strictEqual(result.ok, false);
-    assert.strictEqual(result.validationErrors[0].errors[0].code, 'CLOSED_PERIOD_REQUIRES_ADJUSTMENT');
-    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
-    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_04_A', valor_previsto: '', valor_fechado: 100, status: 'fechada' });
+    appendFakeInvoice(sheets, { id_fatura: 'FAT_CARD_NUBANK_GU_2026_04_B', valor_previsto: '', valor_fechado: 120, status: 'fechada' });
+
+    const withClosedConflict = runRemoteAction(context, 'sheet_audit');
+    assert.ok(withClosedConflict.findings.some((finding) => finding.code === 'CONCURRENT_CLOSED_INVOICE' && finding.count === 2));
 });
 
-test('Apps Script reviewed historical import rejects unreviewed or out-of-scope batches', () => {
-    const { context } = createAppsScriptHarness(null, { failOnFetch: true });
-    const unreviewed = postHistoricalImport(context, [], { reviewed: false });
-    const wrongCompetencia = postHistoricalImport(context, [{ lineNumber: 1, event: {} }], { competencia: '2026-03' });
+test('Apps Script sheet_audit accepts paid historical invoice exposure lines', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    sheets.Faturas_Linhas.appendRow(faturasLinhasHeaders.map((header) => ({
+        id_linha_fatura: 'FATL_HIST_PAID',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        id_cartao: 'CARD_NUBANK_GU',
+        competencia: '2026-04',
+        valor_previsto: 42,
+        status_origem: 'paga',
+    })[header] || ''));
 
-    assert.strictEqual(unreviewed.ok, false);
-    assert.strictEqual(unreviewed.errors[0].code, 'HISTORICAL_REVIEW_REQUIRED');
-    assert.strictEqual(wrongCompetencia.ok, false);
-    assert.strictEqual(wrongCompetencia.errors[0].code, 'HISTORICAL_COMPETENCIA_BLOCKED');
+    const result = runRemoteAction(context, 'sheet_audit');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.ok(!result.findings.some((finding) => finding.code === 'UNKNOWN_STATUS' && finding.sheet === 'Faturas_Linhas' && finding.field === 'status_origem'));
 });
 
 test('Apps Script closing_draft action writes schema-compatible family closing draft once', () => {
@@ -1573,9 +1473,9 @@ test('Apps Script runtime uses OpenAI Responses JSON output for parser boundary'
     assert.ok(code.includes("DEFAULT_OPENAI_MODEL = 'gpt-5-nano'"));
     assert.ok(code.includes('https://api.openai.com/v1/responses'));
     assert.ok(code.includes("type: 'json_object'"));
-    assert.ok(code.includes('input: buildParserPrompt_(text, referenceData)'));
+    assert.ok(code.includes('input: buildParserPrompt_(text, referenceData, conversation)'));
     assert.ok(code.includes('extractOpenAIOutputText_'));
-    assert.ok(code.includes('if (!parsed.ok) return parsed;'));
+    assert.ok(code.includes('if (!parsed.ok) return '));
     assert.ok(code.includes('OPENAI_RESPONSE_PROCESSING_FAILED'));
     assert.ok(code.includes('classifyOpenAIFetchError_'));
     assert.ok(code.includes('OPENAI_FETCH_AUTH_REQUIRED'));
@@ -1590,7 +1490,7 @@ test('Apps Script parser prompt uses V54-learned hard output and quoted raw text
     assert.ok(code.includes('Allowed payable invoice ids'));
     assert.ok(code.includes('# PILOT CANONICAL EXAMPLES'));
     assert.ok(code.includes('Never invent ids'));
-    assert.ok(code.includes('Do not use comma money strings'));
+    assert.ok(code.includes('STRICTLY PROHIBIT comma money formats'));
     assert.ok(code.includes('Use real JSON booleans true/false'));
     assert.ok(code.includes('farmacia 10 no nubank'));
     assert.ok(code.includes('OPEX_ELETRONICOS_E_EQUIPAMENTOS'));
@@ -1708,6 +1608,107 @@ test('Apps Script parser output rejects unknown fields and ambiguous money fallb
     assert.deepStrictEqual(ambiguousResult.errors.map((error) => error.code), ['INVALID_MONEY']);
     assert.strictEqual(unknown.sheets.Lancamentos.rows.length, 1);
     assert.strictEqual(ambiguous.sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script parser output rejects year bounds, far future dates, and max amount limits', () => {
+    const lowYear = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '1999-12-31',
+        competencia: '1999-12',
+        valor: '10.00',
+        descricao: 'ano baixo',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    const highYear = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2101-01-01',
+        competencia: '2101-01',
+        valor: '10.00',
+        descricao: 'ano alto',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    const farFuture = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2028-12-31',
+        competencia: '2028-12',
+        valor: '10.00',
+        descricao: 'futuro distante',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    const tooExpensive = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '1000000.01',
+        descricao: 'muito caro',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const lowYearResult = postPilotMessage(lowYear.context, 'mercado 10');
+    const highYearResult = postPilotMessage(highYear.context, 'mercado 10');
+    const farFutureResult = postPilotMessage(farFuture.context, 'mercado 10');
+    const tooExpensiveResult = postPilotMessage(tooExpensive.context, 'mercado 10');
+
+    assert.strictEqual(lowYearResult.ok, false);
+    assert.deepStrictEqual(lowYearResult.errors.map(e => e.code), ['INVALID_YEAR']);
+    assert.strictEqual(highYearResult.ok, false);
+    assert.deepStrictEqual(highYearResult.errors.map(e => e.code), ['INVALID_YEAR']);
+    assert.strictEqual(farFutureResult.ok, false);
+    assert.deepStrictEqual(farFutureResult.errors.map(e => e.code), ['FUTURE_DATE_LIMIT']);
+    assert.strictEqual(tooExpensiveResult.ok, false);
+    assert.deepStrictEqual(tooExpensiveResult.errors.map(e => e.code), ['VALUE_EXCEEDS_LIMIT']);
 });
 
 test('Apps Script pilot expense canonicalizes fragile parser output before writing', () => {
@@ -1855,6 +1856,45 @@ test('Apps Script pilot expense still blocks card-like references', () => {
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
+test('Apps Script pilot expense prefers Luana cash source when text omits explicit owner', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '',
+        competencia: '',
+        valor: '39,46',
+        descricao: '',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_NUBANK_GU',
+        pessoa: 'Luana',
+        escopo: '',
+        visibilidade: '',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_CONTA_NUBANK_LU',
+        nome: 'Conta Nubank Luana',
+        tipo: 'conta_corrente',
+        titular: 'Luana',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+
+    const result = postPilotMessage(context, 'Paguei 39,46 mercado da semana pela conta nubank');
+
+    assert.strictEqual(result.ok, true);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_NUBANK_LU');
+    assert.strictEqual(launch.pessoa, 'Luana');
+});
+
 test('Apps Script expense accepts config-valid category without text alias gate', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'despesa',
@@ -1887,6 +1927,88 @@ test('Apps Script expense accepts config-valid category without text alias gate'
     assert.strictEqual(row.escopo, 'Luana');
     assert.strictEqual(row.visibilidade, 'privada');
 });
+
+test('Apps Script parser canonicalization overwrites mismatched metadata and clears unrelated references', () => {
+    // 1. Mismatched metadata is overwritten to defaults and saves successfully
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '10.00',
+        descricao: 'mercado com metadata errada',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Individual', // mismatch
+        visibilidade: 'resumida', // mismatch
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'pendente', // mismatch
+    });
+
+    const result = postPilotMessage(context, 'mercado com metadata errada 10');
+    assert.strictEqual(result.ok, true);
+    const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(row.escopo, 'Familiar'); // overwritten to default
+    assert.strictEqual(row.visibilidade, 'detalhada'); // overwritten to default
+    assert.strictEqual(row.status, 'efetivado'); // overwritten to default
+});
+
+test('Apps Script parser matches pet synonyms', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '150.00',
+        descricao: 'racao do draco',
+        id_categoria: 'OPEX_PET',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => {
+        const row = {
+            id_categoria: 'OPEX_PET',
+            nome: 'Pet',
+            grupo: 'Casa',
+            tipo_evento_padrao: 'compra_cartao',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: false,
+            visibilidade_padrao: 'detalhada',
+            ativo: true,
+        };
+        return row[header] === undefined ? '' : row[header];
+    }));
+
+    const result = postPilotMessage(context, 'racao do draco 150');
+    if (!result.ok) {
+        console.log("TEST FAILURE DETAILS:", JSON.stringify(result, null, 2));
+    }
+    assert.strictEqual(result.ok, true);
+    const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(row.id_categoria, 'OPEX_PET');
+});
+
 
 test('Apps Script pilot mutation blocks closed competencia unless it is an adjustment', () => {
     const blocked = createAppsScriptHarness({
@@ -1974,7 +2096,7 @@ test('Apps Script pilot card purchase writes launch and expected invoice rows', 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
-    assert.strictEqual(sheets.Faturas.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 2);
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.tipo_evento, 'compra_cartao');
     assert.strictEqual(launch.id_categoria, 'OPEX_FARMACIA');
@@ -1984,14 +2106,106 @@ test('Apps Script pilot card purchase writes launch and expected invoice rows', 
     assert.strictEqual(launch.afeta_dre, true);
     assert.strictEqual(launch.afeta_patrimonio, false);
     assert.strictEqual(launch.afeta_caixa_familiar, false);
-    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
     assert.strictEqual(invoice.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
     assert.strictEqual(invoice.id_cartao, 'CARD_NUBANK_GU');
     assert.strictEqual(invoice.competencia, '2026-04');
     assert.strictEqual(invoice.data_fechamento, '2026-04-30');
     assert.strictEqual(invoice.data_vencimento, '2026-05-07');
-    assert.strictEqual(invoice.valor_previsto, 42.5);
+    assert.strictEqual(invoice.valor_previsto_total, 42.5);
+    assert.strictEqual(invoice.valor_aberto, 42.5);
     assert.strictEqual(invoice.status, 'prevista');
+    const invoiceLine = Object.fromEntries(faturasLinhasHeaders.map((header, index) => [header, sheets.Faturas_Linhas.rows[1][index]]));
+    assert.strictEqual(invoiceLine.valor_previsto, 42.5);
+});
+
+test('Apps Script pilot invoice exposure writes forecast line without launch', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'fatura_prevista',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '595.13',
+        descricao: 'Complemento fatura Nubank Gustavo',
+        id_categoria: '',
+        id_fonte: '',
+        pessoa: 'Gustavo',
+        escopo: 'Gustavo',
+        visibilidade: 'privada',
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const result = postPilotMessage(context, 'Complemento fatura Nubank Gustavo 595,13. Nao e despesa nova.');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 2);
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
+    assert.strictEqual(invoice.valor_previsto_total, 595.13);
+    assert.strictEqual(invoice.valor_aberto, 595.13);
+    const invoiceLine = Object.fromEntries(faturasLinhasHeaders.map((header, index) => [header, sheets.Faturas_Linhas.rows[1][index]]));
+    assert.strictEqual(invoiceLine.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
+    assert.strictEqual(invoiceLine.id_cartao, 'CARD_NUBANK_GU');
+    assert.strictEqual(invoiceLine.valor_previsto, 595.13);
+    assert.strictEqual(invoiceLine.status_origem, 'fatura_prevista');
+});
+
+test('Apps Script pilot card purchase prefers Luana card when text omits explicit owner', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '',
+        competencia: '',
+        valor: '39,46',
+        descricao: '',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: 'Luana',
+        escopo: '',
+        visibilidade: '',
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: '',
+    });
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_NUBANK_LU',
+        nome: 'Nubank Luana',
+        tipo: 'cartao_credito',
+        titular: 'Luana',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+    sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
+        id_cartao: 'CARD_NUBANK_LU',
+        id_fonte: 'FONTE_NUBANK_LU',
+        nome: 'Nubank Luana',
+        titular: 'Luana',
+        fechamento_dia: 30,
+        vencimento_dia: 7,
+        limite: 5000,
+        ativo: true,
+    })[header] ?? ''));
+
+    const result = postPilotMessage(context, 'Comprei 39,46 mercado da semana no nubank');
+
+    assert.strictEqual(result.ok, true);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_fonte, 'FONTE_NUBANK_LU');
+    assert.strictEqual(launch.id_cartao, 'CARD_NUBANK_LU');
+    assert.strictEqual(launch.pessoa, 'Luana');
 });
 
 test('Apps Script card purchase blocks unrelated fallback category and asks for confirmation', () => {
@@ -2026,7 +2240,7 @@ test('Apps Script card purchase blocks unrelated fallback category and asks for 
     assert.match(result.responseText, /Reenvie com a categoria no texto/);
     assert.match(result.responseText, /Eletronicos e equipamentos/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    assert.strictEqual(sheets.Faturas.rows.length, 1);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 1);
 });
 
 test('Apps Script card purchase accepts notebook when parser selects matching electronics category', () => {
@@ -2057,12 +2271,13 @@ test('Apps Script card purchase accepts notebook when parser selects matching el
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
-    assert.strictEqual(sheets.Faturas.rows.length, 4);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 4);
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.id_categoria, 'OPEX_ELETRONICOS_E_EQUIPAMENTOS');
     assert.strictEqual(launch.parcelas, 3);
-    const invoices = sheets.Faturas.rows.slice(1).map((row) => Object.fromEntries(faturasHeaders.map((header, index) => [header, row[index]])));
-    assert.deepStrictEqual(invoices.map((invoice) => invoice.valor_previsto), [1000, 1000, 1000]);
+    const invoices = sheets.Faturas_Resumo.rows.slice(1).map((row) => Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, row[index]])));
+    const invoiceLines = sheets.Faturas_Linhas.rows.slice(1).map((row) => Object.fromEntries(faturasLinhasHeaders.map((header, index) => [header, row[index]])));
+    assert.deepStrictEqual(invoiceLines.map((invoiceLine) => invoiceLine.valor_previsto), [1000, 1000, 1000]);
     assert.deepStrictEqual(invoices.map((invoice) => invoice.competencia), ['2026-04', '2026-05', '2026-06']);
 });
 
@@ -2254,7 +2469,7 @@ test('Apps Script card purchase overrides parser expense type when text explicit
     assert.strictEqual(launch.afeta_caixa_familiar, false);
 });
 
-test('Apps Script card purchase uses the most specific explicit card category', () => {
+test('Apps Script card purchase uses explicit category', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'despesa',
         data: '2026-05-09',
@@ -2277,19 +2492,6 @@ test('Apps Script card purchase uses the most specific explicit card category', 
         status: '',
         parcelas: 1,
     });
-    sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => ({
-        id_categoria: 'OPEX_MERCADO_SEMANA_CARTAO',
-        nome: 'Mercado da semana cartao',
-        grupo: 'Casa',
-        tipo_evento_padrao: 'compra_cartao',
-        classe_dre: 'despesa_operacional',
-        escopo_padrao: 'Familiar',
-        afeta_dre_padrao: true,
-        afeta_patrimonio_padrao: false,
-        afeta_caixa_familiar_padrao: false,
-        visibilidade_padrao: 'detalhada',
-        ativo: true,
-    })[header] ?? ''));
     sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
         id_fonte: 'FONTE_MERCADO_PAGO_GU',
         nome: 'Mercado Pago Gustavo',
@@ -2309,12 +2511,12 @@ test('Apps Script card purchase uses the most specific explicit card category', 
         ativo: true,
     })[header] ?? ''));
 
-    const result = postPilotMessage(context, 'Comprei mercado da semana 36,92 no cartão Mercado Pago Gustavo em 09/05. Categoria mercado da semana cartão.');
+    const result = postPilotMessage(context, 'Comprei mercado da semana 36,92 no cartão Mercado Pago Gustavo em 09/05. Categoria mercado da semana.');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.tipo_evento, 'compra_cartao');
-    assert.strictEqual(launch.id_categoria, 'OPEX_MERCADO_SEMANA_CARTAO');
+    assert.strictEqual(launch.id_categoria, 'OPEX_MERCADO_SEMANA');
     assert.strictEqual(launch.id_cartao, 'CARD_MERCADO_PAGO_GU');
     assert.strictEqual(launch.id_fonte, 'FONTE_MERCADO_PAGO_GU');
     assert.strictEqual(launch.afeta_caixa_familiar, false);
@@ -2393,7 +2595,7 @@ test('Apps Script cash account payment with explicit category is not recorded as
     assert.strictEqual(launch.id_cartao, '');
     assert.strictEqual(launch.id_fatura, '');
     assert.strictEqual(launch.afeta_caixa_familiar, true);
-    assert.strictEqual(sheets.Faturas.rows.length, 1);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 1);
 });
 
 test('Apps Script pilot invoice payment writes cash launch and marks invoice paid', () => {
@@ -2425,7 +2627,7 @@ test('Apps Script pilot invoice payment writes cash launch and marks invoice pai
     assert.strictEqual(result.ok, true);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
-    assert.strictEqual(sheets.Faturas.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 2);
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.tipo_evento, 'pagamento_fatura');
     assert.strictEqual(launch.id_categoria, '');
@@ -2434,7 +2636,7 @@ test('Apps Script pilot invoice payment writes cash launch and marks invoice pai
     assert.strictEqual(launch.afeta_dre, false);
     assert.strictEqual(launch.afeta_patrimonio, false);
     assert.strictEqual(launch.afeta_caixa_familiar, true);
-    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
     assert.strictEqual(invoice.valor_pago, 42.5);
     assert.strictEqual(invoice.status, 'paga');
 });
@@ -2484,7 +2686,7 @@ test('Apps Script pilot invoice payment infers Nubank April invoice and cash sou
     assert.strictEqual(launch.afeta_dre, false);
     assert.strictEqual(launch.afeta_patrimonio, false);
     assert.strictEqual(launch.afeta_caixa_familiar, true);
-    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
     assert.strictEqual(invoice.valor_pago, 1997.73);
     assert.strictEqual(invoice.status, 'paga');
 });
@@ -2649,16 +2851,14 @@ test('Apps Script pilot invoice payment reconciles small reviewed invoice overag
     assert.strictEqual(launch.competencia, '2026-05');
     assert.strictEqual(launch.valor, 1997.73);
     assert.strictEqual(launch.afeta_dre, false);
-    assert.strictEqual(sheets.Faturas.rows.length, 4);
-    const originalFirst = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
-    const originalSecond = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[2][index]]));
-    const reconciliation = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[3][index]]));
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 3);
+    const originalFirst = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
+    const originalSecond = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[2][index]]));
+    const reconciliation = Object.fromEntries(faturasLinhasHeaders.map((header, index) => [header, sheets.Faturas_Linhas.rows[1][index]]));
     assert.strictEqual(originalFirst.status, 'paga');
     assert.strictEqual(originalSecond.status, 'paga');
     assert.strictEqual(reconciliation.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
     assert.strictEqual(reconciliation.valor_previsto, 20.98);
-    assert.strictEqual(reconciliation.valor_pago, 20.98);
-    assert.strictEqual(reconciliation.status, 'paga');
 });
 
 test('Apps Script pilot invoice payment can pay a historical invoice split into duplicate rows', () => {
@@ -2689,8 +2889,8 @@ test('Apps Script pilot invoice payment can pay a historical invoice split into 
     const result = postPilotMessage(context, 'paguei fatura historica 120');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
-    const firstInvoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
-    const secondInvoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[2][index]]));
+    const firstInvoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
+    const secondInvoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[2][index]]));
     assert.strictEqual(firstInvoice.valor_pago, 70);
     assert.strictEqual(secondInvoice.valor_pago, 50);
     assert.strictEqual(firstInvoice.status, 'paga');
@@ -2725,13 +2925,14 @@ test('Apps Script pilot invoice payment charges only outstanding amount on parti
     appendFakeInvoice(sheets, {
         valor_previsto: 100,
         valor_pago: 30,
+        valor_aberto: 70,
         status: 'parcialmente_paga',
     });
 
     const result = postPilotMessage(context, 'paguei restante fatura nubank 70');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
-    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.valor, 70);
     assert.strictEqual(invoice.valor_pago, 100);
@@ -2768,7 +2969,7 @@ test('Apps Script pilot invoice payment requires reviewed invoice and amount', (
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['PILOT_INVOICE_AMOUNT_MISMATCH']);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    const invoice = Object.fromEntries(faturasHeaders.map((header, index) => [header, sheets.Faturas.rows[1][index]]));
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
     assert.strictEqual(invoice.valor_pago, '');
     assert.strictEqual(invoice.status, 'prevista');
 });
@@ -2801,7 +3002,7 @@ test('Apps Script pilot internal transfer writes family cash entry only', () => 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    assert.strictEqual(sheets.Faturas.rows.length, 1);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 1);
     assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
     const transfer = Object.fromEntries(transferenciasHeaders.map((header, index) => [header, sheets.Transferencias_Internas.rows[1][index]]));
     assert.ok(/^TRF_[A-F0-9]{12}$/.test(transfer.id_transferencia));
@@ -3008,8 +3209,307 @@ test('Apps Script validation failures return actionable launch guidance', () => 
 
     assert.strictEqual(result.ok, false);
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_CATEGORY_BLOCKED']);
-    assert.match(result.responseText, /N[ãa]o anotei com seguran[çc]a/);
-    assert.match(result.responseText, /Inclua categoria, valor, data e fonte\/cart[ãa]o/);
+    assert.match(result.responseText, /O que falta/);
+    assert.match(result.responseText, /Categoria/);
+    assert.match(result.responseText, /categoria Mercado da semana/);
+});
+
+test('Apps Script guided registration asks only for missing source', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '10',
+        descricao: 'mercado 10',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const result = postPilotMessage(context, 'mercado 10');
+
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_SOURCE_BLOCKED']);
+    assert.match(result.responseText, /O que falta/);
+    assert.match(result.responseText, /Fonte/);
+    assert.match(result.responseText, /pela Conta familia/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script conversation context persists a rolling 5-message window and can be cleared', () => {
+    const { context } = createAppsScriptHarness(null, { failOnFetch: true });
+
+    for (let index = 1; index <= 30; index += 1) {
+        const result = postPilotMessage(context, '/ajuda', {
+            updateId: `ctx_update_${index}`,
+            messageId: `ctx_message_${index}`,
+        });
+        assert.strictEqual(result.ok, true);
+    }
+
+    const state = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1);
+    assert.strictEqual(state.messages.length, 10);
+    assert.strictEqual(state.messages[0].text, '/ajuda');
+    assert.strictEqual(state.messages[0].role, 'user');
+    assert.strictEqual(state.messages[1].role, 'bot');
+    assert.strictEqual(state.messages[9].role, 'bot');
+
+    const cleared = postPilotMessage(context, '/limpar_contexto', {
+        updateId: 'ctx_clear_update',
+        messageId: 'ctx_clear_message',
+    });
+
+    assert.strictEqual(cleared.ok, true);
+    assert.match(cleared.responseText, /Contexto limpo/);
+    assert.strictEqual(context.__scriptProperties.BFF_CONVERSATION_chat_1, undefined);
+});
+
+test('Apps Script conversation context stores user and bot messages', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '18',
+        descricao: 'farmacia 18',
+        id_categoria: 'OPEX_FARMACIA',
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    appendFakeInvoice(sheets);
+
+    const result = postPilotMessage(context, 'farmacia 18 no nubank');
+    assert.strictEqual(result.ok, true);
+
+    const state = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1);
+    assert.strictEqual(state.messages.length, 2);
+    assert.strictEqual(state.messages[0].role, 'user');
+    assert.strictEqual(state.messages[0].text, 'farmacia 18 no nubank');
+    assert.strictEqual(state.messages[1].role, 'bot');
+    assert.match(state.messages[1].text, /Compra no cart/);
+});
+
+test('Apps Script guided registration resumes pending expense when user replies with source only', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '10',
+        descricao: 'mercado 10',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const ask = postPilotMessage(context, 'mercado 10', {
+        updateId: 'pending_source_1',
+        messageId: 'pending_source_msg_1',
+    });
+    assert.strictEqual(ask.ok, false);
+    assert.deepStrictEqual(ask.errors.map((error) => error.code), ['CONFIG_SOURCE_BLOCKED']);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+
+    const resumed = postPilotMessage(context, 'Conta familia', {
+        updateId: 'pending_source_2',
+        messageId: 'pending_source_msg_2',
+    });
+
+    assert.strictEqual(resumed.ok, true);
+    assert.match(resumed.responseText, /Gasto anotado/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_FAMILIA');
+    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1).pending_intent, null);
+});
+
+test('Apps Script guided registration resumes pending card purchase when user replies with card only', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '18',
+        descricao: 'farmacia 18',
+        id_categoria: 'OPEX_FARMACIA',
+        id_fonte: '',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: 'CARD_INEXISTENTE',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const ask = postPilotMessage(context, 'farmacia 18', {
+        updateId: 'pending_card_1',
+        messageId: 'pending_card_msg_1',
+    });
+    assert.strictEqual(ask.ok, false);
+    assert.deepStrictEqual(ask.errors.map((error) => error.code), ['CONFIG_CARD_BLOCKED']);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+
+    const resumed = postPilotMessage(context, 'Nubank Gustavo', {
+        updateId: 'pending_card_2',
+        messageId: 'pending_card_msg_2',
+    });
+
+    assert.strictEqual(resumed.ok, true);
+    assert.match(resumed.responseText, /Compra no cart/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 2);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_cartao, 'CARD_NUBANK_GU');
+    assert.strictEqual(launch.id_fonte, 'FONTE_NUBANK_GU');
+});
+
+test('Apps Script guided registration resumes pending invoice payment when user replies with invoice card only', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'pagamento_fatura',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '42.50',
+        descricao: 'paguei fatura 42,50',
+        id_categoria: '',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: 'FAT_INEXISTENTE',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    appendFakeInvoice(sheets, { valor_previsto: 42.5 });
+
+    const ask = postPilotMessage(context, 'paguei fatura 42,50', {
+        updateId: 'pending_invoice_1',
+        messageId: 'pending_invoice_msg_1',
+    });
+    assert.strictEqual(ask.ok, false);
+    assert.deepStrictEqual(ask.errors.map((error) => error.code), ['PILOT_INVOICE_NOT_FOUND']);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+
+    const resumed = postPilotMessage(context, 'Nubank', {
+        updateId: 'pending_invoice_2',
+        messageId: 'pending_invoice_msg_2',
+    });
+
+    assert.strictEqual(resumed.ok, true);
+    assert.match(resumed.responseText, /Pagamento de fatura anotado/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
+    assert.strictEqual(invoice.status, 'paga');
+});
+
+test('Apps Script guided registration asks only for missing card', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '18',
+        descricao: 'farmacia 18',
+        id_categoria: 'OPEX_FARMACIA',
+        id_fonte: '',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: 'CARD_INEXISTENTE',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const result = postPilotMessage(context, 'farmacia 18');
+
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_CARD_BLOCKED']);
+    assert.match(result.responseText, /O que falta/);
+    assert.match(result.responseText, /Cartao/);
+    assert.match(result.responseText, /no Nubank Gustavo/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 1);
+});
+
+test('Apps Script guided registration asks only for missing invoice', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'pagamento_fatura',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '42',
+        descricao: 'paguei fatura 42',
+        id_categoria: '',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: false,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const result = postPilotMessage(context, 'paguei fatura 42');
+
+    assert.strictEqual(result.ok, false);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['PILOT_INVOICE_BLOCKED']);
+    assert.match(result.responseText, /O que falta/);
+    assert.match(result.responseText, /Fatura/);
+    assert.match(result.responseText, /paguei fatura Nubank/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
 test('Apps Script generic launch writes receita with category and source defaults', () => {
@@ -3373,7 +3873,8 @@ test('Apps Script runtime writes pilot expense with idempotency before launch ro
     assert.ok(code.includes('waitLock(10000)'));
     assert.ok(code.includes("appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG"));
     assert.ok(code.includes("appendRow_(launchSheet, SHEETS.LANCAMENTOS"));
-    assert.ok(code.includes("appendRow_(invoiceSheet, SHEETS.FATURAS"));
+    assert.ok(code.includes("appendRow_(sheet, SHEETS.FATURAS_RESUMO"));
+    assert.ok(code.includes("appendRow_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS"));
     assert.ok(code.includes("appendRow_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS"));
     assert.ok(code.includes('updateInvoicePayments_'));
     assert.ok(code.includes('duplicate_completed'));
@@ -3411,4 +3912,442 @@ test('Apps Script manifest declares runtime service scopes explicitly', () => {
     assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.external_request'));
     assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.storage'));
     assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/spreadsheets'));
+});
+
+test('Apps Script parser prompt formats conversation history context', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const referenceData = context.readRuntimeReferenceData_({ spreadsheetId: 'sheet_1' });
+    
+    // Create a mock conversation state
+    const conversation = {
+        messages: [
+            { role: 'user', text: 'comprei pão no nubank' },
+            { role: 'bot', text: 'Compra registrada.' }
+        ]
+    };
+    
+    const prompt = context.buildParserPrompt_('qual a fatura dele?', referenceData, conversation);
+    
+    assert.ok(prompt.includes('# CONVERSATION HISTORY'));
+    assert.ok(prompt.includes('User: comprei pão no nubank'));
+    assert.ok(prompt.includes('Bot: Compra registrada.'));
+});
+
+test('Apps Script answers read-only query using OpenAI extracted entities', () => {
+    const parsedEvent = {
+        tipo_evento: 'leitura',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        descricao: 'qual o valor dessa fatura?'
+    };
+    
+    const { context, sheets } = createAppsScriptHarness(parsedEvent);
+    
+    sheets.Cartoes.appendRow(cartoesHeaders.map((header) => ({
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        nome: 'Mercado Pago Gustavo',
+        titular: 'Gustavo',
+        fechamento_dia: 30,
+        vencimento_dia: 10,
+        limite: 5000,
+        ativo: true,
+    })[header] ?? ''));
+    
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_MP_2026_05',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        competencia: '2026-05',
+        data_vencimento: '2026-05-10',
+        valor_previsto: 125.50,
+        valor_pago: '',
+        status: 'prevista',
+    });
+    
+    // Call parser with simulated message
+    const result = postPilotMessage(context, 'qual o valor dessa fatura?');
+    
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Contas próximas do Mercado Pago/);
+    assert.match(result.responseText, /R\$ 125,50/);
+    assert.doesNotMatch(result.responseText, /🏠 Compromissos/);
+});
+
+test('Apps Script answers read-only query filtered by category', () => {
+    const parsedEvent = {
+        tipo_evento: 'leitura',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        descricao: 'quanto gastei com mercado?'
+    };
+    
+    const { context, sheets } = createAppsScriptHarness(parsedEvent);
+    
+    appendFakeLaunch(sheets, { data: '2026-04-10', valor: 120, id_categoria: 'OPEX_MERCADO_SEMANA', descricao: 'mercado detalhado' });
+    appendFakeLaunch(sheets, { data: '2026-04-11', valor: 80, id_categoria: 'OPEX_MERCADO_SEMANA', descricao: 'outro mercado' });
+    appendFakeLaunch(sheets, { data: '2026-04-12', valor: 50, id_categoria: 'OPEX_FARMACIA', descricao: 'remedio', visibilidade: 'detalhada' });
+    
+    const result = postPilotMessage(context, 'quanto gastei com mercado?');
+    
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Mercado da semana/);
+    assert.match(result.responseText, /R\$ 200,00/);
+    assert.doesNotMatch(result.responseText, /Farmacia/);
+});
+
+test('Apps Script dynamic benefit balance calculates correctly in summary and format', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+
+    // Setup benefit source
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_ALELO_GU',
+        nome: 'Alelo Gustavo',
+        tipo: 'beneficio',
+        titular: 'Gustavo',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+
+    // Setup active recurring benefit income
+    sheets.Rendas_Recorrentes.appendRow(rendasRecorrentesHeaders.map((header) => ({
+        id_renda: 'REN_GU_ALELO',
+        pessoa: 'Gustavo',
+        descricao: 'Alelo Gustavo',
+        valor_planejado: 1500,
+        tipo_renda: 'beneficio_va_vr',
+        beneficio_restrito: true,
+        ativo: true,
+    })[header] ?? ''));
+
+    // Setup normal cash source (to verify liquidity separation)
+    sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => ({
+        id_fonte: 'FONTE_CONTA_GU',
+        nome: 'Conta Gustavo',
+        tipo: 'conta_corrente',
+        titular: 'Gustavo',
+        moeda: 'BRL',
+        ativo: true,
+    })[header] ?? ''));
+
+    sheets.Saldos_Fontes.appendRow(saldosFontesHeaders.map((header) => ({
+        id_snapshot: 'SNAP_1',
+        competencia: '2026-05',
+        data_referencia: '2026-05-01',
+        id_fonte: 'FONTE_CONTA_GU',
+        saldo_inicial: 0,
+        saldo_final: 800,
+        saldo_disponivel: 800,
+        created_at: '2026-05-01T12:00:00Z',
+    })[header] ?? ''));
+
+    // Record dynamic benefit expenses (should decrease Alelo balance)
+    appendFakeLaunch(sheets, {
+        data: '2026-05-10',
+        competencia: '2026-05',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        valor: 400,
+        id_fonte: 'FONTE_ALELO_GU',
+        status: 'efetivado',
+        afeta_dre: true,
+        afeta_caixa_familiar: false,
+    });
+
+    appendFakeLaunch(sheets, {
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        valor: 150,
+        id_fonte: 'FONTE_ALELO_GU',
+        status: 'efetivado',
+        afeta_dre: true,
+        afeta_caixa_familiar: false,
+    });
+
+    const result = runRemoteAction(context, 'summary', { competencia: '2026-05' });
+
+    assert.strictEqual(result.ok, true);
+    
+    // Liquidity check: Alelo's 1500 (or remaining 950) should NOT be in general liquidity balance (Conta Gustavo is 800)
+    assert.strictEqual(result.summary.saldos_fontes_disponivel, 800);
+
+    // Benefit balance details check
+    assert.strictEqual(result.summary.beneficios_detalhe.length, 1);
+    const aleloDetail = result.summary.beneficios_detalhe[0];
+    assert.strictEqual(aleloDetail.id_fonte, 'FONTE_ALELO_GU');
+    assert.strictEqual(aleloDetail.saldo_inicial, 1500);
+    assert.strictEqual(aleloDetail.total_gasto, 550);
+    assert.strictEqual(aleloDetail.saldo_disponivel, 950);
+
+    // /resumo stays compact; benefit detail remains available in the summary payload.
+    assert.doesNotMatch(result.responseText, /Saldos de benef/);
+    assert.doesNotMatch(result.responseText, /Alelo Gustavo: R\$ 950,00 \(de R\$ 1500,00\)/);
+});
+
+test('Apps Script correction using last_success_ref rolls back purchase and rewrites with new category', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
+    
+    // Setup initial spreadsheet state
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_1234',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        valor: 39.46,
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        descricao: 'mercado 39.46',
+    });
+    sheets.Faturas_Linhas.appendRow(faturasLinhasHeaders.map(h => ({
+        id_linha_fatura: 'FATL_1234',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        id_cartao: 'CARD_NUBANK_GU',
+        competencia: '2026-04',
+        valor_previsto: 39.46,
+        status_origem: 'compra_cartao',
+    })[h] ?? ''));
+    sheets.Idempotency_Log.appendRow(idempotencyHeaders.map(h => ({
+        idempotency_key: 'key_1234',
+        result_ref: 'LAN_1234',
+        status: 'completed',
+    })[h] ?? ''));
+    
+    // Setup active invoice header
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        valor_previsto: 39.46,
+        valor_aberto: 39.46,
+    });
+    
+    // Setup conversation state with last_success_ref
+    context.PropertiesService.getScriptProperties().setProperty(
+        'BFF_CONVERSATION_chat_1',
+        JSON.stringify({
+            messages: [{ role: 'user', text: 'mercado 39.46', at: '2026-04-30T15:00:00Z' }],
+            pending_intent: null,
+            last_success_ref: 'LAN_1234',
+        })
+    );
+    
+    // Mock OpenAI fetch responses in sequence
+    let callCount = 0;
+    context.UrlFetchApp.fetch = function(url) {
+        callCount += 1;
+        if (callCount === 1) {
+            // First call: parse "não, é farmacia" -> correcao_transacao
+            return {
+                getResponseCode: () => 200,
+                getContentText: () => JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                tipo_evento: 'correcao_transacao',
+                                valor: 0,
+                                data: '',
+                                descricao: '39.46 farmacia no nubank',
+                            }),
+                        }],
+                    }],
+                }),
+            };
+        } else {
+            // Second call: parse the new command
+            return {
+                getResponseCode: () => 200,
+                getContentText: () => JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                tipo_evento: 'compra_cartao',
+                                data: '2026-04-30',
+                                competencia: '2026-04',
+                                valor: 39.46,
+                                descricao: '39.46 farmacia no nubank',
+                                id_categoria: 'OPEX_FARMACIA',
+                                id_fonte: 'FONTE_NUBANK_GU',
+                                pessoa: 'Gustavo',
+                                escopo: 'Familiar',
+                                visibilidade: 'detalhada',
+                                id_cartao: 'CARD_NUBANK_GU',
+                                id_fatura: '',
+                                id_divida: '',
+                                id_ativo: '',
+                                afeta_dre: true,
+                                afeta_patrimonio: false,
+                                afeta_caixa_familiar: false,
+                                direcao_caixa_familiar: '',
+                                status: '',
+                            }),
+                        }],
+                    }],
+                }),
+            };
+        }
+    };
+    
+    const result = postPilotMessage(context, 'não, é farmacia');
+    assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /Lançamento corrigido/);
+    assert.match(result.responseText, /Deletado: "mercado/);
+    
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const finalLaunch = sheets.Lancamentos.rows[1];
+    assert.strictEqual(finalLaunch[lancamentosHeaders.indexOf('id_categoria')], 'OPEX_FARMACIA');
+    assert.strictEqual(finalLaunch[lancamentosHeaders.indexOf('valor')], 39.46);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 2);
+});
+
+test('Apps Script tardio correction lookup by value and date successfully deletes old and rewrites', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
+    
+    // Setup two old launches
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_OLD_1',
+        data: '2026-04-23',
+        competencia: '2026-04',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_LANCHE_TRABALHO',
+        valor: 70.36,
+        descricao: 'lanche casal',
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_OLD_2',
+        data: '2026-04-22',
+        competencia: '2026-04',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        valor: 15.00,
+        descricao: 'outro lanche',
+    });
+    
+    // Mock OpenAI fetch responses
+    let callCount = 0;
+    context.UrlFetchApp.fetch = function(url) {
+        callCount += 1;
+        if (callCount === 1) {
+            return {
+                getResponseCode: () => 200,
+                getContentText: () => JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                tipo_evento: 'correcao_transacao',
+                                valor: 70.36,
+                                data: '2026-04-23',
+                                descricao: '70.36 lanche casal categoria OPEX_FARMACIA',
+                            }),
+                        }],
+                    }],
+                }),
+            };
+        } else {
+            return {
+                getResponseCode: () => 200,
+                getContentText: () => JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                tipo_evento: 'despesa',
+                                data: '2026-04-23',
+                                competencia: '2026-04',
+                                valor: 70.36,
+                                descricao: '70.36 lanche casal categoria OPEX_FARMACIA',
+                                id_categoria: 'OPEX_FARMACIA',
+                                id_fonte: 'FONTE_CONTA_FAMILIA',
+                                pessoa: 'Gustavo',
+                                escopo: 'Familiar',
+                                visibilidade: 'detalhada',
+                                id_cartao: '',
+                                id_fatura: '',
+                                id_divida: '',
+                                id_ativo: '',
+                                afeta_dre: true,
+                                afeta_patrimonio: false,
+                                afeta_caixa_familiar: true,
+                                direcao_caixa_familiar: 'saida',
+                                status: 'efetivado',
+                            }),
+                        }],
+                    }],
+                }),
+            };
+        }
+    };
+    
+    const result = postPilotMessage(context, 'corrigir a de 70.36 de ontem para lazer');
+    
+    assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /Lançamento corrigido/);
+    assert.match(result.responseText, /Deletado: "lanche casal/);
+    
+    assert.strictEqual(sheets.Lancamentos.rows.length, 3);
+    const remainingIds = sheets.Lancamentos.rows.slice(1).map(r => r[lancamentosHeaders.indexOf('id_lancamento')]);
+    assert.ok(remainingIds.includes('LAN_OLD_2'));
+    assert.ok(!remainingIds.includes('LAN_OLD_1'));
+    
+    const finalLaunch = sheets.Lancamentos.rows.find(r => r[lancamentosHeaders.indexOf('id_categoria')] === 'OPEX_FARMACIA');
+    assert.ok(finalLaunch);
+    assert.strictEqual(finalLaunch[lancamentosHeaders.indexOf('valor')], 70.36);
+});
+
+test('Apps Script correction fails when target transaction is in a closed period', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
+    
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_CLOSED',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        valor: 39.46,
+        descricao: 'mercado 39.46',
+    });
+    
+    appendFakeClosing(sheets, {
+        competencia: '2026-04',
+        status: 'closed',
+        closed_at: '2026-05-01T10:00:00Z',
+    });
+    
+    context.PropertiesService.getScriptProperties().setProperty(
+        'BFF_CONVERSATION_chat_1',
+        JSON.stringify({
+            messages: [{ role: 'user', text: 'mercado 39.46', at: '2026-04-30T15:00:00Z' }],
+            pending_intent: null,
+            last_success_ref: 'LAN_CLOSED',
+        })
+    );
+    
+    context.UrlFetchApp.fetch = function(url) {
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+                output: [{
+                    content: [{
+                        text: JSON.stringify({
+                            tipo_evento: 'correcao_transacao',
+                            valor: 0,
+                            data: '',
+                            descricao: '39.46 farmacia no nubank',
+                        }),
+                    }],
+                }],
+            }),
+        };
+    };
+    
+    const result = postPilotMessage(context, 'não, é farmacia');
+    
+    assert.strictEqual(result.ok, false);
+    assert.match(result.responseText, /Não é permitido corrigir lançamentos de competências fechadas/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
 });

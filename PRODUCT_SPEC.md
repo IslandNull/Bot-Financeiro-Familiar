@@ -23,7 +23,7 @@ The product is centered on family solvency, cash safety, net worth, obligations,
 
 ## Current Operational Boundary
 
-- Google Sheets mutation, Telegram webhook routing, OpenAI parsing, deterministic read-only questions, and reviewed historical import are now pilot-runtime features.
+- Google Sheets mutation, Telegram webhook routing, OpenAI parsing, deterministic read-only questions, and read-only sheet auditing are now pilot-runtime features.
 - The LLM is only a parser boundary. Sheet config, schema validation, idempotency, closed-period guards, and Apps Script checks remain the source of truth for mutations.
 - `/resumo`, `/agenda`, `/revisar_mes`, category-spending questions, invoice questions, reserve questions, and "posso comprar ... em Nx?" simulations are decision-support views. They must use deterministic calculations, not free-form LLM advice.
 - Budget/envelope limits are not active until a reviewed config/schema exists.

@@ -129,8 +129,26 @@ function planCardPurchaseRows(event, options) {
     });
 
     const invoiceRows = planned.invoices
-        ? planned.invoices.map((inv) => ({ sheet: SHEETS.FATURAS, row: rowFor(SHEETS.FATURAS, inv) }))
-        : [{ sheet: SHEETS.FATURAS, row: rowFor(SHEETS.FATURAS, planned.invoice) }];
+        ? planned.invoices.map((inv) => ({ sheet: SHEETS.FATURAS_RESUMO, row: rowFor(SHEETS.FATURAS_RESUMO, {
+            id_fatura: inv.id_fatura,
+            id_cartao: inv.id_cartao,
+            competencia: inv.competencia,
+            data_fechamento: inv.data_fechamento,
+            data_vencimento: inv.data_vencimento,
+            valor_aberto: inv.valor_previsto,
+            valor_pago: '',
+            status: 'prevista'
+        }) }))
+        : [{ sheet: SHEETS.FATURAS_RESUMO, row: rowFor(SHEETS.FATURAS_RESUMO, {
+            id_fatura: planned.invoice.id_fatura,
+            id_cartao: planned.invoice.id_cartao,
+            competencia: planned.invoice.competencia,
+            data_fechamento: planned.invoice.data_fechamento,
+            data_vencimento: planned.invoice.data_vencimento,
+            valor_aberto: planned.invoice.valor_previsto,
+            valor_pago: '',
+            status: 'prevista'
+        }) }];
 
     return mutationGroup('compra_cartao', idLancamento, [
         { sheet: SHEETS.LANCAMENTOS, row: launchRow },
@@ -144,20 +162,19 @@ function planInvoiceExposure(event, options) {
     if (!card) return fail('CARD_NOT_FOUND', 'id_cartao', 'invoice exposure needs an active known card');
     const idFatura = event.id_fatura;
     const competencia = event.competencia;
-    const row = rowFor(SHEETS.FATURAS, {
+    const row = rowFor(SHEETS.FATURAS_RESUMO, {
         id_fatura: idFatura,
         id_cartao: event.id_cartao,
         competencia,
         data_fechamento: event.data,
         data_vencimento: event.data,
-        valor_previsto: event.valor,
-        valor_fechado: '',
+        valor_aberto: event.valor,
         valor_pago: '',
         status: 'prevista',
     });
 
     return mutationGroup('fatura_prevista', stableId('FAT', eventIdentity(event, options)), [
-        { sheet: SHEETS.FATURAS, row },
+        { sheet: SHEETS.FATURAS_RESUMO, row },
     ]);
 }
 

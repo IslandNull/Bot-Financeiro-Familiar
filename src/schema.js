@@ -4,7 +4,8 @@ const SHEETS = {
     CONFIG_CATEGORIAS: 'Config_Categorias',
     CONFIG_FONTES: 'Config_Fontes',
     CARTOES: 'Cartoes',
-    FATURAS: 'Faturas',
+    FATURAS_RESUMO: 'Faturas_Resumo',
+    FATURAS_LINHAS: 'Faturas_Linhas',
     LANCAMENTOS: 'Lancamentos',
     TRANSFERENCIAS_INTERNAS: 'Transferencias_Internas',
     RENDAS_RECORRENTES: 'Rendas_Recorrentes',
@@ -13,7 +14,6 @@ const SHEETS = {
     DIVIDAS: 'Dividas',
     FECHAMENTO_FAMILIAR: 'Fechamento_Familiar',
     IDEMPOTENCY_LOG: 'Idempotency_Log',
-    TELEGRAM_SEND_LOG: 'Telegram_Send_Log',
 };
 
 const HEADERS = {
@@ -41,16 +41,26 @@ const HEADERS = {
         'limite',
         'ativo',
     ],
-    [SHEETS.FATURAS]: [
+    [SHEETS.FATURAS_RESUMO]: [
         'id_fatura',
         'id_cartao',
         'competencia',
         'data_fechamento',
         'data_vencimento',
-        'valor_previsto',
+        'valor_previsto_total',
         'valor_fechado',
         'valor_pago',
+        'valor_aberto',
         'status',
+        'authority_count',
+    ],
+    [SHEETS.FATURAS_LINHAS]: [
+        'id_linha_fatura',
+        'id_fatura',
+        'id_cartao',
+        'competencia',
+        'valor_previsto',
+        'status_origem',
     ],
     [SHEETS.LANCAMENTOS]: [
         'id_lancamento',
@@ -178,21 +188,6 @@ const HEADERS = {
         'error_code',
         'observacao',
     ],
-    [SHEETS.TELEGRAM_SEND_LOG]: [
-        'id_notificacao',
-        'created_at',
-        'route',
-        'chat_id',
-        'phase',
-        'status',
-        'status_code',
-        'error',
-        'result_ref',
-        'id_lancamento',
-        'idempotency_key',
-        'text_preview',
-        'sent_at',
-    ],
 };
 
 const ENUMS = {
@@ -206,6 +201,7 @@ const ENUMS = {
         'aporte',
         'divida_pagamento',
         'ajuste',
+        'leitura',
     ],
     escopo: ['Familiar', 'Gustavo', 'Luana'],
     visibilidade: ['detalhada', 'resumo', 'privada'],
@@ -245,7 +241,8 @@ function validateSchema() {
         SHEETS.CONFIG_CATEGORIAS,
         SHEETS.CONFIG_FONTES,
         SHEETS.CARTOES,
-        SHEETS.FATURAS,
+        SHEETS.FATURAS_RESUMO,
+        SHEETS.FATURAS_LINHAS,
         SHEETS.LANCAMENTOS,
         SHEETS.TRANSFERENCIAS_INTERNAS,
         SHEETS.RENDAS_RECORRENTES,
@@ -254,7 +251,6 @@ function validateSchema() {
         SHEETS.DIVIDAS,
         SHEETS.FECHAMENTO_FAMILIAR,
         SHEETS.IDEMPOTENCY_LOG,
-        SHEETS.TELEGRAM_SEND_LOG,
     ].forEach((required) => {
         if (!names.includes(required)) errors.push({ code: 'MISSING_SHEET', sheet: required });
     });

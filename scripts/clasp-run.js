@@ -17,7 +17,7 @@ const https = require('https');
 
 const action = process.argv[2];
 if (!action) {
-  console.error('Usage: node scripts/clasp-run.js <snapshot|summary|closing_draft|closing_close|selftest>');
+  console.error('Usage: node scripts/clasp-run.js <snapshot|summary|closing_draft|closing_close|selftest|sheet_audit>');
   process.exit(1);
 }
 
@@ -31,12 +31,21 @@ if (!fs.existsSync(envPath)) {
 }
 
 const env = {};
+function parseEnvValue(value) {
+  const trimmed = value.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
 fs.readFileSync(envPath, 'utf8').split('\n').forEach(function(line) {
   const trimmed = line.trim();
   if (!trimmed || trimmed.startsWith('#')) return;
   const eqIdx = trimmed.indexOf('=');
   if (eqIdx > 0) {
-    env[trimmed.slice(0, eqIdx).trim()] = trimmed.slice(eqIdx + 1).trim();
+    env[trimmed.slice(0, eqIdx).trim()] = parseEnvValue(trimmed.slice(eqIdx + 1));
   }
 });
 
@@ -67,7 +76,7 @@ function httpGet(targetUrl, redirectCount) {
   }
   return new Promise(function(resolve, reject) {
     const mod = targetUrl.startsWith('https') ? https : require('http');
-    var req = mod.get(targetUrl, { timeout: 30000 }, function(res) {
+    var req = mod.get(targetUrl, { timeout: 120000 }, function(res) {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         resolve(httpGet(res.headers.location, redirectCount + 1));
         return;
