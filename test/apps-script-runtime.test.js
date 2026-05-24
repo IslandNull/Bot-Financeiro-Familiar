@@ -3259,10 +3259,11 @@ test('Apps Script conversation context persists a rolling 5-message window and c
     }
 
     const state = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1);
-    assert.strictEqual(state.messages.length, 5);
+    assert.strictEqual(state.messages.length, 10);
     assert.strictEqual(state.messages[0].text, '/ajuda');
     assert.strictEqual(state.messages[0].role, 'user');
-    assert.strictEqual(state.messages[4].role, 'user');
+    assert.strictEqual(state.messages[1].role, 'bot');
+    assert.strictEqual(state.messages[9].role, 'bot');
 
     const cleared = postPilotMessage(context, '/limpar_contexto', {
         updateId: 'ctx_clear_update',
@@ -3272,6 +3273,41 @@ test('Apps Script conversation context persists a rolling 5-message window and c
     assert.strictEqual(cleared.ok, true);
     assert.match(cleared.responseText, /Contexto limpo/);
     assert.strictEqual(context.__scriptProperties.BFF_CONVERSATION_chat_1, undefined);
+});
+
+test('Apps Script conversation context stores user and bot messages', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '18',
+        descricao: 'farmacia 18',
+        id_categoria: 'OPEX_FARMACIA',
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    appendFakeInvoice(sheets);
+
+    const result = postPilotMessage(context, 'farmacia 18 no nubank');
+    assert.strictEqual(result.ok, true);
+
+    const state = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1);
+    assert.strictEqual(state.messages.length, 2);
+    assert.strictEqual(state.messages[0].role, 'user');
+    assert.strictEqual(state.messages[0].text, 'farmacia 18 no nubank');
+    assert.strictEqual(state.messages[1].role, 'bot');
+    assert.match(state.messages[1].text, /Compra no cart/);
 });
 
 test('Apps Script guided registration resumes pending expense when user replies with source only', () => {

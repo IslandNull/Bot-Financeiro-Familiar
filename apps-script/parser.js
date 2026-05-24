@@ -249,11 +249,20 @@ function isClearConversationCommand_(text) {
 
 function finishConversationTurn_(chatId, userText, result, state, pendingIntent) {
   var nextState = state || emptyConversationState_();
-  nextState.messages = (nextState.messages || []).concat([{
+  var messages = nextState.messages || [];
+  messages.push({
     role: 'user',
     text: stringValue_(userText).slice(0, 500),
     at: isoNow_(),
-  }]).slice(-5);
+  });
+  if (result && typeof result.responseText === 'string' && result.responseText.trim() !== '') {
+    messages.push({
+      role: 'bot',
+      text: result.responseText.slice(0, 500),
+      at: isoNow_(),
+    });
+  }
+  nextState.messages = messages.slice(-10);
   nextState.pending_intent = pendingIntent || null;
   if (result && result.ok && result.result_ref) {
     nextState.last_success_ref = result.result_ref;
@@ -276,7 +285,7 @@ function readConversationState_(chatId) {
   var parsed = raw ? parseJsonSafe_(raw) : null;
   if (!parsed || typeof parsed !== 'object') return emptyConversationState_();
   return {
-    messages: Array.isArray(parsed.messages) ? parsed.messages.slice(-5) : [],
+    messages: Array.isArray(parsed.messages) ? parsed.messages.slice(-10) : [],
     pending_intent: parsed.pending_intent || null,
     last_success_ref: parsed.last_success_ref || null,
   };
@@ -285,7 +294,7 @@ function readConversationState_(chatId) {
 function writeConversationState_(chatId, state) {
   if (!chatId) return;
   PropertiesService.getScriptProperties().setProperty(conversationStateKey_(chatId), JSON.stringify({
-    messages: (state.messages || []).slice(-5),
+    messages: (state.messages || []).slice(-10),
     pending_intent: state.pending_intent || null,
     last_success_ref: state.last_success_ref || null,
   }));

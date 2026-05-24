@@ -2,7 +2,7 @@
 
 Operational authority for Bot Financeiro Familiar V55.
 
-## Current State (2026-05-23)
+### Current State (2026-05-23)
 
 ### Verified
 
@@ -16,7 +16,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Live schema authority is `SHEET_SCHEMA.md`. Manual owner check on 2026-05-23 confirmed the real spreadsheet no longer has backup sheets or retired `Telegram_Send_Log`.
 - `/resumo` uses informed source balances plus reserve/liquidity assets to evaluate current invoice and obligation coverage.
 - Parser and deterministic overrides protect strict dates/money, payable invoices, partial invoice payment, closed periods, benefit conversion, own-source transfers, explicit invoice payments, card/account disambiguation, and category confirmation.
-- Telegram runtime keeps a short persistent conversation state in Script Properties per chat: last 25 user messages plus one pending intent for guided source/card/invoice completion.
+- Telegram runtime keeps a short persistent conversation state in Script Properties per chat: last 5 user-bot conversation turns (10 messages total) plus one pending intent for guided source/card/invoice completion to support context reference resolution like "essa fatura" or "nesse cartão".
 - Read-only views keep private personal detail aggregate-only in shared reports.
 - Current real closing state in snapshot: 2026-04 closed; 2026-05 open with May usage in progress.
 - Current schema/runtime use split invoice sheets: `Faturas_Resumo` for invoice authority/summary and `Faturas_Linhas` for purchase/installment exposure.
@@ -70,5 +70,4 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 
 ## Next Work
 
-1. Expand conversational read-only answers to resolve references like "essa fatura" or "nesse cartão" from recent context.
-2. Design budget/envelope config before implementing category limits; do not infer limits from category names.
+1. Design budget/envelope config before implementing category limits; do not infer limits from category names.
