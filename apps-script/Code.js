@@ -157,7 +157,7 @@ function runTelegramWebhookSetupDryRun() {
     action: 'telegram_setWebhook',
     target: 'redacted_val_town_proxy',
     dropPendingUpdates: true,
-    allowedUpdates: ['message', 'edited_message'],
+    allowedUpdates: ['message'],
   };
 }
 
