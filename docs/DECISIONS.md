@@ -343,3 +343,19 @@ Rejected:
 - Treating multiple planned rows in one cycle as duplicate invoices.
 - Mutating the real spreadsheet before a dry-run migration and owner approval.
 
+## V55-D024 - Budget Rollover Is Capped And Starts In May 2026
+
+Status: Accepted
+Date: 2026-05-24
+
+Decision:
+Budget limits live in `Config_Categorias.limite_mensal`; `acumula_sobra=true` marks irregular categories that can carry unused monthly budget. Static categories reset monthly. Accumulating categories carry unused budget only from closed months starting at `2026-05`, capped at two monthly limits. Negative carry debt is not created; overspending consumes available accumulation down to zero.
+
+Reason:
+Envelope/category budgeting works best when current money has explicit jobs, while irregular expenses such as clothing, health, pet care, and annual/non-monthly costs need planned monthly set-asides. Starting at May 2026 avoids inheriting balances from months that were not budgeted. The two-month cap prevents stale infinite accumulation while still leaving room for lumpy purchases.
+
+Sources:
+- CFPB, "Budgeting: How to create a budget and stick with it": https://www.consumerfinance.gov/about-us/blog/budgeting-how-to-create-a-budget-and-stick-with-it/
+- CFPB, "Assess your spending": https://www.consumerfinance.gov/owning-a-home/prepare/assess-your-spending/
+- YNAB, "A Variable & Non-Monthly Expense List for Your Budget": https://www.ynab.com/blog/non-monthly-expenses-for-your-budget
+- YNAB Support, "When the Month Rolls Over in YNAB": https://support.ynab.com/en_us/when-the-month-rolls-over-a-guide-rkyyd6qC9

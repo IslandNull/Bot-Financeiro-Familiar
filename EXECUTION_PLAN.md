@@ -2,7 +2,7 @@
 
 Operational authority for Bot Financeiro Familiar V55.
 
-### Current State (2026-05-23)
+### Current State (2026-05-24)
 
 ### Verified
 
@@ -23,12 +23,16 @@ Operational authority for Bot Financeiro Familiar V55.
 - Snapshot generated on 2026-05-23 reports 13 real sheets, all live schema headers matching, 2026-04 closed, and 2026-05 open with May usage in progress.
 - Historical invoice migration planning/apply helpers are no longer live runtime actions or local scripts. Future invoice corrections must use current runtime paths or explicit reviewed adjustments.
 - Remote `sheet:audit` after spreadsheet cleanup and debt-reference repair reports 0 errors and 0 warnings.
+- Budget/envelope runtime is deployed: `/orcamento` reads active category limits, warns near/over limit after launches, starts accumulation at 2026-05, caps accumulating rollover at two monthly limits, and clamps negative carry debt to zero.
+- Delivery/iFood/restaurant couple spending is consolidated under `OPEX_ALIMENTACAO_FORA`; `OPEX_DELIVERY_FAMILIAR` is inactive in the real config snapshot.
+- Individual categories are active for `OPEX_ROUPAS_GUSTAVO`, `OPEX_ROUPAS_LUANA`, `OPEX_CAFE_TRABALHO_GUSTAVO`, and `OPEX_CAFE_TRABALHO_LUANA`.
+- Snapshot generated on 2026-05-24 reports `OPEX_ALIMENTACAO_FORA` with May spending, including private food-out detail aggregated instead of exposed.
 
 ### Unverified
 
 - Full production readiness beyond owner pilot usage.
 - UX readiness with Luana using real Telegram messages.
-- Budget/envelope limits; no category-limit behavior exists until reviewed config/schema is designed.
+- Long-term budget limit tuning beyond the initial pilot limits.
 
 ## Execution Rules
 
@@ -70,4 +74,4 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 
 ## Next Work
 
-1. Design budget/envelope config before implementing category limits; do not infer limits from category names.
+1. Tune budget limits after one or two reviewed months of pilot usage.

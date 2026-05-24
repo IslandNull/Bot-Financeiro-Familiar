@@ -41,7 +41,15 @@ test('parser context includes canonical ids for documented examples', () => {
 
     assert.ok(ids(context.categories, 'id_categoria').includes('OPEX_MERCADO_SEMANA'));
     assert.ok(ids(context.categories, 'id_categoria').includes('OPEX_FARMACIA'));
-    assert.ok(ids(context.categories, 'id_categoria').includes('OPEX_LANCHE_TRABALHO'));
+    assert.ok(ids(context.categories, 'id_categoria').includes('OPEX_ALIMENTACAO_FORA'));
+    assert.ok(ids(context.categories, 'id_categoria').includes('OPEX_ROUPAS_GUSTAVO'));
+    assert.ok(ids(context.categories, 'id_categoria').includes('OPEX_ROUPAS_LUANA'));
+    assert.ok(ids(context.categories, 'id_categoria').includes('OPEX_CAFE_TRABALHO_GUSTAVO'));
+    assert.ok(ids(context.categories, 'id_categoria').includes('OPEX_CAFE_TRABALHO_LUANA'));
+    assert.ok(!ids(context.categories, 'id_categoria').includes('OPEX_DELIVERY_FAMILIAR'));
+    assert.ok(!ids(context.categories, 'id_categoria').includes('OPEX_LANCHE_TRABALHO'));
+    assert.ok(!ids(context.categories, 'id_categoria').includes('OPEX_VESTUARIO_ACESSORIOS'));
+    assert.ok(!ids(context.categories, 'id_categoria').includes('OPEX_VESTUARIO_LUANA'));
     assert.ok(ids(context.categories, 'id_categoria').includes('MOV_CAIXA_FAMILIAR'));
     assert.ok(ids(context.sources, 'id_fonte').includes('FONTE_CONTA_FAMILIA'));
     assert.ok(ids(context.sources, 'id_fonte').includes('FONTE_NUBANK_GU'));

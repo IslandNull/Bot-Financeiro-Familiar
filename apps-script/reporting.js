@@ -73,7 +73,7 @@ function buildBudgetReportResponse_(config, requestedCompetencia) {
       var pastClosedCompetencies = fechamentos.map(function(f) {
         return normalizeSheetCompetencia_(f.competencia);
       }).filter(function(comp) {
-        return comp && comp < targetCompetencia;
+        return comp && comp >= '2026-05' && comp < targetCompetencia;
       });
       pastClosedCompetencies.forEach(function(c) {
         if (uniquePastComp.indexOf(c) === -1) uniquePastComp.push(c);
@@ -118,6 +118,13 @@ function buildBudgetReportResponse_(config, requestedCompetencia) {
           var c = uniquePastComp[j];
           var spentInC = (spentMap[catId] && spentMap[catId][c]) || 0;
           rollover += (limit - spentInC);
+        }
+        var maxRollover = limit * 2;
+        if (rollover > maxRollover) {
+          rollover = maxRollover;
+        }
+        if (rollover < 0) {
+          rollover = 0;
         }
       }
 
@@ -2216,7 +2223,7 @@ function checkCategoryBudgetWarning_(event, referenceData, spreadsheet) {
       var pastCompetencies = fechamentos.map(function(f) {
         return normalizeSheetCompetencia_(f.competencia);
       }).filter(function(comp) {
-        return comp && comp < targetCompetencia;
+        return comp && comp >= '2026-05' && comp < targetCompetencia;
       });
       var uniquePastComp = [];
       pastCompetencies.forEach(function(c) {
@@ -2226,6 +2233,13 @@ function checkCategoryBudgetWarning_(event, referenceData, spreadsheet) {
         var c = uniquePastComp[j];
         var spentInC = pastCompetenciesMap[c] || 0;
         rollover += (limit - spentInC);
+      }
+      var maxRollover = limit * 2;
+      if (rollover > maxRollover) {
+        rollover = maxRollover;
+      }
+      if (rollover < 0) {
+        rollover = 0;
       }
     }
   }
