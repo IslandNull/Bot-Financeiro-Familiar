@@ -24,6 +24,7 @@ var HELP_TEXT = [
   '',
   '📌 Comandos',
   '- /resumo: visao do mes sem alterar a planilha',
+  '- /orcamento: ver limites e consumos por categoria',
   '- /agenda: faturas e compromissos por data',
   '- /revisar_mes: checklist antes de fechamento',
   '- /limpar_contexto: apaga a conversa pendente deste chat',

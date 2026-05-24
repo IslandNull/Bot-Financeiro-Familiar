@@ -41,6 +41,12 @@ function handleTelegramUpdate_(update, config) {
     return finishConversationTurn_(chatId, text, buildMonthlyReviewResponse_(config), conversation, null);
   }
 
+  if (isBudgetCommand_(text)) {
+    var parts = text.split(' ');
+    var requestedComp = parts.length > 1 ? parts[1].trim() : '';
+    return finishConversationTurn_(chatId, text, buildBudgetReportResponse_(config, requestedComp), conversation, null);
+  }
+
   if (!config.spreadsheetId) {
     return fail_('MISSING_SPREADSHEET_ID', 'spreadsheetId', GENERIC_RECORD_FAILURE);
   }
@@ -376,6 +382,11 @@ function isAgendaCommand_(text) {
 
 function isMonthlyReviewCommand_(text) {
   return text === '/revisar_mes' || text === '/revisao_mes';
+}
+
+function isBudgetCommand_(text) {
+  var normalized = text.split(' ')[0].trim().toLowerCase();
+  return normalized === '/orcamento' || normalized === '/orcamentos' || normalized === '/limites';
 }
 
 function isSafeFinanceQuestion_(text) {

@@ -29,6 +29,130 @@ function buildMonthlyReviewResponse_(config) {
   };
 }
 
+function buildBudgetReportResponse_(config, requestedCompetencia) {
+  var runtimeCheck = verifyReportingRuntimeConfig_(config);
+  if (!runtimeCheck.ok) return runtimeCheck;
+  var competenciaCheck = normalizeRequestedCompetencia_(requestedCompetencia);
+  if (!competenciaCheck.ok) return competenciaCheck;
+
+  try {
+    var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+    var categorySheet = spreadsheet.getSheetByName(SHEETS.CONFIG_CATEGORIAS);
+    var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+    var fechamentoSheet = spreadsheet.getSheetByName(SHEETS.FECHAMENTO_FAMILIAR);
+
+    if (!categorySheet || !launchSheet) {
+      return fail_('REPORT_READ_FAILED', 'sheets', GENERIC_RECORD_FAILURE);
+    }
+
+    verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
+    verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+    if (fechamentoSheet) {
+      verifySheetHeaders_(fechamentoSheet, SHEETS.FECHAMENTO_FAMILIAR);
+    }
+
+    var targetCompetencia = competenciaCheck.competencia || todaySaoPaulo_().slice(0, 7);
+
+    var categories = readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS).filter(function(cat) {
+      var limit = numberFromSheetValue_(cat.limite_mensal);
+      return cat.ativo === true && !isNaN(limit) && limit > 0;
+    });
+
+    if (categories.length === 0) {
+      return {
+        ok: true,
+        responseText: 'Nenhuma categoria ativa possui limite mensal configurado.',
+        shouldApplyDomainMutation: false
+      };
+    }
+
+    var launches = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS);
+    var uniquePastComp = [];
+    if (fechamentoSheet) {
+      var fechamentos = readRowsAsObjects_(fechamentoSheet, SHEETS.FECHAMENTO_FAMILIAR);
+      var pastClosedCompetencies = fechamentos.map(function(f) {
+        return normalizeSheetCompetencia_(f.competencia);
+      }).filter(function(comp) {
+        return comp && comp < targetCompetencia;
+      });
+      pastClosedCompetencies.forEach(function(c) {
+        if (uniquePastComp.indexOf(c) === -1) uniquePastComp.push(c);
+      });
+    }
+
+    // Group launches by category and competency
+    var spentMap = {};
+    for (var i = 0; i < launches.length; i++) {
+      var row = launches[i];
+      if (row.status !== 'efetivado') continue;
+      if (row.afeta_dre !== true) continue;
+      var catId = stringValue_(row.id_categoria);
+      var comp = normalizeSheetCompetencia_(row.competencia);
+      if (!catId || !comp) continue;
+
+      if (!spentMap[catId]) {
+        spentMap[catId] = {};
+      }
+      spentMap[catId][comp] = (spentMap[catId][comp] || 0) + numberFromSheetValue_(row.valor);
+    }
+
+    var lines = [];
+    lines.push('📊 Orçamento por Categoria (' + targetCompetencia + ')');
+    lines.push('');
+
+    var referenceData = {
+      categoriesById: indexBy_(readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS), 'id_categoria')
+    };
+
+    for (var k = 0; k < categories.length; k++) {
+      var cat = categories[k];
+      var catId = cat.id_categoria;
+      var catName = friendlyCategoryName_(catId, referenceData) || cat.nome || catId;
+      var limit = numberFromSheetValue_(cat.limite_mensal);
+      var accumulates = cat.acumula_sobra === true;
+
+      var currentSpent = (spentMap[catId] && spentMap[catId][targetCompetencia]) || 0;
+      var rollover = 0;
+      if (accumulates) {
+        for (var j = 0; j < uniquePastComp.length; j++) {
+          var c = uniquePastComp[j];
+          var spentInC = (spentMap[catId] && spentMap[catId][c]) || 0;
+          rollover += (limit - spentInC);
+        }
+      }
+
+      var totalLimit = limit + rollover;
+      var remaining = totalLimit - currentSpent;
+      var percent = totalLimit > 0 ? Math.round((currentSpent / totalLimit) * 100) : 0;
+
+      var statusEmoji = '✅';
+      if (currentSpent > totalLimit) {
+        statusEmoji = '🚨';
+      } else if (percent >= 85) {
+        statusEmoji = '⚠️';
+      }
+
+      var limitText = formatMoney_(limit);
+      var rolloverText = accumulates ? ' (Acumulado: ' + formatMoney_(totalLimit) + ')' : '';
+      lines.push(statusEmoji + ' *' + catName + '*');
+      lines.push('  • Consumido: ' + formatMoney_(currentSpent) + ' / ' + limitText + rolloverText);
+      if (accumulates && rollover !== 0) {
+        lines.push('  • Saldo anterior: ' + (rollover >= 0 ? '+' : '') + formatMoney_(rollover));
+      }
+      lines.push('  • Disponível: ' + formatMoney_(remaining) + ' (' + percent + '%)');
+      lines.push('');
+    }
+
+    return {
+      ok: true,
+      responseText: lines.join('\n').trim(),
+      shouldApplyDomainMutation: false
+    };
+  } catch (_err) {
+    return fail_('REPORT_READ_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+  }
+}
+
 function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
   var runtimeCheck = verifyReportingRuntimeConfig_(config);
   if (!runtimeCheck.ok) return runtimeCheck;

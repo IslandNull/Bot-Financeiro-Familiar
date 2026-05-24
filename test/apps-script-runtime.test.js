@@ -4561,3 +4561,136 @@ test('Apps Script validation alerts when category is over budget', () => {
     assert.match(result.responseText, /Categoria Pet está próxima do limite do orçamento acumulado \(90% consumido\)\./);
 });
 
+test('Apps Script budget report command displays active categories and rollover correctly', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
+    
+    sheets.Config_Categorias.rows.splice(1);
+    sheets.Lancamentos.rows.splice(1);
+    sheets.Fechamento_Familiar.rows.splice(1);
+    
+    const seedCats = [
+        {
+            id_categoria: 'OPEX_DELIVERY_FAMILIAR',
+            nome: 'Delivery familiar',
+            grupo: 'Lazer',
+            tipo_evento_padrao: 'despesa',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'detalhada',
+            limite_mensal: 300,
+            acumula_sobra: false,
+            ativo: true,
+        },
+        {
+            id_categoria: 'OPEX_PET',
+            nome: 'Pet',
+            grupo: 'Casa',
+            tipo_evento_padrao: 'compra_cartao',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: false,
+            visibilidade_padrao: 'detalhada',
+            limite_mensal: 300,
+            acumula_sobra: true,
+            ativo: true,
+        }
+    ];
+    
+    seedCats.forEach((row) => {
+        sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => row[header] === undefined ? '' : row[header]));
+    });
+    
+    // Month 1: 2026-04 (closed)
+    appendFakeClosing(sheets, {
+        competencia: '2026-04',
+        status: 'closed',
+        closed_at: '2026-05-01T10:00:00Z',
+    });
+    // Spend 100 on Pet in April (surplus of 200)
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_PET_APR',
+        data: '2026-04-15',
+        competencia: '2026-04',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_PET',
+        valor: 100,
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        afeta_dre: true,
+        status: 'efetivado',
+    });
+    // Spend 50 on Delivery in April (no rollover)
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_DEL_APR',
+        data: '2026-04-15',
+        competencia: '2026-04',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_DELIVERY_FAMILIAR',
+        valor: 50,
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        afeta_dre: true,
+        status: 'efetivado',
+    });
+    
+    // Month 2: 2026-05 (current)
+    // Spend 100 on Delivery in May (spent: 100, limit: 300)
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_DEL_MAY',
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_DELIVERY_FAMILIAR',
+        valor: 100,
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        afeta_dre: true,
+        status: 'efetivado',
+    });
+    // Spend 450 on Pet in May (spent: 450, base limit: 300, rollover: 200, total: 500)
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_PET_MAY',
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_PET',
+        valor: 450,
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        afeta_dre: true,
+        status: 'efetivado',
+    });
+    
+    let result = postPilotMessage(context, '/orcamento 2026-05', { updateId: 'up_bud_rep_1', messageId: 'msg_bud_rep_1' });
+    assert.strictEqual(result.ok, true);
+    
+    // Assert summary structure and contents
+    assert.match(result.responseText, /Orçamento por Categoria \(2026-05\)/);
+    
+    // OPEX_DELIVERY_FAMILIAR: 100/300 (33%) -> ✅
+    assert.match(result.responseText, /✅ \*Delivery familiar\*/);
+    assert.match(result.responseText, /Consumido: R\$ 100,00 \/ R\$ 300,00/);
+    assert.match(result.responseText, /Disponível: R\$ 200,00 \(33%\)/);
+    
+    // OPEX_PET: 450/300 (Acumulado: 500) (90%) -> ⚠️
+    assert.match(result.responseText, /⚠️ \*Pet\*/);
+    assert.match(result.responseText, /Consumido: R\$ 450,00 \/ R\$ 300,00 \(Acumulado: R\$ 500,00\)/);
+    assert.match(result.responseText, /Saldo anterior: \+R\$ 200,00/);
+    assert.match(result.responseText, /Disponível: R\$ 50,00 \(90%\)/);
+    
+    // Test default command (omitting month uses current system month)
+    let resultDefault = postPilotMessage(context, '/orcamento', { updateId: 'up_bud_rep_2', messageId: 'msg_bud_rep_2' });
+    assert.strictEqual(resultDefault.ok, true);
+    assert.match(resultDefault.responseText, /Orçamento por Categoria \(/);
+});
+
+
