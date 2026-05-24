@@ -327,7 +327,7 @@ function handlePilotAssetBalance_(update, message, text, config, referenceData) 
   }
 }
 
-function deleteFinancialTransaction_(id_lancamento, config, closedCompetencias) {
+function deleteFinancialTransaction_(id_lancamento, config, closedCompetencias, dryRun) {
   var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
   var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
   var transferSheet = spreadsheet.getSheetByName(SHEETS.TRANSFERENCIAS_INTERNAS);
@@ -392,63 +392,67 @@ function deleteFinancialTransaction_(id_lancamento, config, closedCompetencias) 
         return { ok: false, error: 'LEGACY_INVOICE_LINES_NOT_FOUND', row: launchObj };
       }
 
-      for (var rd = 0; rd < rowsToDelete.length; rd++) {
-         invoiceLinhasSheet.deleteRow(rowsToDelete[rd]);
-      }
-      
-      // Reconcile headers
-      var keys = Object.keys(deletedFaturas);
-      for (var k = 0; k < keys.length; k += 1) {
-        reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, keys[k]);
+      if (!dryRun) {
+        for (var rd = 0; rd < rowsToDelete.length; rd++) {
+           invoiceLinhasSheet.deleteRow(rowsToDelete[rd]);
+        }
+        
+        // Reconcile headers
+        var keys = Object.keys(deletedFaturas);
+        for (var k = 0; k < keys.length; k += 1) {
+          reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, keys[k]);
+        }
       }
     }
     
-    // B. Restore invoice payment if pagamento_fatura
-    if (launchObj.tipo_evento === 'pagamento_fatura') {
-      var resumoHeaders = HEADERS[SHEETS.FATURAS_RESUMO];
-      var resumoLastRow = invoiceResumoSheet.getLastRow();
-      if (resumoLastRow >= 2) {
-        var resumoRows = invoiceResumoSheet.getRange(2, 1, resumoLastRow - 1, resumoHeaders.length).getValues();
-        var idFaturaIndex = resumoHeaders.indexOf('id_fatura');
-        var statusIndex = resumoHeaders.indexOf('status');
-        var pagoIndex = resumoHeaders.indexOf('valor_pago');
+    if (!dryRun) {
+      // B. Restore invoice payment if pagamento_fatura
+      if (launchObj.tipo_evento === 'pagamento_fatura') {
+        var resumoHeaders = HEADERS[SHEETS.FATURAS_RESUMO];
+        var resumoLastRow = invoiceResumoSheet.getLastRow();
+        if (resumoLastRow >= 2) {
+          var resumoRows = invoiceResumoSheet.getRange(2, 1, resumoLastRow - 1, resumoHeaders.length).getValues();
+          var idFaturaIndex = resumoHeaders.indexOf('id_fatura');
+          var statusIndex = resumoHeaders.indexOf('status');
+          var pagoIndex = resumoHeaders.indexOf('valor_pago');
+          
+          for (var idx = 0; idx < resumoRows.length; idx += 1) {
+            if (String(resumoRows[idx][idFaturaIndex]) === String(launchObj.id_fatura)) {
+              var rowNum = idx + 2;
+              invoiceResumoSheet.getRange(rowNum, statusIndex + 1).setValue('prevista');
+              invoiceResumoSheet.getRange(rowNum, pagoIndex + 1).setValue('');
+              reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, String(launchObj.id_fatura));
+              break;
+            }
+          }
+        }
         
-        for (var idx = 0; idx < resumoRows.length; idx += 1) {
-          if (String(resumoRows[idx][idFaturaIndex]) === String(launchObj.id_fatura)) {
-            var rowNum = idx + 2;
-            invoiceResumoSheet.getRange(rowNum, statusIndex + 1).setValue('prevista');
-            invoiceResumoSheet.getRange(rowNum, pagoIndex + 1).setValue('');
-            reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, String(launchObj.id_fatura));
-            break;
+        // Also delete any reconciliation row in Faturas_Linhas matching the paid invoice
+        var linesHeaders = HEADERS[SHEETS.FATURAS_LINHAS];
+        var linesLastRow = invoiceLinhasSheet.getLastRow();
+        if (linesLastRow >= 2) {
+          var linesRange = invoiceLinhasSheet.getRange(2, 1, linesLastRow - 1, linesHeaders.length);
+          var linesValues = linesRange.getValues();
+          var idFaturaIndex = linesHeaders.indexOf('id_fatura');
+          var statusOrigemIndex = linesHeaders.indexOf('status_origem');
+          for (var j = linesValues.length - 1; j >= 0; j -= 1) {
+            var rowVal = linesValues[j];
+            var matchFatura = String(rowVal[idFaturaIndex]) === String(launchObj.id_fatura);
+            var matchStatus = String(rowVal[statusOrigemIndex]) === 'fatura_prevista';
+            if (matchFatura && matchStatus) {
+              invoiceLinhasSheet.deleteRow(j + 2);
+            }
           }
+          reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, String(launchObj.id_fatura));
         }
       }
-      
-      // Also delete any reconciliation row in Faturas_Linhas matching the paid invoice
-      var linesHeaders = HEADERS[SHEETS.FATURAS_LINHAS];
-      var linesLastRow = invoiceLinhasSheet.getLastRow();
-      if (linesLastRow >= 2) {
-        var linesRange = invoiceLinhasSheet.getRange(2, 1, linesLastRow - 1, linesHeaders.length);
-        var linesValues = linesRange.getValues();
-        var idFaturaIndex = linesHeaders.indexOf('id_fatura');
-        var statusOrigemIndex = linesHeaders.indexOf('status_origem');
-        for (var j = linesValues.length - 1; j >= 0; j -= 1) {
-          var rowVal = linesValues[j];
-          var matchFatura = String(rowVal[idFaturaIndex]) === String(launchObj.id_fatura);
-          var matchStatus = String(rowVal[statusOrigemIndex]) === 'fatura_prevista';
-          if (matchFatura && matchStatus) {
-            invoiceLinhasSheet.deleteRow(j + 2);
-          }
-        }
-        reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, String(launchObj.id_fatura));
-      }
+
+      // C. Delete the launch row itself
+      launchSheet.deleteRow(foundLaunchRow);
+
+      // D. Delete from Idempotency_Log
+      deleteIdempotencyRowByResultRef_(idempotencySheet, id_lancamento);
     }
-
-    // C. Delete the launch row itself
-    launchSheet.deleteRow(foundLaunchRow);
-
-    // D. Delete from Idempotency_Log
-    deleteIdempotencyRowByResultRef_(idempotencySheet, id_lancamento);
     return { ok: true, tipo: 'lancamento', row: launchObj };
   }
 
@@ -478,9 +482,11 @@ function deleteFinancialTransaction_(id_lancamento, config, closedCompetencias) 
       return { ok: false, error: 'CLOSED_PERIOD', row: transObj };
     }
 
-    transferSheet.deleteRow(foundTransRow);
-    deleteIdempotencyRowByResultRef_(idempotencySheet, id_lancamento);
-    return { ok: true, tipo: 'transferencia', row: transObj };
+    if (!dryRun) {
+      transferSheet.deleteRow(foundTransRow);
+      deleteIdempotencyRowByResultRef_(idempotencySheet, id_lancamento);
+    }
+    return { ok: true, tipo: 'transferencia_interna', row: transObj };
   }
 
   return { ok: false, error: 'NOT_FOUND' };

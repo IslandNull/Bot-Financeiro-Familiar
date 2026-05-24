@@ -4996,6 +4996,85 @@ test('Apps Script correction fails and keeps original transaction intact if new 
     assert.strictEqual(sheets.Lancamentos.rows[1][lancamentosHeaders.indexOf('id_lancamento')], 'LAN_VALID_1');
 });
 
+test('Apps Script correction fails and keeps original transaction intact if mutation is disabled during apply', () => {
+    // Disable mutation
+    const { context, sheets } = createAppsScriptHarness(null, {
+        properties: { PILOT_FINANCIAL_MUTATION_ENABLED: 'NO' },
+        failOnFetch: false
+    });
+
+    // Setup initial spreadsheet state with one launch
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_VALID_1',
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        valor: 50.00,
+        descricao: 'mercado 50.00',
+    });
+
+    context.PropertiesService.getScriptProperties().setProperty(
+        'BFF_CONVERSATION_chat_1',
+        JSON.stringify({
+            messages: [{ role: 'user', text: 'mercado 50.00', at: '2026-05-15T10:00:00Z' }],
+            pending_intent: null,
+            last_success_ref: 'LAN_VALID_1',
+        })
+    );
+
+    let callCount = 0;
+    context.UrlFetchApp.fetch = function(url, options) {
+        callCount += 1;
+        if (callCount === 1) {
+            return {
+                getResponseCode: () => 200,
+                getContentText: () => JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                tipo_evento: 'correcao_transacao',
+                                valor: 0,
+                                data: '',
+                                descricao: 'invalid event description',
+                            }),
+                        }],
+                    }],
+                }),
+            };
+        } else {
+            return {
+                getResponseCode: () => 200,
+                getContentText: () => JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                tipo_evento: 'despesa',
+                                data: '2026-05-15',
+                                competencia: '2026-05',
+                                valor: 50.00,
+                                id_categoria: 'OPEX_MERCADO_SEMANA',
+                                id_fonte: 'CASH_NUBANK_GU',
+                                pessoa: 'Gustavo',
+                                escopo: 'Familiar',
+                            }),
+                        }],
+                    }],
+                }),
+            };
+        }
+    };
+
+    const result = postPilotMessage(context, 'nao, mercado da semana');
+
+    assert.strictEqual(result.ok, false);
+    assert.match(result.responseText, /Piloto financeiro ainda nao habilitado/);
+    
+    // Assert original launch is still in the database (2 rows = header + 1 launch)
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(sheets.Lancamentos.rows[1][lancamentosHeaders.indexOf('id_lancamento')], 'LAN_VALID_1');
+});
+
 test('Apps Script invoice line deletion uses id_lancamento and does not delete other card purchase lines of identical value', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
 

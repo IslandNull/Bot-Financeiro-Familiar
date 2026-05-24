@@ -171,12 +171,13 @@ function handleTelegramUpdate_(update, config) {
       }, conversation, pendingIntentFromFailure_(validationResult, newParsed.event));
     }
     
-    var deleteResult = deleteFinancialTransaction_(targetId, config, referenceData.closedCompetencias);
-    if (!deleteResult.ok) {
+    // 1. Dry run delete validation
+    var deleteDryRun = deleteFinancialTransaction_(targetId, config, referenceData.closedCompetencias, true);
+    if (!deleteDryRun.ok) {
       var errorMsg = '⚠️ Não foi possível deletar o lançamento original para correção.';
-      if (deleteResult.error === 'CLOSED_PERIOD') {
+      if (deleteDryRun.error === 'CLOSED_PERIOD') {
         errorMsg = '⚠️ Não é permitido corrigir lançamentos de competências fechadas.';
-      } else if (deleteResult.error === 'LEGACY_INVOICE_LINES_NOT_FOUND') {
+      } else if (deleteDryRun.error === 'LEGACY_INVOICE_LINES_NOT_FOUND') {
         errorMsg = '⚠️ Esta transação é antiga e não possui vínculo com as faturas no novo formato.\n\n📌 Próximo passo\nCorrija as faturas manualmente na planilha.';
       }
       return finishConversationTurn_(chatId, text, {
@@ -186,18 +187,33 @@ function handleTelegramUpdate_(update, config) {
       }, conversation, null);
     }
     
+    // 2. Apply new transaction first
     var result = applyParsedFinancialEvent_(update, message, newParsed.event, config, referenceData);
-    if (result.ok) {
-      var deletedDesc = deleteResult.row && deleteResult.row.descricao ? deleteResult.row.descricao : '';
-      var deletedVal = deleteResult.row && deleteResult.row.valor ? numberFromSheetValue_(deleteResult.row.valor) : 0;
-      result.responseText = '🔄 **Lançamento corrigido!**\n\n🗑️ Deletado: "' + deletedDesc + '" (' + formatMoney_(deletedVal) + ')\n\n' + result.responseText;
-      var nextConv = conversation || emptyConversationState_();
-      nextConv.last_success_ref = result.result_ref;
-      return finishConversationTurn_(chatId, text, result, nextConv, null);
-    } else {
-      result.responseText = '⚠️ Lançamento anterior deletado, mas falhei ao salvar a correção: ' + result.responseText;
+    if (!result.ok) {
+      result.responseText = '⚠️ A correção foi recusada: ' + result.responseText;
       return finishConversationTurn_(chatId, text, result, conversation, pendingIntentFromFailure_(result, newParsed.event));
     }
+    
+    // 3. Permanently delete old transaction
+    var deleteResult = deleteFinancialTransaction_(targetId, config, referenceData.closedCompetencias, false);
+    if (!deleteResult.ok) {
+      // Catastrophic failure during deletion. Rollback the new transaction!
+      deleteFinancialTransaction_(result.result_ref, config, referenceData.closedCompetencias, false);
+      var nextConvFailure = conversation || emptyConversationState_();
+      return finishConversationTurn_(chatId, text, {
+        ok: false,
+        responseText: '⚠️ Erro interno ao apagar lançamento original. A correção foi revertida para evitar duplicação.',
+        shouldApplyDomainMutation: false
+      }, nextConvFailure, null);
+    }
+    
+    // Success
+    var deletedDesc = deleteDryRun.row && deleteDryRun.row.descricao ? deleteDryRun.row.descricao : '';
+    var deletedVal = deleteDryRun.row && deleteDryRun.row.valor ? numberFromSheetValue_(deleteDryRun.row.valor) : 0;
+    result.responseText = '🔄 **Lançamento corrigido!**\n\n🗑️ Deletado: "' + deletedDesc + '" (' + formatMoney_(deletedVal) + ')\n\n' + result.responseText;
+    var nextConv = conversation || emptyConversationState_();
+    nextConv.last_success_ref = result.result_ref;
+    return finishConversationTurn_(chatId, text, result, nextConv, null);
   }
 
   var result = applyParsedFinancialEvent_(update, message, parsed.event, config, referenceData);
