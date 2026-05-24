@@ -28,6 +28,9 @@ function createFakeSheet(headers) {
         appendRow(row) {
             rows.push(row.slice());
         },
+        deleteRow(row) {
+            rows.splice(row - 1, 1);
+        },
         deleteRows(row, rowCount) {
             rows.splice(row - 1, rowCount);
         },

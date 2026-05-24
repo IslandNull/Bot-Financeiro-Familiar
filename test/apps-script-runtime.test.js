@@ -3247,7 +3247,7 @@ test('Apps Script guided registration asks only for missing source', () => {
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
-test('Apps Script conversation context persists a rolling 25-message window and can be cleared', () => {
+test('Apps Script conversation context persists a rolling 5-message window and can be cleared', () => {
     const { context } = createAppsScriptHarness(null, { failOnFetch: true });
 
     for (let index = 1; index <= 30; index += 1) {
@@ -3259,10 +3259,10 @@ test('Apps Script conversation context persists a rolling 25-message window and 
     }
 
     const state = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1);
-    assert.strictEqual(state.messages.length, 25);
+    assert.strictEqual(state.messages.length, 5);
     assert.strictEqual(state.messages[0].text, '/ajuda');
     assert.strictEqual(state.messages[0].role, 'user');
-    assert.strictEqual(state.messages[24].role, 'user');
+    assert.strictEqual(state.messages[4].role, 'user');
 
     const cleared = postPilotMessage(context, '/limpar_contexto', {
         updateId: 'ctx_clear_update',
@@ -4053,4 +4053,265 @@ test('Apps Script dynamic benefit balance calculates correctly in summary and fo
     // /resumo stays compact; benefit detail remains available in the summary payload.
     assert.doesNotMatch(result.responseText, /Saldos de benef/);
     assert.doesNotMatch(result.responseText, /Alelo Gustavo: R\$ 950,00 \(de R\$ 1500,00\)/);
+});
+
+test('Apps Script correction using last_success_ref rolls back purchase and rewrites with new category', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
+    
+    // Setup initial spreadsheet state
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_1234',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        valor: 39.46,
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        descricao: 'mercado 39.46',
+    });
+    sheets.Faturas_Linhas.appendRow(faturasLinhasHeaders.map(h => ({
+        id_linha_fatura: 'FATL_1234',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        id_cartao: 'CARD_NUBANK_GU',
+        competencia: '2026-04',
+        valor_previsto: 39.46,
+        status_origem: 'compra_cartao',
+    })[h] ?? ''));
+    sheets.Idempotency_Log.appendRow(idempotencyHeaders.map(h => ({
+        idempotency_key: 'key_1234',
+        result_ref: 'LAN_1234',
+        status: 'completed',
+    })[h] ?? ''));
+    
+    // Setup active invoice header
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        valor_previsto: 39.46,
+        valor_aberto: 39.46,
+    });
+    
+    // Setup conversation state with last_success_ref
+    context.PropertiesService.getScriptProperties().setProperty(
+        'BFF_CONVERSATION_chat_1',
+        JSON.stringify({
+            messages: [{ role: 'user', text: 'mercado 39.46', at: '2026-04-30T15:00:00Z' }],
+            pending_intent: null,
+            last_success_ref: 'LAN_1234',
+        })
+    );
+    
+    // Mock OpenAI fetch responses in sequence
+    let callCount = 0;
+    context.UrlFetchApp.fetch = function(url) {
+        callCount += 1;
+        if (callCount === 1) {
+            // First call: parse "não, é farmacia" -> correcao_transacao
+            return {
+                getResponseCode: () => 200,
+                getContentText: () => JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                tipo_evento: 'correcao_transacao',
+                                valor: 0,
+                                data: '',
+                                descricao: '39.46 farmacia no nubank',
+                            }),
+                        }],
+                    }],
+                }),
+            };
+        } else {
+            // Second call: parse the new command
+            return {
+                getResponseCode: () => 200,
+                getContentText: () => JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                tipo_evento: 'compra_cartao',
+                                data: '2026-04-30',
+                                competencia: '2026-04',
+                                valor: 39.46,
+                                descricao: '39.46 farmacia no nubank',
+                                id_categoria: 'OPEX_FARMACIA',
+                                id_fonte: 'FONTE_NUBANK_GU',
+                                pessoa: 'Gustavo',
+                                escopo: 'Familiar',
+                                visibilidade: 'detalhada',
+                                id_cartao: 'CARD_NUBANK_GU',
+                                id_fatura: '',
+                                id_divida: '',
+                                id_ativo: '',
+                                afeta_dre: true,
+                                afeta_patrimonio: false,
+                                afeta_caixa_familiar: false,
+                                direcao_caixa_familiar: '',
+                                status: '',
+                            }),
+                        }],
+                    }],
+                }),
+            };
+        }
+    };
+    
+    const result = postPilotMessage(context, 'não, é farmacia');
+    assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /Lançamento corrigido/);
+    assert.match(result.responseText, /Deletado: "mercado/);
+    
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const finalLaunch = sheets.Lancamentos.rows[1];
+    assert.strictEqual(finalLaunch[lancamentosHeaders.indexOf('id_categoria')], 'OPEX_FARMACIA');
+    assert.strictEqual(finalLaunch[lancamentosHeaders.indexOf('valor')], 39.46);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 2);
+});
+
+test('Apps Script tardio correction lookup by value and date successfully deletes old and rewrites', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
+    
+    // Setup two old launches
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_OLD_1',
+        data: '2026-04-23',
+        competencia: '2026-04',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_LANCHE_TRABALHO',
+        valor: 70.36,
+        descricao: 'lanche casal',
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_OLD_2',
+        data: '2026-04-22',
+        competencia: '2026-04',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        valor: 15.00,
+        descricao: 'outro lanche',
+    });
+    
+    // Mock OpenAI fetch responses
+    let callCount = 0;
+    context.UrlFetchApp.fetch = function(url) {
+        callCount += 1;
+        if (callCount === 1) {
+            return {
+                getResponseCode: () => 200,
+                getContentText: () => JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                tipo_evento: 'correcao_transacao',
+                                valor: 70.36,
+                                data: '2026-04-23',
+                                descricao: '70.36 lanche casal categoria OPEX_FARMACIA',
+                            }),
+                        }],
+                    }],
+                }),
+            };
+        } else {
+            return {
+                getResponseCode: () => 200,
+                getContentText: () => JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                tipo_evento: 'despesa',
+                                data: '2026-04-23',
+                                competencia: '2026-04',
+                                valor: 70.36,
+                                descricao: '70.36 lanche casal categoria OPEX_FARMACIA',
+                                id_categoria: 'OPEX_FARMACIA',
+                                id_fonte: 'FONTE_CONTA_FAMILIA',
+                                pessoa: 'Gustavo',
+                                escopo: 'Familiar',
+                                visibilidade: 'detalhada',
+                                id_cartao: '',
+                                id_fatura: '',
+                                id_divida: '',
+                                id_ativo: '',
+                                afeta_dre: true,
+                                afeta_patrimonio: false,
+                                afeta_caixa_familiar: true,
+                                direcao_caixa_familiar: 'saida',
+                                status: 'efetivado',
+                            }),
+                        }],
+                    }],
+                }),
+            };
+        }
+    };
+    
+    const result = postPilotMessage(context, 'corrigir a de 70.36 de ontem para lazer');
+    
+    assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /Lançamento corrigido/);
+    assert.match(result.responseText, /Deletado: "lanche casal/);
+    
+    assert.strictEqual(sheets.Lancamentos.rows.length, 3);
+    const remainingIds = sheets.Lancamentos.rows.slice(1).map(r => r[lancamentosHeaders.indexOf('id_lancamento')]);
+    assert.ok(remainingIds.includes('LAN_OLD_2'));
+    assert.ok(!remainingIds.includes('LAN_OLD_1'));
+    
+    const finalLaunch = sheets.Lancamentos.rows.find(r => r[lancamentosHeaders.indexOf('id_categoria')] === 'OPEX_FARMACIA');
+    assert.ok(finalLaunch);
+    assert.strictEqual(finalLaunch[lancamentosHeaders.indexOf('valor')], 70.36);
+});
+
+test('Apps Script correction fails when target transaction is in a closed period', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
+    
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_CLOSED',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        valor: 39.46,
+        descricao: 'mercado 39.46',
+    });
+    
+    appendFakeClosing(sheets, {
+        competencia: '2026-04',
+        status: 'closed',
+        closed_at: '2026-05-01T10:00:00Z',
+    });
+    
+    context.PropertiesService.getScriptProperties().setProperty(
+        'BFF_CONVERSATION_chat_1',
+        JSON.stringify({
+            messages: [{ role: 'user', text: 'mercado 39.46', at: '2026-04-30T15:00:00Z' }],
+            pending_intent: null,
+            last_success_ref: 'LAN_CLOSED',
+        })
+    );
+    
+    context.UrlFetchApp.fetch = function(url) {
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+                output: [{
+                    content: [{
+                        text: JSON.stringify({
+                            tipo_evento: 'correcao_transacao',
+                            valor: 0,
+                            data: '',
+                            descricao: '39.46 farmacia no nubank',
+                        }),
+                    }],
+                }],
+            }),
+        };
+    };
+    
+    const result = postPilotMessage(context, 'não, é farmacia');
+    
+    assert.strictEqual(result.ok, false);
+    assert.match(result.responseText, /Não é permitido corrigir lançamentos de competências fechadas/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
 });

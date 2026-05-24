@@ -86,6 +86,102 @@ function handleTelegramUpdate_(update, config) {
   var parsed = parseFinancialEventWithOpenAI_(text, config, referenceData, conversation);
   if (!parsed.ok) return finishConversationTurn_(chatId, text, parsed, conversation, null);
 
+  if (parsed.event && parsed.event.tipo_evento === 'correcao_transacao') {
+    if (!config.pilotFinancialMutationEnabled) {
+      return fail_('FINANCIAL_MUTATION_NOT_ENABLED', 'phase', 'Piloto financeiro ainda nao habilitado neste runtime.');
+    }
+    var targetId = '';
+    var targetValor = parsed.event.valor || 0;
+    var targetData = parsed.event.data || '';
+    
+    var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+    if (targetValor > 0) {
+      var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+      var launchHeaders = HEADERS[SHEETS.LANCAMENTOS];
+      var launchLastRow = launchSheet.getLastRow();
+      if (launchLastRow >= 2) {
+        var launchRows = launchSheet.getRange(2, 1, launchLastRow - 1, launchHeaders.length).getValues();
+        var idIndex = launchHeaders.indexOf('id_lancamento');
+        var valIndex = launchHeaders.indexOf('valor');
+        var dateIndex = launchHeaders.indexOf('data');
+        for (var i = launchRows.length - 1; i >= 0; i -= 1) {
+          var valMatch = Math.abs(numberFromSheetValue_(launchRows[i][valIndex]) - targetValor) <= 0.009;
+          var dateMatch = !targetData || formatSheetDate_(launchRows[i][dateIndex]) === targetData;
+          if (valMatch && dateMatch) {
+            targetId = String(launchRows[i][idIndex]);
+            break;
+          }
+        }
+      }
+      if (!targetId) {
+        var transferSheet = spreadsheet.getSheetByName(SHEETS.TRANSFERENCIAS_INTERNAS);
+        var transHeaders = HEADERS[SHEETS.TRANSFERENCIAS_INTERNAS];
+        var transLastRow = transferSheet.getLastRow();
+        if (transLastRow >= 2) {
+          var transRows = transferSheet.getRange(2, 1, transLastRow - 1, transHeaders.length).getValues();
+          var trfIdIndex = transHeaders.indexOf('id_transferencia');
+          var trfValIndex = transHeaders.indexOf('valor');
+          var trfDateIndex = transHeaders.indexOf('data');
+          for (var j = transRows.length - 1; j >= 0; j -= 1) {
+            var valMatch = Math.abs(numberFromSheetValue_(transRows[j][trfValIndex]) - targetValor) <= 0.009;
+            var dateMatch = !targetData || formatSheetDate_(transRows[j][trfDateIndex]) === targetData;
+            if (valMatch && dateMatch) {
+              targetId = String(transRows[j][trfIdIndex]);
+              break;
+            }
+          }
+        }
+      }
+    }
+    
+    if (!targetId && conversation && conversation.last_success_ref) {
+      targetId = conversation.last_success_ref;
+    }
+    
+    if (!targetId) {
+      return finishConversationTurn_(chatId, text, {
+        ok: false,
+        responseText: '⚠️ Não encontrei nenhum lançamento recente correspondente para corrigir.',
+        shouldApplyDomainMutation: false
+      }, conversation, null);
+    }
+    
+    var deleteResult = deleteFinancialTransaction_(targetId, config, referenceData.closedCompetencias);
+    if (!deleteResult.ok) {
+      var errorMsg = deleteResult.error === 'CLOSED_PERIOD' ? 
+        '⚠️ Não é permitido corrigir lançamentos de competências fechadas.' : 
+        '⚠️ Não foi possível deletar o lançamento original para correção.';
+      return finishConversationTurn_(chatId, text, {
+        ok: false,
+        responseText: errorMsg,
+        shouldApplyDomainMutation: false
+      }, conversation, null);
+    }
+    
+    var newText = parsed.event.descricao;
+    var newParsed = parseFinancialEventWithOpenAI_(newText, config, referenceData, conversation);
+    if (!newParsed.ok) {
+      return finishConversationTurn_(chatId, text, {
+        ok: false,
+        responseText: '⚠️ Lançamento anterior deletado, mas falhei ao re-interpretar a correção: ' + newParsed.responseText,
+        shouldApplyDomainMutation: true
+      }, conversation, null);
+    }
+    
+    var result = applyParsedFinancialEvent_(update, message, newParsed.event, config, referenceData);
+    if (result.ok) {
+      var deletedDesc = deleteResult.row && deleteResult.row.descricao ? deleteResult.row.descricao : '';
+      var deletedVal = deleteResult.row && deleteResult.row.valor ? numberFromSheetValue_(deleteResult.row.valor) : 0;
+      result.responseText = '🔄 **Lançamento corrigido!**\n\n🗑️ Deletado: "' + deletedDesc + '" (' + formatMoney_(deletedVal) + ')\n\n' + result.responseText;
+      var nextConv = conversation || emptyConversationState_();
+      nextConv.last_success_ref = result.result_ref;
+      return finishConversationTurn_(chatId, text, result, nextConv, null);
+    } else {
+      result.responseText = '⚠️ Lançamento anterior deletado, mas falhei ao salvar a correção: ' + result.responseText;
+      return finishConversationTurn_(chatId, text, result, conversation, pendingIntentFromFailure_(result, newParsed.event));
+    }
+  }
+
   var result = applyParsedFinancialEvent_(update, message, parsed.event, config, referenceData);
   if (parsed.event.tipo_evento === 'leitura') {
     return finishConversationTurn_(chatId, text, result, conversation, null);
@@ -157,14 +253,17 @@ function finishConversationTurn_(chatId, userText, result, state, pendingIntent)
     role: 'user',
     text: stringValue_(userText).slice(0, 500),
     at: isoNow_(),
-  }]).slice(-25);
+  }]).slice(-5);
   nextState.pending_intent = pendingIntent || null;
+  if (result && result.ok && result.result_ref) {
+    nextState.last_success_ref = result.result_ref;
+  }
   writeConversationState_(chatId, nextState);
   return result;
 }
 
 function emptyConversationState_() {
-  return { messages: [], pending_intent: null };
+  return { messages: [], pending_intent: null, last_success_ref: null };
 }
 
 function conversationStateKey_(chatId) {
@@ -177,16 +276,18 @@ function readConversationState_(chatId) {
   var parsed = raw ? parseJsonSafe_(raw) : null;
   if (!parsed || typeof parsed !== 'object') return emptyConversationState_();
   return {
-    messages: Array.isArray(parsed.messages) ? parsed.messages.slice(-25) : [],
+    messages: Array.isArray(parsed.messages) ? parsed.messages.slice(-5) : [],
     pending_intent: parsed.pending_intent || null,
+    last_success_ref: parsed.last_success_ref || null,
   };
 }
 
 function writeConversationState_(chatId, state) {
   if (!chatId) return;
   PropertiesService.getScriptProperties().setProperty(conversationStateKey_(chatId), JSON.stringify({
-    messages: (state.messages || []).slice(-25),
+    messages: (state.messages || []).slice(-5),
     pending_intent: state.pending_intent || null,
+    last_success_ref: state.last_success_ref || null,
   }));
 }
 
@@ -509,6 +610,8 @@ function buildParserPrompt_(text, referenceData, conversation) {
     'For an invoice payment, use tipo_evento pagamento_fatura, escopo Familiar, visibilidade detalhada, afeta_dre false, afeta_patrimonio false, afeta_caixa_familiar true, an active cash source, and status efetivado.',
     'For a reviewed internal transfer into family cash, use direcao_caixa_familiar entrada and the transfer category defaults. For movement between active own cash sources, use direcao_caixa_familiar interna and afeta_dre/afeta_patrimonio/afeta_caixa_familiar all false. Use id_fonte empty, id_cartao empty, id_fatura empty, id_divida empty, id_ativo empty, and status efetivado.',
     'Rules: card purchases affect DRE now and cash later; invoice payments never affect DRE; internal transfers never affect DRE or net worth.',
+    '# CORRECTION PATTERNS',
+    'If the user wants to correct a previous transaction (e.g. they say "não, é lazer", "corrija para alimentação fora", "a de 70,36 ontem foi farmacia, nao mercado"), return: tipo_evento "correcao_transacao", valor (the decimal amount of the target transaction to correct, or 0 if not specified), data (the date of the target transaction to correct YYYY-MM-DD if mentioned, otherwise empty string), and descricao (the complete corrected text that the user wants to execute, reconstructed cleanly, for example "70.36 lanche casal no mercado pago categoria Alimentação fora").',
     'Today: ' + todaySaoPaulo_() + historyPrompt,
     'User text: ' + JSON.stringify(text.trim()),
   ].join('\n');
@@ -595,6 +698,31 @@ function normalizeParsedEvent_(entry, originalText, referenceData, options) {
       raw_text: stringValue_(originalText),
     };
     return { ok: true, shouldApplyDomainMutation: false, event: normalized };
+  }
+  if (entry.tipo_evento === 'correcao_transacao') {
+    var normalized = {
+      tipo_evento: 'correcao_transacao',
+      data: entry.data ? stringValue_(entry.data) : '',
+      competencia: '',
+      valor: entry.valor ? Number(entry.valor) : 0,
+      descricao: stringValue_(entry.descricao),
+      id_categoria: '',
+      id_fonte: '',
+      pessoa: '',
+      escopo: '',
+      visibilidade: '',
+      id_cartao: '',
+      id_fatura: '',
+      id_divida: '',
+      id_ativo: '',
+      afeta_dre: false,
+      afeta_patrimonio: false,
+      afeta_caixa_familiar: false,
+      direcao_caixa_familiar: '',
+      status: 'efetivado',
+      raw_text: stringValue_(originalText),
+    };
+    return { ok: true, shouldApplyDomainMutation: true, event: normalized };
   }
   var value = normalizeMoneyValue_(entry.valor, originalText, options);
   if (!isFinite(value) || value <= 0) return fail_('INVALID_MONEY', 'valor', GENERIC_RECORD_FAILURE);

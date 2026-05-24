@@ -326,3 +326,175 @@ function handlePilotAssetBalance_(update, message, text, config, referenceData) 
     lock.releaseLock();
   }
 }
+
+function deleteFinancialTransaction_(id_lancamento, config, closedCompetencias) {
+  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+  var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+  var transferSheet = spreadsheet.getSheetByName(SHEETS.TRANSFERENCIAS_INTERNAS);
+  var invoiceResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
+  var invoiceLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
+  var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
+
+  // 1. Search in Lancamentos
+  var launchHeaders = HEADERS[SHEETS.LANCAMENTOS];
+  var launchLastRow = launchSheet.getLastRow();
+  var foundLaunchRow = 0;
+  var launchObj = null;
+  if (launchLastRow >= 2) {
+    var launchRows = launchSheet.getRange(2, 1, launchLastRow - 1, launchHeaders.length).getValues();
+    var idIndex = launchHeaders.indexOf('id_lancamento');
+    for (var i = 0; i < launchRows.length; i += 1) {
+      if (String(launchRows[i][idIndex]) === id_lancamento) {
+        foundLaunchRow = i + 2;
+        launchObj = launchHeaders.reduce(function(res, h, idx) {
+          res[h] = launchRows[i][idx];
+          return res;
+        }, {});
+        break;
+      }
+    }
+  }
+
+  if (foundLaunchRow) {
+    var comp = normalizeSheetCompetencia_(launchObj.competencia);
+    if (closedCompetencias && contains_(closedCompetencias, comp)) {
+      return { ok: false, error: 'CLOSED_PERIOD', row: launchObj };
+    }
+
+    // A. Delete from Faturas_Linhas if card purchase
+    if (launchObj.tipo_evento === 'compra_cartao') {
+      var linesHeaders = HEADERS[SHEETS.FATURAS_LINHAS];
+      var linesLastRow = invoiceLinhasSheet.getLastRow();
+      if (linesLastRow >= 2) {
+        var linesRange = invoiceLinhasSheet.getRange(2, 1, linesLastRow - 1, linesHeaders.length);
+        var linesValues = linesRange.getValues();
+        var idFaturaIndex = linesHeaders.indexOf('id_fatura');
+        var idCartaoIndex = linesHeaders.indexOf('id_cartao');
+        var valorIndex = linesHeaders.indexOf('valor_previsto');
+        var statusOrigemIndex = linesHeaders.indexOf('status_origem');
+        
+        var deletedFaturas = {};
+        // Delete matching lines from bottom to top
+        var numParcelas = Number(launchObj.parcelas) || 1;
+        var deletedCount = 0;
+        for (var j = linesValues.length - 1; j >= 0; j -= 1) {
+          var rowVal = linesValues[j];
+          var matchCard = String(rowVal[idCartaoIndex]) === String(launchObj.id_cartao);
+          var matchStatus = String(rowVal[statusOrigemIndex]) === 'compra_cartao';
+          var valInstallment = roundMoney_(numberFromSheetValue_(launchObj.valor) / numParcelas);
+          var matchValor = Math.abs(numberFromSheetValue_(rowVal[valorIndex]) - valInstallment) <= 0.009;
+          
+          if (matchCard && matchStatus && matchValor) {
+            var rowToDel = j + 2;
+            invoiceLinhasSheet.deleteRow(rowToDel);
+            deletedFaturas[String(rowVal[idFaturaIndex])] = true;
+            deletedCount += 1;
+            if (deletedCount >= numParcelas) {
+              break;
+            }
+          }
+        }
+        
+        // Reconcile headers
+        var keys = Object.keys(deletedFaturas);
+        for (var k = 0; k < keys.length; k += 1) {
+          reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, keys[k]);
+        }
+      }
+    }
+    
+    // B. Restore invoice payment if pagamento_fatura
+    if (launchObj.tipo_evento === 'pagamento_fatura') {
+      var resumoHeaders = HEADERS[SHEETS.FATURAS_RESUMO];
+      var resumoLastRow = invoiceResumoSheet.getLastRow();
+      if (resumoLastRow >= 2) {
+        var resumoRows = invoiceResumoSheet.getRange(2, 1, resumoLastRow - 1, resumoHeaders.length).getValues();
+        var idFaturaIndex = resumoHeaders.indexOf('id_fatura');
+        var statusIndex = resumoHeaders.indexOf('status');
+        var pagoIndex = resumoHeaders.indexOf('valor_pago');
+        
+        for (var idx = 0; idx < resumoRows.length; idx += 1) {
+          if (String(resumoRows[idx][idFaturaIndex]) === String(launchObj.id_fatura)) {
+            var rowNum = idx + 2;
+            invoiceResumoSheet.getRange(rowNum, statusIndex + 1).setValue('prevista');
+            invoiceResumoSheet.getRange(rowNum, pagoIndex + 1).setValue('');
+            reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, String(launchObj.id_fatura));
+            break;
+          }
+        }
+      }
+      
+      // Also delete any reconciliation row in Faturas_Linhas matching the paid invoice
+      var linesHeaders = HEADERS[SHEETS.FATURAS_LINHAS];
+      var linesLastRow = invoiceLinhasSheet.getLastRow();
+      if (linesLastRow >= 2) {
+        var linesRange = invoiceLinhasSheet.getRange(2, 1, linesLastRow - 1, linesHeaders.length);
+        var linesValues = linesRange.getValues();
+        var idFaturaIndex = linesHeaders.indexOf('id_fatura');
+        var statusOrigemIndex = linesHeaders.indexOf('status_origem');
+        for (var j = linesValues.length - 1; j >= 0; j -= 1) {
+          var rowVal = linesValues[j];
+          var matchFatura = String(rowVal[idFaturaIndex]) === String(launchObj.id_fatura);
+          var matchStatus = String(rowVal[statusOrigemIndex]) === 'fatura_prevista';
+          if (matchFatura && matchStatus) {
+            invoiceLinhasSheet.deleteRow(j + 2);
+          }
+        }
+        reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, String(launchObj.id_fatura));
+      }
+    }
+
+    // C. Delete the launch row itself
+    launchSheet.deleteRow(foundLaunchRow);
+
+    // D. Delete from Idempotency_Log
+    deleteIdempotencyRowByResultRef_(idempotencySheet, id_lancamento);
+    return { ok: true, tipo: 'lancamento', row: launchObj };
+  }
+
+  // 2. Search in Transferencias_Internas
+  var transHeaders = HEADERS[SHEETS.TRANSFERENCIAS_INTERNAS];
+  var transLastRow = transferSheet.getLastRow();
+  var foundTransRow = 0;
+  var transObj = null;
+  if (transLastRow >= 2) {
+    var transRows = transferSheet.getRange(2, 1, transLastRow - 1, transHeaders.length).getValues();
+    var trfIdIndex = transHeaders.indexOf('id_transferencia');
+    for (var j = 0; j < transRows.length; j += 1) {
+      if (String(transRows[j][trfIdIndex]) === id_lancamento) {
+        foundTransRow = j + 2;
+        transObj = transHeaders.reduce(function(res, h, idx) {
+          res[h] = transRows[j][idx];
+          return res;
+        }, {});
+        break;
+      }
+    }
+  }
+
+  if (foundTransRow) {
+    var comp = normalizeSheetCompetencia_(transObj.competencia);
+    if (closedCompetencias && contains_(closedCompetencias, comp)) {
+      return { ok: false, error: 'CLOSED_PERIOD', row: transObj };
+    }
+
+    transferSheet.deleteRow(foundTransRow);
+    deleteIdempotencyRowByResultRef_(idempotencySheet, id_lancamento);
+    return { ok: true, tipo: 'transferencia', row: transObj };
+  }
+
+  return { ok: false, error: 'NOT_FOUND' };
+}
+
+function deleteIdempotencyRowByResultRef_(sheet, resultRef) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  var headers = HEADERS[SHEETS.IDEMPOTENCY_LOG];
+  var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  var refIndex = headers.indexOf('result_ref');
+  for (var i = rows.length - 1; i >= 0; i -= 1) {
+    if (String(rows[i][refIndex]) === resultRef) {
+      sheet.deleteRow(i + 2);
+    }
+  }
+}
