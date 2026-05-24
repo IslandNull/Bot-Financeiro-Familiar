@@ -5057,4 +5057,39 @@ test('Apps Script invoice line deletion uses id_lancamento and does not delete o
     assert.strictEqual(remainingLine.id_lancamento, 'LAN_OTHER');
 });
 
+test('Apps Script deletion fails and returns LEGACY_INVOICE_LINES_NOT_FOUND when target card purchase lacks corresponding invoice lines', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
+
+    // Setup initial state: a legacy card purchase launch
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_LEGACY_TARGET',
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_FARMACIA',
+        valor: 100.00,
+        id_cartao: 'CARD_NUBANK_GU',
+        descricao: 'legacy purchase',
+    });
+
+    // Add corresponding invoice lines but WITHOUT id_lancamento (legacy format)
+    sheets.Faturas_Linhas.appendRow(faturasLinhasHeaders.map(h => ({
+        id_linha_fatura: 'FATL_LEGACY',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_05',
+        id_cartao: 'CARD_NUBANK_GU',
+        competencia: '2026-05',
+        valor_previsto: 100.00,
+        status_origem: 'compra_cartao',
+        id_lancamento: '', // empty id_lancamento
+    })[h] ?? ''));
+
+    // Call deleteFinancialTransaction_ for the target ID
+    const deleteResult = context.deleteFinancialTransaction_('LAN_LEGACY_TARGET', { spreadsheetId: 'sheet_1' }, []);
+    
+    assert.strictEqual(deleteResult.ok, false);
+    assert.strictEqual(deleteResult.error, 'LEGACY_INVOICE_LINES_NOT_FOUND');
+
+    // Verify launch was NOT deleted
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2); // header + 1 row remaining
+});
 

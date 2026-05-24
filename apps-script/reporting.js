@@ -2638,12 +2638,16 @@ function recordPilotCardPurchase_(update, message, event, config, referenceData)
     });
 
     if (parcelas > 1) {
-      var valorParcela = roundMoney_(event.valor / parcelas);
+      var totalCents = Math.round(event.valor * 100);
+      var baseParcelaCents = Math.floor(totalCents / parcelas);
+      var remainderCents = totalCents % parcelas;
       var reconciledInstallmentIds = {};
       for (var pi = 0; pi < parcelas; pi += 1) {
         var offsetDate = pi === 0 ? event.data : formatUtcDate_(addUtcMonths_(parseIsoDateUtc_(event.data), pi));
         var installmentInvoice = assignPilotInvoiceCycle_(offsetDate, card);
         findOrAppendInvoiceHeader_(invoiceResumoSheet, installmentInvoice);
+        var parcelaCents = baseParcelaCents + (pi < remainderCents ? 1 : 0);
+        var valorParcela = roundMoney_(parcelaCents / 100);
         var id = stableId_('FATL', [installmentInvoice.id_fatura, event.id_cartao, installmentInvoice.competencia, valorParcela, 'compra_cartao', pi, isoNow_()].join('|'));
         appendRow_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS, {
           id_linha_fatura: id,

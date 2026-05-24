@@ -173,9 +173,12 @@ function handleTelegramUpdate_(update, config) {
     
     var deleteResult = deleteFinancialTransaction_(targetId, config, referenceData.closedCompetencias);
     if (!deleteResult.ok) {
-      var errorMsg = deleteResult.error === 'CLOSED_PERIOD' ? 
-        '⚠️ Não é permitido corrigir lançamentos de competências fechadas.' : 
-        '⚠️ Não foi possível deletar o lançamento original para correção.';
+      var errorMsg = '⚠️ Não foi possível deletar o lançamento original para correção.';
+      if (deleteResult.error === 'CLOSED_PERIOD') {
+        errorMsg = '⚠️ Não é permitido corrigir lançamentos de competências fechadas.';
+      } else if (deleteResult.error === 'LEGACY_INVOICE_LINES_NOT_FOUND') {
+        errorMsg = '⚠️ Esta transação é antiga e não possui vínculo com as faturas no novo formato.\n\n📌 Próximo passo\nCorrija as faturas manualmente na planilha.';
+      }
       return finishConversationTurn_(chatId, text, {
         ok: false,
         responseText: errorMsg,

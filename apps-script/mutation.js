@@ -365,30 +365,41 @@ function deleteFinancialTransaction_(id_lancamento, config, closedCompetencias) 
     if (launchObj.tipo_evento === 'compra_cartao') {
       var linesHeaders = HEADERS[SHEETS.FATURAS_LINHAS];
       var linesLastRow = invoiceLinhasSheet.getLastRow();
+      
+      var foundAnyLine = false;
+      var rowsToDelete = [];
+      var deletedFaturas = {};
+
       if (linesLastRow >= 2) {
         var linesRange = invoiceLinhasSheet.getRange(2, 1, linesLastRow - 1, linesHeaders.length);
         var linesValues = linesRange.getValues();
         var idFaturaIndex = linesHeaders.indexOf('id_fatura');
         var idLancamentoIndex = linesHeaders.indexOf('id_lancamento');
         
-        var deletedFaturas = {};
-        // Delete matching lines from bottom to top
-        for (var j = linesValues.length - 1; j >= 0; j -= 1) {
-          var rowVal = linesValues[j];
-          var matchId = idLancamentoIndex !== -1 && String(rowVal[idLancamentoIndex]) === String(id_lancamento);
-          
-          if (matchId) {
-            var rowToDel = j + 2;
-            invoiceLinhasSheet.deleteRow(rowToDel);
-            deletedFaturas[String(rowVal[idFaturaIndex])] = true;
+        if (idLancamentoIndex !== -1) {
+          for (var j = linesValues.length - 1; j >= 0; j -= 1) {
+            var rowVal = linesValues[j];
+            if (String(rowVal[idLancamentoIndex]) === String(id_lancamento)) {
+              foundAnyLine = true;
+              rowsToDelete.push(j + 2);
+              deletedFaturas[String(rowVal[idFaturaIndex])] = true;
+            }
           }
         }
-        
-        // Reconcile headers
-        var keys = Object.keys(deletedFaturas);
-        for (var k = 0; k < keys.length; k += 1) {
-          reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, keys[k]);
-        }
+      }
+
+      if (!foundAnyLine) {
+        return { ok: false, error: 'LEGACY_INVOICE_LINES_NOT_FOUND', row: launchObj };
+      }
+
+      for (var rd = 0; rd < rowsToDelete.length; rd++) {
+         invoiceLinhasSheet.deleteRow(rowsToDelete[rd]);
+      }
+      
+      // Reconcile headers
+      var keys = Object.keys(deletedFaturas);
+      for (var k = 0; k < keys.length; k += 1) {
+        reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, keys[k]);
       }
     }
     

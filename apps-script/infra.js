@@ -1,5 +1,11 @@
 function readConfig_() {
   var props = PropertiesService.getScriptProperties();
+  var essentialCostOfLife = Number(props.getProperty('ESSENTIAL_COST_OF_LIFE'));
+  if (isNaN(essentialCostOfLife) || essentialCostOfLife <= 0) essentialCostOfLife = 5000;
+  
+  var reserveMonths = Number(props.getProperty('RESERVE_MONTHS'));
+  if (isNaN(reserveMonths) || reserveMonths <= 0) reserveMonths = 3;
+
   return {
     webhookSecret: props.getProperty('WEBHOOK_SECRET') || '',
     authorizedUserIds: splitList_(props.getProperty('AUTHORIZED_USER_IDS')),
@@ -8,8 +14,8 @@ function readConfig_() {
     spreadsheetId: props.getProperty('SPREADSHEET_ID') || '',
     openAiApiKey: props.getProperty('OPENAI_API_KEY') || '',
     openAiModel: props.getProperty('OPENAI_MODEL') || DEFAULT_OPENAI_MODEL,
-    essentialCostOfLife: Number(props.getProperty('ESSENTIAL_COST_OF_LIFE') || 5000),
-    reserveMonths: Number(props.getProperty('RESERVE_MONTHS') || 3),
+    essentialCostOfLife: essentialCostOfLife,
+    reserveMonths: reserveMonths,
   };
 }
 
