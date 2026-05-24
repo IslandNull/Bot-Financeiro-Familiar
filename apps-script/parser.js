@@ -152,6 +152,25 @@ function handleTelegramUpdate_(update, config) {
       }, conversation, null);
     }
     
+    var newText = parsed.event.descricao;
+    var newParsed = parseFinancialEventWithOpenAI_(newText, config, referenceData, conversation);
+    if (!newParsed.ok) {
+      return finishConversationTurn_(chatId, text, {
+        ok: false,
+        responseText: '⚠️ Falhei ao re-interpretar a correção: ' + newParsed.responseText,
+        shouldApplyDomainMutation: false
+      }, conversation, null);
+    }
+    
+    var validationResult = validateParsedFinancialEvent_(newParsed.event, referenceData);
+    if (!validationResult.ok) {
+      return finishConversationTurn_(chatId, text, {
+        ok: false,
+        responseText: '⚠️ A correção informada é inválida: ' + (validationResult.responseText || validationResult.error || ''),
+        shouldApplyDomainMutation: false
+      }, conversation, pendingIntentFromFailure_(validationResult, newParsed.event));
+    }
+    
     var deleteResult = deleteFinancialTransaction_(targetId, config, referenceData.closedCompetencias);
     if (!deleteResult.ok) {
       var errorMsg = deleteResult.error === 'CLOSED_PERIOD' ? 
@@ -161,16 +180,6 @@ function handleTelegramUpdate_(update, config) {
         ok: false,
         responseText: errorMsg,
         shouldApplyDomainMutation: false
-      }, conversation, null);
-    }
-    
-    var newText = parsed.event.descricao;
-    var newParsed = parseFinancialEventWithOpenAI_(newText, config, referenceData, conversation);
-    if (!newParsed.ok) {
-      return finishConversationTurn_(chatId, text, {
-        ok: false,
-        responseText: '⚠️ Lançamento anterior deletado, mas falhei ao re-interpretar a correção: ' + newParsed.responseText,
-        shouldApplyDomainMutation: true
       }, conversation, null);
     }
     
@@ -247,6 +256,56 @@ function applyParsedFinancialEvent_(update, message, event, config, referenceDat
   if (!expenseBalanceCheck.ok) return expenseBalanceCheck;
 
   return recordPilotExpense_(update, message, event, config, referenceData);
+}
+
+function validateParsedFinancialEvent_(event, referenceData) {
+  var closedPeriodCheck = validateClosedPeriodForEvent_(event, referenceData.closedCompetencias);
+  if (!closedPeriodCheck.ok) return closedPeriodCheck;
+
+  if (event.tipo_evento === 'leitura') {
+    return { ok: true };
+  }
+
+  if (event.tipo_evento === 'pagamento_fatura') {
+    var invoicePaymentCheck = validatePilotInvoicePaymentEvent_(event, referenceData);
+    if (!invoicePaymentCheck.ok) return invoicePaymentCheck;
+    var invoiceBalanceCheck = validateSufficientSourceBalanceForEvent_(event, referenceData);
+    if (!invoiceBalanceCheck.ok) return invoiceBalanceCheck;
+    return { ok: true };
+  }
+
+  if (event.tipo_evento === 'fatura_prevista') {
+    var invoiceExposureCheck = validatePilotInvoiceExposureEvent_(event, referenceData);
+    if (!invoiceExposureCheck.ok) return invoiceExposureCheck;
+    return { ok: true };
+  }
+
+  if (event.tipo_evento === 'compra_cartao') {
+    var cardCheck = validatePilotCardPurchaseEvent_(event, referenceData);
+    if (!cardCheck.ok) return cardCheck;
+    return { ok: true };
+  }
+
+  if (event.tipo_evento === 'transferencia_interna') {
+    var transferCheck = validatePilotInternalTransferEvent_(event, referenceData);
+    if (!transferCheck.ok) return transferCheck;
+    return { ok: true };
+  }
+
+  if (isGenericLaunchEventType_(event.tipo_evento)) {
+    var genericCheck = validatePilotGenericLaunchEvent_(event, referenceData);
+    if (!genericCheck.ok) return genericCheck;
+    var genericBalanceCheck = validateSufficientSourceBalanceForEvent_(event, referenceData);
+    if (!genericBalanceCheck.ok) return genericBalanceCheck;
+    return { ok: true };
+  }
+
+  var pilotCheck = validatePilotExpenseEvent_(event, referenceData);
+  if (!pilotCheck.ok) return pilotCheck;
+  var expenseBalanceCheck = validateSufficientSourceBalanceForEvent_(event, referenceData);
+  if (!expenseBalanceCheck.ok) return expenseBalanceCheck;
+
+  return { ok: true };
 }
 
 function isClearConversationCommand_(text) {

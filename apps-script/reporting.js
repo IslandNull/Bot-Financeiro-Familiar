@@ -205,7 +205,8 @@ function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
     var categoriesById = indexBy_(readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS), 'id_categoria');
     var cardsById = indexBy_(readRowsAsObjects_(cardSheet, SHEETS.CARTOES), 'id_cartao');
     var sourcesById = indexBy_(readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES), 'id_fonte');
-    var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById);
+    var reserveTarget = Number(config.essentialCostOfLife || 5000) * Number(config.reserveMonths || 3);
+    var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget);
 
     return {
       ok: true,
@@ -218,7 +219,7 @@ function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
   }
 }
 
-function computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById) {
+function computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget) {
   var dre = launches.reduce(function(summary, row) {
     var amount = numberFromSheetValue_(row.valor);
     if (row.afeta_dre !== true) return summary;
@@ -271,7 +272,7 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     ? roundMoney_(sourceBalanceSummary.saldos_fontes_disponivel + reservaTotal)
     : cash.sobra_caixa;
   var margemPosObrigacoes = roundMoney_(coverageBase - faturas60d - obrigacoes60d);
-  var capacity = computePilotDecisionCapacity_(coverageBase, reservaTotal, faturas60d, obrigacoes60d, debts);
+  var capacity = computePilotDecisionCapacity_(coverageBase, reservaTotal, faturas60d, obrigacoes60d, debts, reserveTarget);
 
   var categoriasDicionario = {};
   if (categoriesById) {
@@ -321,7 +322,7 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     destino_obrigacoes: capacity.destino_obrigacoes,
     destino_investimentos: capacity.destino_investimentos,
     destino_amortizacao: capacity.destino_amortizacao,
-    destino_sugerido: suggestPilotDestination_(coverageBase, reservaTotal, faturas60d, obrigacoes60d),
+    destino_sugerido: suggestPilotDestination_(coverageBase, reservaTotal, faturas60d, obrigacoes60d, reserveTarget),
     eventos_detalhados: countSharedDetailedEvents_(launches),
     eventos_detalhados_preview: buildSharedDetailedEventPreview_(launches, 5, categoriesById || {}),
     categorias_gastos: summarizePilotSpendingCategories_(launches, categoriesById || {}, competencia),
@@ -657,11 +658,11 @@ function normalizeRequestedCompetencia_(value) {
   return fail_('INVALID_REQUESTED_COMPETENCIA', 'competencia', GENERIC_REQUEST_FAILURE);
 }
 
-function computePilotDecisionCapacity_(coverageBase, reservaTotal, faturas60d, obrigacoes60d, debts) {
-  var reserveTarget = 15000;
+function computePilotDecisionCapacity_(coverageBase, reservaTotal, faturas60d, obrigacoes60d, debts, reserveTarget) {
+  var reserveTargetVal = reserveTarget !== undefined ? reserveTarget : 15000;
   var immediateObligations = roundMoney_(faturas60d + obrigacoes60d);
   var margemPosObrigacoes = roundMoney_(coverageBase - immediateObligations);
-  var reservaGap = roundMoney_(Math.max(0, reserveTarget - reservaTotal));
+  var reservaGap = roundMoney_(Math.max(0, reserveTargetVal - reservaTotal));
   var capacidadeAporteSegura = roundMoney_(Math.max(0, margemPosObrigacoes - reservaGap));
   var parcelaMaximaSegura = roundMoney_(Math.max(0, margemPosObrigacoes * 0.25));
   var activeDebts = debts.filter(function(row) { return row.status === 'ativa'; });
@@ -901,11 +902,12 @@ function buildSharedDetailedEventPreview_(launches, limit, categoriesById) {
   });
 }
 
-function suggestPilotDestination_(coverageBase, reservaTotal, faturas60d, obrigacoes60d) {
+function suggestPilotDestination_(coverageBase, reservaTotal, faturas60d, obrigacoes60d, reserveTarget) {
+  var target = reserveTarget !== undefined ? reserveTarget : 15000;
   var immediateObligations = roundMoney_(faturas60d + obrigacoes60d);
   if (coverageBase <= 0) return 'sem_sobra';
   if (coverageBase < immediateObligations) return 'manter_caixa';
-  if (reservaTotal < 15000) return 'reforcar_reserva';
+  if (reservaTotal < target) return 'reforcar_reserva';
   return 'investir_ou_amortizar_revisar';
 }
 
@@ -2650,6 +2652,7 @@ function recordPilotCardPurchase_(update, message, event, config, referenceData)
           competencia: installmentInvoice.competencia,
           valor_previsto: valorParcela,
           status_origem: 'compra_cartao',
+          id_lancamento: resultRef,
         });
         reconciledInstallmentIds[installmentInvoice.id_fatura] = true;
       }
@@ -2667,6 +2670,7 @@ function recordPilotCardPurchase_(update, message, event, config, referenceData)
         competencia: invoice.competencia,
         valor_previsto: event.valor,
         status_origem: 'compra_cartao',
+        id_lancamento: resultRef,
       });
       reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, invoice.id_fatura);
     }

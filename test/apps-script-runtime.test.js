@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const crypto = require('crypto');
@@ -4279,6 +4279,7 @@ test('Apps Script correction using last_success_ref rolls back purchase and rewr
         competencia: '2026-04',
         valor_previsto: 39.46,
         status_origem: 'compra_cartao',
+        id_lancamento: 'LAN_1234',
     })[h] ?? ''));
     sheets.Idempotency_Log.appendRow(idempotencyHeaders.map(h => ({
         idempotency_key: 'key_1234',
@@ -4493,22 +4494,57 @@ test('Apps Script correction fails when target transaction is in a closed period
         })
     );
 
+    let callCount = 0;
     context.UrlFetchApp.fetch = function(url) {
-        return {
-            getResponseCode: () => 200,
-            getContentText: () => JSON.stringify({
-                output: [{
-                    content: [{
-                        text: JSON.stringify({
-                            tipo_evento: 'correcao_transacao',
-                            valor: 0,
-                            data: '',
-                            descricao: '39.46 farmacia no nubank',
-                        }),
+        callCount += 1;
+        if (callCount === 1) {
+            return {
+                getResponseCode: () => 200,
+                getContentText: () => JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                tipo_evento: 'correcao_transacao',
+                                valor: 0,
+                                data: '',
+                                descricao: '39.46 farmacia no nubank',
+                            }),
+                        }],
                     }],
-                }],
-            }),
-        };
+                }),
+            };
+        } else {
+            return {
+                getResponseCode: () => 200,
+                getContentText: () => JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                tipo_evento: 'compra_cartao',
+                                data: '2026-05-01',
+                                competencia: '2026-05',
+                                valor: 39.46,
+                                descricao: '39.46 farmacia no nubank',
+                                id_categoria: 'OPEX_FARMACIA',
+                                id_fonte: 'FONTE_NUBANK_GU',
+                                pessoa: 'Gustavo',
+                                escopo: 'Familiar',
+                                visibilidade: 'detalhada',
+                                id_cartao: 'CARD_NUBANK_GU',
+                                id_fatura: '',
+                                id_divida: '',
+                                id_ativo: '',
+                                afeta_dre: true,
+                                afeta_patrimonio: false,
+                                afeta_caixa_familiar: false,
+                                direcao_caixa_familiar: '',
+                                status: '',
+                            }),
+                        }],
+                    }],
+                }),
+            };
+        }
     };
 
     const result = postPilotMessage(context, 'nao, e farmacia');
@@ -4880,6 +4916,145 @@ test('Apps Script budget report command displays active categories and rollover 
     assert.doesNotMatch(resultJune.responseText, /Saldo anterior: -/);
     assert.match(resultJune.responseText, /Dispon.vel: R\$ 300,00 \(0%\)/);
     assert.match(resultAugust.responseText, /Dispon.vel: R\$ 900,00 \(0%\)/);
+});
+
+test('Apps Script correction fails and keeps original transaction intact if new parse fails validation', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
+
+    // Setup initial spreadsheet state with one launch
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_VALID_1',
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        valor: 50.00,
+        descricao: 'mercado 50.00',
+    });
+
+    context.PropertiesService.getScriptProperties().setProperty(
+        'BFF_CONVERSATION_chat_1',
+        JSON.stringify({
+            messages: [{ role: 'user', text: 'mercado 50.00', at: '2026-05-15T10:00:00Z' }],
+            pending_intent: null,
+            last_success_ref: 'LAN_VALID_1',
+        })
+    );
+
+    // Mock OpenAI fetch responses:
+    // First call parses to correcao_transacao
+    // Second call parses to an invalid event (e.g., negative money)
+    let callCount = 0;
+    context.UrlFetchApp.fetch = function(url) {
+        callCount += 1;
+        if (callCount === 1) {
+            return {
+                getResponseCode: () => 200,
+                getContentText: () => JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                tipo_evento: 'correcao_transacao',
+                                valor: 0,
+                                data: '',
+                                descricao: 'invalid event description',
+                            }),
+                        }],
+                    }],
+                }),
+            };
+        } else {
+            return {
+                getResponseCode: () => 200,
+                getContentText: () => JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                tipo_evento: 'despesa',
+                                data: '2026-05-15',
+                                competencia: '2026-05',
+                                valor: 50.00,
+                                id_categoria: 'OPEX_MERCADO_SEMANA',
+                                id_fonte: '', // Invalid/missing source, will fail validation
+                                pessoa: 'Gustavo',
+                                escopo: 'Familiar',
+                            }),
+                        }],
+                    }],
+                }),
+            };
+        }
+    };
+
+    const result = postPilotMessage(context, 'nao, e farmacia');
+
+    assert.strictEqual(result.ok, false);
+    assert.match(result.responseText, /A correção informada é inválida/);
+    
+    // Assert original launch is still in the database (2 rows = header + 1 launch)
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(sheets.Lancamentos.rows[1][lancamentosHeaders.indexOf('id_lancamento')], 'LAN_VALID_1');
+});
+
+test('Apps Script invoice line deletion uses id_lancamento and does not delete other card purchase lines of identical value', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
+
+    // Setup initial state: two card purchases of the same amount but different launch IDs
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_TARGET',
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_FARMACIA',
+        valor: 100.00,
+        id_cartao: 'CARD_NUBANK_GU',
+        descricao: 'target purchase',
+    });
+
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_OTHER',
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_FARMACIA',
+        valor: 100.00,
+        id_cartao: 'CARD_NUBANK_GU',
+        descricao: 'other purchase',
+    });
+
+    // Add corresponding invoice lines in Faturas_Linhas
+    sheets.Faturas_Linhas.appendRow(faturasLinhasHeaders.map(h => ({
+        id_linha_fatura: 'FATL_TARGET',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_05',
+        id_cartao: 'CARD_NUBANK_GU',
+        competencia: '2026-05',
+        valor_previsto: 100.00,
+        status_origem: 'compra_cartao',
+        id_lancamento: 'LAN_TARGET',
+    })[h] ?? ''));
+
+    sheets.Faturas_Linhas.appendRow(faturasLinhasHeaders.map(h => ({
+        id_linha_fatura: 'FATL_OTHER',
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_05',
+        id_cartao: 'CARD_NUBANK_GU',
+        competencia: '2026-05',
+        valor_previsto: 100.00,
+        status_origem: 'compra_cartao',
+        id_lancamento: 'LAN_OTHER',
+    })[h] ?? ''));
+
+    // Assert initially 2 lines exist
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 3); // header + 2 rows
+
+    // Call deleteFinancialTransaction_ for the target ID
+    const deleteResult = context.deleteFinancialTransaction_('LAN_TARGET', { spreadsheetId: 'sheet_1' }, []);
+    assert.strictEqual(deleteResult.ok, true);
+
+    // Verify target line was deleted but other line remains
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 2); // header + 1 row remaining
+    const remainingLine = Object.fromEntries(faturasLinhasHeaders.map((header, index) => [header, sheets.Faturas_Linhas.rows[1][index]]));
+    assert.strictEqual(remainingLine.id_linha_fatura, 'FATL_OTHER');
+    assert.strictEqual(remainingLine.id_lancamento, 'LAN_OTHER');
 });
 
 

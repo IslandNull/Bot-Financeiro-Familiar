@@ -8,6 +8,8 @@ function readConfig_() {
     spreadsheetId: props.getProperty('SPREADSHEET_ID') || '',
     openAiApiKey: props.getProperty('OPENAI_API_KEY') || '',
     openAiModel: props.getProperty('OPENAI_MODEL') || DEFAULT_OPENAI_MODEL,
+    essentialCostOfLife: Number(props.getProperty('ESSENTIAL_COST_OF_LIFE') || 5000),
+    reserveMonths: Number(props.getProperty('RESERVE_MONTHS') || 3),
   };
 }
 

@@ -363,3 +363,48 @@ test('strict parser contract rejects year bounds, far future dates, and max amou
     const maxAllowed = validateParsedEvent(baseEvent({ valor: '1000000.00' }));
     assert.strictEqual(maxAllowed.ok, true, JSON.stringify(maxAllowed.errors));
 });
+
+test('planCardPurchase splits and preserves cents', () => {
+    const purchase = baseEvent({
+        tipo_evento: 'compra_cartao',
+        valor: '100.00',
+        descricao: 'compra 100 em 3x',
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fonte: undefined,
+        afeta_caixa_familiar: false,
+        parcelas: 3,
+    });
+    const result = planCardPurchase(purchase, {
+        id_cartao: 'CARD_NUBANK_GU',
+        fechamento_dia: 30,
+        vencimento_dia: 7,
+    });
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.strictEqual(result.invoices.length, 3);
+    assert.strictEqual(result.invoices[0].valor_previsto, 33.34);
+    assert.strictEqual(result.invoices[1].valor_previsto, 33.33);
+    assert.strictEqual(result.invoices[2].valor_previsto, 33.33);
+
+    const purchase2 = baseEvent({
+        tipo_evento: 'compra_cartao',
+        valor: '50.00',
+        descricao: 'compra 50 em 6x',
+        id_cartao: 'CARD_NUBANK_GU',
+        id_fonte: undefined,
+        afeta_caixa_familiar: false,
+        parcelas: 6,
+    });
+    const result2 = planCardPurchase(purchase2, {
+        id_cartao: 'CARD_NUBANK_GU',
+        fechamento_dia: 30,
+        vencimento_dia: 7,
+    });
+    assert.strictEqual(result2.ok, true, JSON.stringify(result2.errors));
+    assert.strictEqual(result2.invoices.length, 6);
+    assert.strictEqual(result2.invoices[0].valor_previsto, 8.34);
+    assert.strictEqual(result2.invoices[1].valor_previsto, 8.34);
+    assert.strictEqual(result2.invoices[2].valor_previsto, 8.33);
+    assert.strictEqual(result2.invoices[3].valor_previsto, 8.33);
+    assert.strictEqual(result2.invoices[4].valor_previsto, 8.33);
+    assert.strictEqual(result2.invoices[5].valor_previsto, 8.33);
+});

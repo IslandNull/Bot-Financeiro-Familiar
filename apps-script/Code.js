@@ -56,7 +56,7 @@ var HEADERS = {
   Dividas: ['id_divida', 'nome', 'credor', 'tipo', 'escopo', 'saldo_devedor', 'parcela_atual', 'parcelas_total', 'valor_parcela', 'taxa_juros', 'sistema_amortizacao', 'data_atualizacao', 'status', 'observacao'],
   Fechamento_Familiar: ['competencia', 'status', 'receitas_dre', 'despesas_dre', 'resultado_dre', 'caixa_entradas', 'caixa_saidas', 'sobra_caixa', 'faturas_60d', 'obrigacoes_60d', 'reserva_total', 'patrimonio_liquido', 'margem_pos_obrigacoes', 'capacidade_aporte_segura', 'parcela_maxima_segura', 'pode_avaliar_amortizacao', 'motivo_bloqueio_amortizacao', 'destino_reserva', 'destino_obrigacoes', 'destino_investimentos', 'destino_amortizacao', 'destino_sugerido', 'observacao', 'created_at', 'closed_at'],
   Faturas_Resumo: ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto_total', 'valor_fechado', 'valor_pago', 'valor_aberto', 'status', 'authority_count'],
-  Faturas_Linhas: ['id_linha_fatura', 'id_fatura', 'id_cartao', 'competencia', 'valor_previsto', 'status_origem'],
+  Faturas_Linhas: ['id_linha_fatura', 'id_fatura', 'id_cartao', 'competencia', 'valor_previsto', 'status_origem', 'id_lancamento'],
   Lancamentos: ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'parcelas', 'created_at'],
   Patrimonio_Ativos: ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'],
   Rendas_Recorrentes: ['id_renda', 'pessoa', 'descricao', 'valor_planejado', 'tipo_renda', 'beneficio_restrito', 'ativo', 'observacao'],
@@ -118,6 +118,9 @@ function doGet(e) {
   }
   if (action === 'reconcile_faturas') {
     return json_(reconcileAllFaturas());
+  }
+  if (action === 'schema_upgrade') {
+    return json_(upgradeSchemaV56());
   }
   return json_({ ok: false, error: 'UNKNOWN_ACTION', action: action });
 }
@@ -716,3 +719,21 @@ function reconcileAllFaturas() {
   }
   return { ok: true, reconciled: reconciledCount };
 }
+
+function upgradeSchemaV56() {
+  var config = readConfig_();
+  if (!config.spreadsheetId) return { ok: false, error: 'MISSING_SPREADSHEET_ID' };
+  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+  var sheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
+  if (!sheet) return { ok: false, error: 'SHEET_NOT_FOUND' };
+
+  var expected = HEADERS.Faturas_Linhas;
+  var actual = sheet.getLastRow() > 0 ? sheet.getRange(1, 1, 1, expected.length).getValues()[0].map(function(value) { return String(value || '').trim(); }) : [];
+
+  if (actual.indexOf('id_lancamento') === -1) {
+    sheet.getRange(1, expected.indexOf('id_lancamento') + 1).setValue('id_lancamento');
+    return { ok: true, status: 'upgraded', message: 'Added id_lancamento column to Faturas_Linhas' };
+  }
+  return { ok: true, status: 'no_change', message: 'Schema already up to date' };
+}
+

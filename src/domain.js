@@ -521,14 +521,20 @@ function planCardPurchase(event, card) {
     }
 
     const cycles = assignInstallmentCycles(validation.normalized.data, card, parcelas);
-    const valorParcela = roundMoney(validation.normalized.valor / parcelas);
-    const invoices = cycles.map((cycle) => ({
-        ...cycle,
-        valor_previsto: valorParcela,
-        valor_fechado: '',
-        valor_pago: '',
-        status: 'prevista',
-    }));
+    const totalCents = Math.round(validation.normalized.valor * 100);
+    const baseParcelaCents = Math.floor(totalCents / parcelas);
+    const remainderCents = totalCents % parcelas;
+
+    const invoices = cycles.map((cycle, index) => {
+        const parcelaCents = baseParcelaCents + (index < remainderCents ? 1 : 0);
+        return {
+            ...cycle,
+            valor_previsto: roundMoney(parcelaCents / 100),
+            valor_fechado: '',
+            valor_pago: '',
+            status: 'prevista',
+        };
+    });
 
     return {
         ok: true,

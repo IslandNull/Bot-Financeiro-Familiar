@@ -369,29 +369,18 @@ function deleteFinancialTransaction_(id_lancamento, config, closedCompetencias) 
         var linesRange = invoiceLinhasSheet.getRange(2, 1, linesLastRow - 1, linesHeaders.length);
         var linesValues = linesRange.getValues();
         var idFaturaIndex = linesHeaders.indexOf('id_fatura');
-        var idCartaoIndex = linesHeaders.indexOf('id_cartao');
-        var valorIndex = linesHeaders.indexOf('valor_previsto');
-        var statusOrigemIndex = linesHeaders.indexOf('status_origem');
+        var idLancamentoIndex = linesHeaders.indexOf('id_lancamento');
         
         var deletedFaturas = {};
         // Delete matching lines from bottom to top
-        var numParcelas = Number(launchObj.parcelas) || 1;
-        var deletedCount = 0;
         for (var j = linesValues.length - 1; j >= 0; j -= 1) {
           var rowVal = linesValues[j];
-          var matchCard = String(rowVal[idCartaoIndex]) === String(launchObj.id_cartao);
-          var matchStatus = String(rowVal[statusOrigemIndex]) === 'compra_cartao';
-          var valInstallment = roundMoney_(numberFromSheetValue_(launchObj.valor) / numParcelas);
-          var matchValor = Math.abs(numberFromSheetValue_(rowVal[valorIndex]) - valInstallment) <= 0.009;
+          var matchId = idLancamentoIndex !== -1 && String(rowVal[idLancamentoIndex]) === String(id_lancamento);
           
-          if (matchCard && matchStatus && matchValor) {
+          if (matchId) {
             var rowToDel = j + 2;
             invoiceLinhasSheet.deleteRow(rowToDel);
             deletedFaturas[String(rowVal[idFaturaIndex])] = true;
-            deletedCount += 1;
-            if (deletedCount >= numParcelas) {
-              break;
-            }
           }
         }
         

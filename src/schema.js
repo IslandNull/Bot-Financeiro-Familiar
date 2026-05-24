@@ -63,6 +63,7 @@ const HEADERS = {
         'competencia',
         'valor_previsto',
         'status_origem',
+        'id_lancamento',
     ],
     [SHEETS.LANCAMENTOS]: [
         'id_lancamento',
