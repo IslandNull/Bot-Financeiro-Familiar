@@ -50,7 +50,7 @@ var SHEETS = {
 };
 var HEADERS = {
   Cartoes: ['id_cartao', 'id_fonte', 'nome', 'titular', 'fechamento_dia', 'vencimento_dia', 'limite', 'ativo'],
-  Config_Categorias: ['id_categoria', 'nome', 'grupo', 'tipo_evento_padrao', 'classe_dre', 'escopo_padrao', 'afeta_dre_padrao', 'afeta_patrimonio_padrao', 'afeta_caixa_familiar_padrao', 'visibilidade_padrao', 'ativo'],
+  Config_Categorias: ['id_categoria', 'nome', 'grupo', 'tipo_evento_padrao', 'classe_dre', 'escopo_padrao', 'afeta_dre_padrao', 'afeta_patrimonio_padrao', 'afeta_caixa_familiar_padrao', 'visibilidade_padrao', 'limite_mensal', 'acumula_sobra', 'ativo'],
   Config_Fontes: ['id_fonte', 'nome', 'tipo', 'titular', 'moeda', 'ativo'],
   Dividas: ['id_divida', 'nome', 'credor', 'tipo', 'escopo', 'saldo_devedor', 'parcela_atual', 'parcelas_total', 'valor_parcela', 'taxa_juros', 'sistema_amortizacao', 'data_atualizacao', 'status', 'observacao'],
   Fechamento_Familiar: ['competencia', 'status', 'receitas_dre', 'despesas_dre', 'resultado_dre', 'caixa_entradas', 'caixa_saidas', 'sobra_caixa', 'faturas_60d', 'obrigacoes_60d', 'reserva_total', 'patrimonio_liquido', 'margem_pos_obrigacoes', 'capacidade_aporte_segura', 'parcela_maxima_segura', 'pode_avaliar_amortizacao', 'motivo_bloqueio_amortizacao', 'destino_reserva', 'destino_obrigacoes', 'destino_investimentos', 'destino_amortizacao', 'destino_sugerido', 'observacao', 'created_at', 'closed_at'],
@@ -470,10 +470,10 @@ function exportSnapshotV55() {
     lines.push('## Config_Categorias');
     lines.push('');
     var catRows = readRowsAsObjects_(catSheet, SHEETS.CONFIG_CATEGORIAS);
-    lines.push('| ID Categoria | Nome | Grupo | Tipo Evento Padrao | Ativo |');
-    lines.push('| --- | --- | --- | --- | --- |');
+    lines.push('| ID Categoria | Nome | Grupo | Tipo Evento Padrao | Limite | Acumula | Ativo |');
+    lines.push('| --- | --- | --- | --- | ---: | --- | --- |');
     for (var ct = 0; ct < catRows.length; ct++) {
-      lines.push('| ' + stringValue_(catRows[ct].id_categoria) + ' | ' + stringValue_(catRows[ct].nome) + ' | ' + stringValue_(catRows[ct].grupo) + ' | ' + stringValue_(catRows[ct].tipo_evento_padrao) + ' | ' + stringValue_(catRows[ct].ativo) + ' |');
+      lines.push('| ' + stringValue_(catRows[ct].id_categoria) + ' | ' + stringValue_(catRows[ct].nome) + ' | ' + stringValue_(catRows[ct].grupo) + ' | ' + stringValue_(catRows[ct].tipo_evento_padrao) + ' | ' + stringValue_(catRows[ct].limite_mensal) + ' | ' + stringValue_(catRows[ct].acumula_sobra) + ' | ' + stringValue_(catRows[ct].ativo) + ' |');
     }
     lines.push('');
   }

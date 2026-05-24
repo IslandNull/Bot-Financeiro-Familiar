@@ -4351,3 +4351,213 @@ test('Apps Script correction fails when target transaction is in a closed period
     assert.match(result.responseText, /Não é permitido corrigir lançamentos de competências fechadas/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
 });
+
+test('Apps Script validation alerts when category is over budget', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
+    
+    sheets.Config_Categorias.rows.splice(1);
+    
+    const seedCats = [
+        {
+            id_categoria: 'OPEX_DELIVERY_FAMILIAR',
+            nome: 'Delivery familiar',
+            grupo: 'Lazer',
+            tipo_evento_padrao: 'despesa',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'detalhada',
+            limite_mensal: 300,
+            acumula_sobra: false,
+            ativo: true,
+        },
+        {
+            id_categoria: 'OPEX_PET',
+            nome: 'Pet',
+            grupo: 'Casa',
+            tipo_evento_padrao: 'compra_cartao',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: false,
+            visibilidade_padrao: 'detalhada',
+            limite_mensal: 300,
+            acumula_sobra: true,
+            ativo: true,
+        }
+    ];
+    
+    seedCats.forEach((row) => {
+        sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => row[header] === undefined ? '' : row[header]));
+    });
+    
+    context.UrlFetchApp.fetch = function(url) {
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+                output: [{
+                    content: [{
+                        text: JSON.stringify({
+                            tipo_evento: 'despesa',
+                            valor: 30,
+                            data: '2026-05-24',
+                            competencia: '2026-05',
+                            descricao: 'delivery familiar',
+                            id_categoria: 'OPEX_DELIVERY_FAMILIAR',
+                            id_fonte: 'FONTE_CONTA_FAMILIA',
+                            pessoa: 'Gustavo',
+                            escopo: 'Familiar',
+                            visibilidade: 'detalhada',
+                            afeta_dre: true,
+                            afeta_patrimonio: false,
+                            afeta_caixa_familiar: true,
+                            status: 'efetivado',
+                        }),
+                    }],
+                }],
+            }),
+        };
+    };
+    
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_PREV_1',
+        data: '2026-05-10',
+        competencia: '2026-05',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_DELIVERY_FAMILIAR',
+        valor: 280,
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        afeta_dre: true,
+        status: 'efetivado',
+    });
+    
+    let result = postPilotMessage(context, 'delivery familiar 30', { updateId: 'up_bud_1', messageId: 'msg_bud_1' });
+    assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /Atenção: Categoria Delivery familiar ultrapassou o orçamento mensal \(R\$ 300,00\)! Consumido: R\$ 310,00\./);
+    
+    sheets.Lancamentos.rows.splice(1);
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_PREV_2',
+        data: '2026-05-10',
+        competencia: '2026-05',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_DELIVERY_FAMILIAR',
+        valor: 230,
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        afeta_dre: true,
+        status: 'efetivado',
+    });
+    
+    result = postPilotMessage(context, 'delivery familiar 30', { updateId: 'up_bud_2', messageId: 'msg_bud_2' });
+    assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /Categoria Delivery familiar está próxima do limite do orçamento mensal \(87% consumido\)\./);
+    
+    sheets.Lancamentos.rows.splice(1);
+    
+    appendFakeClosing(sheets, {
+        competencia: '2026-04',
+        status: 'closed',
+        closed_at: '2026-05-01T10:00:00Z',
+    });
+    
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_PET_PREV',
+        data: '2026-04-15',
+        competencia: '2026-04',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_PET',
+        valor: 100,
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        afeta_dre: true,
+        status: 'efetivado',
+    });
+    
+    context.UrlFetchApp.fetch = function(url) {
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+                output: [{
+                    content: [{
+                        text: JSON.stringify({
+                            tipo_evento: 'despesa',
+                            valor: 510,
+                            data: '2026-05-24',
+                            competencia: '2026-05',
+                            descricao: 'pet',
+                            id_categoria: 'OPEX_PET',
+                            id_fonte: 'FONTE_CONTA_FAMILIA',
+                            pessoa: 'Gustavo',
+                            escopo: 'Familiar',
+                            visibilidade: 'detalhada',
+                            afeta_dre: true,
+                            afeta_patrimonio: false,
+                            afeta_caixa_familiar: true,
+                            status: 'efetivado',
+                        }),
+                    }],
+                }],
+            }),
+        };
+    };
+    
+    result = postPilotMessage(context, 'pet 510', { updateId: 'up_bud_3', messageId: 'msg_bud_3' });
+    assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /Atenção: Categoria Pet ultrapassou o orçamento acumulado \(R\$ 500,00\)! Consumido: R\$ 510,00\./);
+    
+    sheets.Lancamentos.rows.splice(1);
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_PET_PREV',
+        data: '2026-04-15',
+        competencia: '2026-04',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_PET',
+        valor: 100,
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        afeta_dre: true,
+        status: 'efetivado',
+    });
+    
+    context.UrlFetchApp.fetch = function(url) {
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+                output: [{
+                    content: [{
+                        text: JSON.stringify({
+                            tipo_evento: 'despesa',
+                            valor: 450,
+                            data: '2026-05-24',
+                            competencia: '2026-05',
+                            descricao: 'pet',
+                            id_categoria: 'OPEX_PET',
+                            id_fonte: 'FONTE_CONTA_FAMILIA',
+                            pessoa: 'Gustavo',
+                            escopo: 'Familiar',
+                            visibilidade: 'detalhada',
+                            afeta_dre: true,
+                            afeta_patrimonio: false,
+                            afeta_caixa_familiar: true,
+                            status: 'efetivado',
+                        }),
+                    }],
+                }],
+            }),
+        };
+    };
+    
+    result = postPilotMessage(context, 'pet 450', { updateId: 'up_bud_4', messageId: 'msg_bud_4' });
+    assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /Categoria Pet está próxima do limite do orçamento acumulado \(90% consumido\)\./);
+});
+

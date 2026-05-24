@@ -15,6 +15,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'detalhada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -28,6 +30,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'detalhada',
+            limite_mensal: 150,
+            acumula_sobra: true,
             ativo: true,
         },
         {
@@ -41,6 +45,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'detalhada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -54,6 +60,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -67,6 +75,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -80,6 +90,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -93,6 +105,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -106,6 +120,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -119,6 +135,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -132,6 +150,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -145,6 +165,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -158,6 +180,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'detalhada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -171,6 +195,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'privada',
+            limite_mensal: 0,
+            acumula_sobra: false,
             ativo: true,
         },
         {
@@ -184,6 +210,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -197,6 +225,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'detalhada',
+            limite_mensal: 400,
+            acumula_sobra: false,
             ativo: true,
         },
         {
@@ -210,6 +240,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -223,6 +255,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'detalhada',
+            limite_mensal: 0,
+            acumula_sobra: true,
             ativo: true,
         },
         {
@@ -236,6 +270,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'detalhada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -249,6 +285,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'detalhada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -262,6 +300,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'privada',
+            limite_mensal: 0,
+            acumula_sobra: true,
             ativo: true,
         },
         {
@@ -275,6 +315,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'detalhada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -288,6 +330,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'detalhada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -301,6 +345,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -314,6 +360,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'detalhada',
+            limite_mensal: 300,
+            acumula_sobra: true,
             ativo: true,
         },
         {
@@ -327,6 +375,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: false,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -340,6 +390,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -353,6 +405,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -366,6 +420,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -379,6 +435,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -392,6 +450,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -405,6 +465,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -418,6 +480,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -431,6 +495,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'detalhada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -444,6 +510,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'privada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -457,6 +525,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'detalhada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: true,
         },
         {
@@ -470,6 +540,8 @@ const canonicalSeed = {
             afeta_patrimonio_padrao: false,
             afeta_caixa_familiar_padrao: true,
             visibilidade_padrao: 'detalhada',
+            limite_mensal: '',
+            acumula_sobra: '',
             ativo: false,
         },
     ],

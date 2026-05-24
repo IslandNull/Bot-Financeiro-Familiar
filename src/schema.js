@@ -28,6 +28,8 @@ const HEADERS = {
         'afeta_patrimonio_padrao',
         'afeta_caixa_familiar_padrao',
         'visibilidade_padrao',
+        'limite_mensal',
+        'acumula_sobra',
         'ativo',
     ],
     [SHEETS.CONFIG_FONTES]: ['id_fonte', 'nome', 'tipo', 'titular', 'moeda', 'ativo'],

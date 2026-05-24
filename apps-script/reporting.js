@@ -2045,7 +2045,82 @@ function validateOpenPeriodForMutation_(spreadsheet, event) {
   return { ok: true };
 }
 
-function recordedEventText_(event, actionLabel, referenceData) {
+function checkCategoryBudgetWarning_(event, referenceData, spreadsheet) {
+  if (!spreadsheet || !event || !event.id_categoria || !event.competencia) {
+    return '';
+  }
+  if (event.afeta_dre !== true) {
+    return '';
+  }
+  var category = referenceData.categoriesById[event.id_categoria];
+  if (!category) {
+    return '';
+  }
+  var limit = numberFromSheetValue_(category.limite_mensal);
+  if (isNaN(limit) || limit <= 0) {
+    return '';
+  }
+  var targetCompetencia = normalizeSheetCompetencia_(event.competencia);
+  if (!targetCompetencia) {
+    return '';
+  }
+  var accumulates = category.acumula_sobra === true;
+  var categoryId = event.id_categoria;
+  var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+  if (!launchSheet) return '';
+  var launches = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS);
+  var currentSpent = 0;
+  var pastCompetenciesMap = {};
+  for (var i = 0; i < launches.length; i++) {
+    var row = launches[i];
+    if (stringValue_(row.id_categoria) !== categoryId) continue;
+    if (row.status !== 'efetivado') continue;
+    if (row.afeta_dre !== true) continue;
+    var comp = normalizeSheetCompetencia_(row.competencia);
+    if (!comp) continue;
+    if (comp === targetCompetencia) {
+      currentSpent += numberFromSheetValue_(row.valor);
+    } else if (comp < targetCompetencia) {
+      pastCompetenciesMap[comp] = (pastCompetenciesMap[comp] || 0) + numberFromSheetValue_(row.valor);
+    }
+  }
+  var rollover = 0;
+  if (accumulates) {
+    var fechamentoSheet = spreadsheet.getSheetByName(SHEETS.FECHAMENTO_FAMILIAR);
+    if (fechamentoSheet) {
+      var fechamentos = readRowsAsObjects_(fechamentoSheet, SHEETS.FECHAMENTO_FAMILIAR);
+      var pastCompetencies = fechamentos.map(function(f) {
+        return normalizeSheetCompetencia_(f.competencia);
+      }).filter(function(comp) {
+        return comp && comp < targetCompetencia;
+      });
+      var uniquePastComp = [];
+      pastCompetencies.forEach(function(c) {
+        if (uniquePastComp.indexOf(c) === -1) uniquePastComp.push(c);
+      });
+      for (var j = 0; j < uniquePastComp.length; j++) {
+        var c = uniquePastComp[j];
+        var spentInC = pastCompetenciesMap[c] || 0;
+        rollover += (limit - spentInC);
+      }
+    }
+  }
+  var totalLimit = limit + rollover;
+  var totalSpent = currentSpent;
+  var categoryName = friendlyCategoryName_(categoryId, referenceData) || categoryId;
+  if (totalSpent > totalLimit) {
+    var typeText = accumulates ? 'acumulado' : 'mensal';
+    return '\n⚠️ Atenção: Categoria ' + categoryName + ' ultrapassou o orçamento ' + typeText + ' (' + formatMoney_(totalLimit) + ')! Consumido: ' + formatMoney_(totalSpent) + '.';
+  }
+  if (totalLimit > 0 && totalSpent >= totalLimit * 0.85) {
+    var percent = Math.round((totalSpent / totalLimit) * 100);
+    var typeText = accumulates ? 'acumulado' : 'mensal';
+    return '\n⚠️ Categoria ' + categoryName + ' está próxima do limite do orçamento ' + typeText + ' (' + percent + '% consumido).';
+  }
+  return '';
+}
+
+function recordedEventText_(event, actionLabel, referenceData, spreadsheet) {
   var title = friendlyRecordedTitle_(event, actionLabel);
   var lines = [
     title,
@@ -2068,6 +2143,15 @@ function recordedEventText_(event, actionLabel, referenceData) {
   lines.push('');
   lines.push('🧭 Próximo passo');
   lines.push('Use /resumo para revisar o mês.');
+  var warning = checkCategoryBudgetWarning_(event, referenceData, spreadsheet);
+  if (warning) {
+    var nextStepIdx = lines.indexOf('🧭 Próximo passo');
+    if (nextStepIdx !== -1) {
+      lines.splice(nextStepIdx, 0, warning.trim(), '');
+    } else {
+      lines.push(warning.trim());
+    }
+  }
   return lines.join('\n');
 }
 
@@ -2224,7 +2308,7 @@ function recordPilotExpense_(update, message, event, config, referenceData) {
       created_at: now,
     });
     updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-    return { ok: true, responseText: recordedEventText_(event, 'anotei gasto da familia.', referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
+    return { ok: true, responseText: recordedEventText_(event, 'anotei gasto da familia.', referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
   } catch (_err) {
     if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
       updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -2310,7 +2394,7 @@ function recordPilotGenericLaunch_(update, message, event, config, referenceData
       created_at: now,
     });
     updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-    return { ok: true, responseText: recordedEventText_(event, actionLabelForGenericLaunch_(event), referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
+    return { ok: true, responseText: recordedEventText_(event, actionLabelForGenericLaunch_(event), referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
   } catch (_err) {
     if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
       updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -2449,7 +2533,7 @@ function recordPilotCardPurchase_(update, message, event, config, referenceData)
     }
     updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
     var responseMsg = parcelas > 1 ? 'anotei compra parcelada (' + parcelas + 'x) no cartao.' : 'anotei compra no cartao.';
-    return { ok: true, responseText: recordedEventText_(event, responseMsg, referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
+    return { ok: true, responseText: recordedEventText_(event, responseMsg, referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
   } catch (_err) {
     if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
       updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -2552,7 +2636,7 @@ function recordPilotInvoicePayment_(update, message, event, config, referenceDat
     }
     updateInvoicePayments_(invoiceResumoSheet, invoice.payableRows, 'paga');
     updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-    return { ok: true, responseText: recordedEventText_(event, 'anotei pagamento da fatura.', referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
+    return { ok: true, responseText: recordedEventText_(event, 'anotei pagamento da fatura.', referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
   } catch (_err) {
     if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
       updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
@@ -2716,7 +2800,7 @@ function recordPilotInternalTransfer_(update, message, event, config, referenceD
     });
     updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
     var actionLabel = event.direcao_caixa_familiar === 'interna' ? 'anotei movimentacao interna.' : 'anotei transferencia para a familia.';
-    return { ok: true, responseText: recordedEventText_(event, actionLabel, referenceData), shouldApplyDomainMutation: true, result_ref: resultRef };
+    return { ok: true, responseText: recordedEventText_(event, actionLabel, referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
   } catch (_err) {
     if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
       updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');

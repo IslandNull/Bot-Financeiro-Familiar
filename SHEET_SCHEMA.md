@@ -8,7 +8,7 @@ For the current redacted state of the real spreadsheet, use `docs/SPREADSHEET_SN
 
 ### Config_Categorias
 
-`id_categoria | nome | grupo | tipo_evento_padrao | classe_dre | escopo_padrao | afeta_dre_padrao | afeta_patrimonio_padrao | afeta_caixa_familiar_padrao | visibilidade_padrao | ativo`
+`id_categoria | nome | grupo | tipo_evento_padrao | classe_dre | escopo_padrao | afeta_dre_padrao | afeta_patrimonio_padrao | afeta_caixa_familiar_padrao | visibilidade_padrao | limite_mensal | acumula_sobra | ativo`
 
 ### Config_Fontes
 
