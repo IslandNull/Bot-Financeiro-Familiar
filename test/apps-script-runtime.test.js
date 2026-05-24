@@ -1762,6 +1762,7 @@ test('Apps Script pilot expense canonicalizes fragile parser output before writi
     assert.match(result.responseText, /Data: 30\/04/);
     assert.doesNotMatch(result.responseText, /Tipo:/);
     assert.match(result.responseText, /Categoria: Mercado da semana/);
+    assert.match(result.responseText, /Escopo: Familiar/);
     assert.match(result.responseText, /Fonte: Conta familia/);
     assert.match(result.responseText, /Impacto/);
     assert.match(result.responseText, /Caixa familiar: saiu\./);

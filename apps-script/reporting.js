@@ -2269,6 +2269,7 @@ function recordedEventText_(event, actionLabel, referenceData, spreadsheet) {
   if (event.data) lines.push('Data: ' + formatShortDate_(event.data));
   var categoryName = friendlyCategoryName_(event.id_categoria, referenceData);
   if (categoryName) lines.push('Categoria: ' + categoryName);
+  if (event.escopo) lines.push('Escopo: ' + event.escopo);
   if (event.parcelas && Number(event.parcelas) > 1) lines.push('Parcela estimada: ' + formatMoney_(roundMoney_(event.valor / Number(event.parcelas))));
   lines.push('');
   lines.push('📌 Impacto');
