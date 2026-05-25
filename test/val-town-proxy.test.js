@@ -11,6 +11,8 @@ function test(name, fn) {
 
 const root = path.resolve(__dirname, '..');
 const proxy = fs.readFileSync(path.join(root, 'val-town', 'telegram-proxy.ts'), 'utf8');
+const valTownMain = fs.readFileSync(path.join(root, 'val-town', 'main.ts'), 'utf8');
+const syntaxCheck = fs.readFileSync(path.join(root, 'scripts', 'check-syntax.js'), 'utf8');
 
 test('Val Town proxy always acknowledges Telegram with 200 ok', () => {
     assert.ok(proxy.includes('return new Response("ok", { status: 200 });'));
@@ -133,4 +135,16 @@ test('Val Town proxy does not hardcode private URLs or tokens', () => {
 
 test('Val Town proxy keeps legacy query secret compatibility', () => {
     assert.ok(proxy.includes('searchParams.get("webhook_secret")'));
+});
+
+test('Val Town proxy is covered by the syntax check command', () => {
+    assert.ok(syntaxCheck.includes('telegram-proxy.ts'));
+    assert.ok(syntaxCheck.includes('main.ts'));
+    assert.ok(syntaxCheck.includes('--experimental-transform-types'));
+});
+
+test('Val Town main entrypoint delegates to repository source to avoid pasted truncation', () => {
+    assert.ok(valTownMain.includes('export { default } from'));
+    assert.ok(valTownMain.includes('raw.githubusercontent.com/IslandNull/Bot-Financeiro-Familiar'));
+    assert.ok(valTownMain.includes('val-town/telegram-proxy.ts'));
 });

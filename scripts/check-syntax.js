@@ -20,3 +20,18 @@ for (const file of files) {
 }
 
 console.log('All syntax checks passed!');
+
+const valTownProxy = path.join(__dirname, '..', 'val-town', 'telegram-proxy.ts');
+const valTownMain = path.join(__dirname, '..', 'val-town', 'main.ts');
+for (const valTownFile of [valTownProxy, valTownMain]) {
+    const displayPath = path.relative(path.join(__dirname, '..'), valTownFile).replace(/\\/g, '/');
+    console.log(`Checking syntax of ${displayPath}...`);
+    try {
+        execSync(`node --check --experimental-transform-types "${valTownFile}"`, { stdio: 'inherit' });
+    } catch (err) {
+        console.error(`Syntax check failed for ${displayPath}`);
+        process.exit(1);
+    }
+}
+
+console.log('Val Town proxy syntax check passed!');
