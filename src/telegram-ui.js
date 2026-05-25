@@ -61,6 +61,7 @@ function buildTelegramHomeView() {
     ].join('\n'), [
         telegramCallbackButton('Resumo', TELEGRAM_CALLBACKS.summary),
         telegramCallbackButton('Agenda', TELEGRAM_CALLBACKS.agenda),
+        telegramCallbackButton('Orçamento', TELEGRAM_CALLBACKS.budget),
         telegramCallbackButton('Lancar', TELEGRAM_CALLBACKS.launch),
         telegramCallbackButton('Revisar mes', TELEGRAM_CALLBACKS.reviewMonth),
         telegramCallbackButton('Ajuda', TELEGRAM_CALLBACKS.help),

@@ -55,6 +55,7 @@ function buildTelegramHomeView_() {
   ].join('\n'), [
     telegramCallbackButton_('Resumo', TELEGRAM_CALLBACKS.summary),
     telegramCallbackButton_('Agenda', TELEGRAM_CALLBACKS.agenda),
+    telegramCallbackButton_('Orçamento', TELEGRAM_CALLBACKS.budget),
     telegramCallbackButton_('Lancar', TELEGRAM_CALLBACKS.launch),
     telegramCallbackButton_('Revisar mes', TELEGRAM_CALLBACKS.reviewMonth),
     telegramCallbackButton_('Ajuda', TELEGRAM_CALLBACKS.help),
@@ -152,6 +153,7 @@ function buildTelegramReadOnlyView_(text) {
   return telegramView_(text, [
     telegramCallbackButton_('Resumo', TELEGRAM_CALLBACKS.summary),
     telegramCallbackButton_('Agenda', TELEGRAM_CALLBACKS.agenda),
+    telegramCallbackButton_('Orçamento', TELEGRAM_CALLBACKS.budget),
     telegramCallbackButton_('Lancar', TELEGRAM_CALLBACKS.launch),
     telegramCallbackButton_('Inicio', TELEGRAM_CALLBACKS.home),
   ]);

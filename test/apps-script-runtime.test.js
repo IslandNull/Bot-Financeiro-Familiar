@@ -167,6 +167,7 @@ test('Apps Script /start and /help return Home with inline keyboard', () => {
     assert.ok(start.reply_markup.inline_keyboard.length > 0);
     assert.ok(help.reply_markup.inline_keyboard.length > 0);
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:summary_current'));
+    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.text === 'Orçamento' && button.callback_data === 'act:budget_current'));
 });
 
 test('Apps Script callback home edits menu and answers callback', () => {
@@ -201,17 +202,20 @@ test('Apps Script read-only callbacks reuse summary agenda and review without mu
     const summary = postTelegramCallback(context, 'act:summary_current');
     const agenda = postTelegramCallback(context, 'act:agenda_current');
     const review = postTelegramCallback(context, 'act:review_month_current');
+    const budget = postTelegramCallback(context, 'act:budget_current');
 
-    for (const result of [summary, agenda, review]) {
+    for (const result of [summary, agenda, review, budget]) {
         assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
         assert.strictEqual(result.shouldApplyDomainMutation, false);
         assert.strictEqual(result.telegramActions[0].method, 'answerCallbackQuery');
         assert.strictEqual(result.telegramActions[1].method, 'editMessageText');
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'nav:home'));
+        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.text === 'Orçamento' && button.callback_data === 'act:budget_current'));
     }
     assert.match(summary.telegramActions[1].text, /Resumo/);
     assert.match(agenda.telegramActions[1].text, /Agenda|Faturas/);
     assert.match(review.telegramActions[1].text, /fechar|revis/i);
+    assert.match(budget.telegramActions[1].text, /Or.amento|orcamento|budget/i);
 });
 
 test('Apps Script launch and clear-context callbacks do not write financial rows', () => {
