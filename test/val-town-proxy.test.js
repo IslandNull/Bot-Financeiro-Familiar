@@ -58,6 +58,40 @@ test('Val Town proxy can dispatch multiple Telegram actions through Bot API', ()
     assert.ok(proxy.includes('JSON.stringify(actionPayload(action))'));
 });
 
+test('Val Town proxy preflights trusted callback clicks with loading feedback before Apps Script', () => {
+    assert.ok(proxy.includes('TELEGRAM_PREFLIGHT_TIMEOUT_MS'));
+    assert.ok(proxy.includes('const preflightActions = telegramCallbackPreflightActions(body);'));
+    assert.ok(proxy.indexOf('const preflightActions = telegramCallbackPreflightActions(body);') < proxy.indexOf('const appsScriptResult = await forwardToAppsScript(req, body);'));
+    assert.ok(proxy.includes('function telegramCallbackPreflightActions'));
+    assert.ok(proxy.includes('telegramCallbackTrustedForPreflight(update)'));
+    assert.ok(proxy.includes('text: "Carregando..."'));
+    assert.ok(proxy.includes('text: "⏳ Carregando...\\n\\nEstou processando sua ação."'));
+});
+
+test('Val Town proxy only preflights callbacks when local authorization is configured and matched', () => {
+    assert.ok(proxy.includes('AUTHORIZED_USER_IDS_ENV'));
+    assert.ok(proxy.includes('AUTHORIZED_CHAT_IDS_ENV'));
+    assert.ok(proxy.includes('function telegramCallbackTrustedForPreflight'));
+    assert.ok(proxy.includes('const allowedUserIds = envIdSet(AUTHORIZED_USER_IDS_ENV);'));
+    assert.ok(proxy.includes('if (allowedUserIds.size === 0) return false;'));
+    assert.ok(proxy.includes('if (!allowedUserIds.has(userId)) return false;'));
+    assert.ok(proxy.includes('if (allowedChatIds.size > 0 && !allowedChatIds.has(chatId)) return false;'));
+});
+
+test('Val Town proxy filters duplicate callback answers only after a successful preflight answer', () => {
+    assert.ok(proxy.includes('const preflightAnsweredCallbackId = firstSuccessfulCallbackAnswerId(preflightActions, preflightResults);'));
+    assert.ok(proxy.includes('actions = filterAnsweredCallbackActions(actions, preflightAnsweredCallbackId);'));
+    assert.ok(proxy.includes('function firstSuccessfulCallbackAnswerId'));
+    assert.ok(proxy.includes('function filterAnsweredCallbackActions'));
+    assert.ok(proxy.includes('result.ok'));
+});
+
+test('Val Town proxy replaces stale loading text with a generic error when Apps Script has no callback result', () => {
+    assert.ok(proxy.includes('const fallbackAction = telegramCallbackFailureEditAction(body);'));
+    assert.ok(proxy.includes('function telegramCallbackFailureEditAction'));
+    assert.ok(proxy.includes('text: "⚠️ Não consegui concluir.\\n\\nTente novamente em alguns segundos."'));
+});
+
 test('Val Town proxy does not reply to failed auth gates', () => {
     assert.ok(proxy.includes('"INVALID_WEBHOOK_SECRET"'));
     assert.ok(proxy.includes('"MISSING_WEBHOOK_SECRET"'));

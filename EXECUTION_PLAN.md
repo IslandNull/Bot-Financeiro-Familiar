@@ -70,6 +70,7 @@ Script Properties only; never commit values.
 Required keys: `WEBHOOK_SECRET`, `AUTHORIZED_USER_IDS`, `AUTHORIZED_CHAT_IDS`, `SPREADSHEET_ID`, `OPENAI_API_KEY`, `PILOT_FINANCIAL_MUTATION_ENABLED`.
 
 Optional keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`.
+Val Town callback preflight loading also needs `TELEGRAM_BOT_TOKEN` plus `AUTHORIZED_USER_IDS`; `AUTHORIZED_CHAT_IDS` further narrows trusted chats when configured.
 
 Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Properties. Use `/limpar_contexto` from Telegram to clear the current chat state.
 
