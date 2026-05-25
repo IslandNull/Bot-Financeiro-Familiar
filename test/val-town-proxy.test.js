@@ -152,4 +152,5 @@ test('Val Town main entrypoint delegates to repository source to avoid pasted tr
     assert.ok(valTownMain.includes('export { default } from'));
     assert.ok(valTownMain.includes('raw.githubusercontent.com/IslandNull/Bot-Financeiro-Familiar'));
     assert.ok(valTownMain.includes('val-town/telegram-proxy.ts'));
+    assert.ok(valTownMain.includes('?v='));
 });
