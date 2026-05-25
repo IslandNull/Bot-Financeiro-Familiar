@@ -154,7 +154,7 @@ function telegramCallbackPreflightActions(updateBody: string): TelegramAction[] 
     actions.push({
       method: "answerCallbackQuery",
       callback_query_id: callbackId,
-      text: "Carregando...",
+      text: "",
       show_alert: false,
     });
   }
@@ -185,13 +185,13 @@ function telegramCallbackTrustedForPreflight(update: unknown): boolean {
   if (!callback) return false;
 
   const allowedUserIds = envIdSet(AUTHORIZED_USER_IDS_ENV);
-  if (allowedUserIds.size === 0) return false;
+  const allowedChatIds = envIdSet(AUTHORIZED_CHAT_IDS_ENV);
+  if (allowedUserIds.size === 0 && allowedChatIds.size === 0) return false;
 
   const userId = stringOrEmpty(callback.from?.id);
-  if (!allowedUserIds.has(userId)) return false;
+  if (allowedUserIds.size > 0 && !allowedUserIds.has(userId)) return false;
 
   const chatId = stringOrEmpty(callback.message?.chat?.id);
-  const allowedChatIds = envIdSet(AUTHORIZED_CHAT_IDS_ENV);
   if (allowedChatIds.size > 0 && !allowedChatIds.has(chatId)) return false;
 
   return true;

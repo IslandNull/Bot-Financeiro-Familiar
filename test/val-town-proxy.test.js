@@ -60,19 +60,20 @@ test('Val Town proxy can dispatch multiple Telegram actions through Bot API', ()
     assert.ok(proxy.includes('JSON.stringify(actionPayload(action))'));
 });
 
-test('Val Town proxy preflights trusted callback clicks with loading feedback before Apps Script', () => {
+test('Val Town proxy preflights callback clicks with a silent answer before Apps Script', () => {
     assert.ok(proxy.includes('TELEGRAM_PREFLIGHT_TIMEOUT_MS'));
     assert.ok(proxy.includes('const preflightActions = telegramCallbackPreflightActions(body);'));
     assert.ok(proxy.indexOf('const preflightActions = telegramCallbackPreflightActions(body);') < proxy.indexOf('const appsScriptResult = await forwardToAppsScript(req, body);'));
     assert.ok(proxy.includes('function telegramCallbackPreflightActions'));
     assert.ok(proxy.includes('telegramCallbackTrustedForPreflight(update)'));
-    assert.ok(proxy.includes('text: "Carregando..."'));
+    assert.ok(proxy.includes('text: ""'));
+    assert.ok(!proxy.includes('text: "Carregando..."'));
     assert.ok(proxy.includes('text: "⏳ Carregando...\\n\\nEstou processando sua ação."'));
 });
 
-test('Val Town proxy sends callback loading answers even without local edit authorization', () => {
+test('Val Town proxy sends callback answers even without local edit authorization', () => {
     assert.ok(proxy.includes('if (!telegramCallbackTrustedForPreflight(update)) return actions;'));
-    assert.ok(proxy.indexOf('text: "Carregando..."') < proxy.indexOf('if (!telegramCallbackTrustedForPreflight(update)) return actions;'));
+    assert.ok(proxy.indexOf('text: ""') < proxy.indexOf('if (!telegramCallbackTrustedForPreflight(update)) return actions;'));
 });
 
 test('Val Town proxy only preflights callbacks when local authorization is configured and matched', () => {
@@ -80,8 +81,8 @@ test('Val Town proxy only preflights callbacks when local authorization is confi
     assert.ok(proxy.includes('AUTHORIZED_CHAT_IDS_ENV'));
     assert.ok(proxy.includes('function telegramCallbackTrustedForPreflight'));
     assert.ok(proxy.includes('const allowedUserIds = envIdSet(AUTHORIZED_USER_IDS_ENV);'));
-    assert.ok(proxy.includes('if (allowedUserIds.size === 0) return false;'));
-    assert.ok(proxy.includes('if (!allowedUserIds.has(userId)) return false;'));
+    assert.ok(proxy.includes('if (allowedUserIds.size === 0 && allowedChatIds.size === 0) return false;'));
+    assert.ok(proxy.includes('if (allowedUserIds.size > 0 && !allowedUserIds.has(userId)) return false;'));
     assert.ok(proxy.includes('if (allowedChatIds.size > 0 && !allowedChatIds.has(chatId)) return false;'));
 });
 
