@@ -70,6 +70,11 @@ test('Val Town proxy preflights trusted callback clicks with loading feedback be
     assert.ok(proxy.includes('text: "⏳ Carregando...\\n\\nEstou processando sua ação."'));
 });
 
+test('Val Town proxy sends callback loading answers even without local edit authorization', () => {
+    assert.ok(proxy.includes('if (!telegramCallbackTrustedForPreflight(update)) return actions;'));
+    assert.ok(proxy.indexOf('text: "Carregando..."') < proxy.indexOf('if (!telegramCallbackTrustedForPreflight(update)) return actions;'));
+});
+
 test('Val Town proxy only preflights callbacks when local authorization is configured and matched', () => {
     assert.ok(proxy.includes('AUTHORIZED_USER_IDS_ENV'));
     assert.ok(proxy.includes('AUTHORIZED_CHAT_IDS_ENV'));

@@ -133,7 +133,6 @@ type TelegramDispatchOptions = {
 function telegramCallbackPreflightActions(updateBody: string): TelegramAction[] {
   const update = parseJson(updateBody);
   if (!update || typeof update !== "object") return [];
-  if (!telegramCallbackTrustedForPreflight(update)) return [];
 
   const callback = (update as {
     callback_query?: {
@@ -159,6 +158,8 @@ function telegramCallbackPreflightActions(updateBody: string): TelegramAction[] 
       show_alert: false,
     });
   }
+
+  if (!telegramCallbackTrustedForPreflight(update)) return actions;
 
   if (chatId && messageId) {
     actions.push({
