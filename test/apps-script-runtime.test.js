@@ -1272,6 +1272,126 @@ test('Apps Script monthly review explains current month is not closable', () => 
     assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 1);
 });
 
+test('Apps Script summary computes deterministic family financial health without duplicating invoice payments', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeRecurringIncome(sheets, { valor_planejado: 7000, beneficio_restrito: false });
+    appendFakeRecurringIncome(sheets, { valor_planejado: 800, beneficio_restrito: true });
+    appendFakeLaunch(sheets, {
+        tipo_evento: 'receita',
+        valor: 7000,
+        id_categoria: 'REC_RECEITA_FAMILIAR',
+        afeta_dre: true,
+        afeta_caixa_familiar: true,
+    });
+    appendFakeLaunch(sheets, { valor: 1200, id_categoria: 'OPEX_MERCADO_SEMANA' });
+    appendFakeLaunch(sheets, {
+        valor: 420,
+        id_categoria: 'OPEX_ALIMENTACAO_FORA',
+        tipo_evento: 'compra_cartao',
+        afeta_caixa_familiar: false,
+    });
+    appendFakeLaunch(sheets, {
+        valor: 420,
+        tipo_evento: 'pagamento_fatura',
+        afeta_dre: false,
+        afeta_caixa_familiar: true,
+        id_categoria: 'MOV_CAIXA_FAMILIAR',
+    });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 4000 });
+    appendFakeAsset(sheets, { saldo_atual: 10000, conta_reserva_emergencia: true });
+
+    const result = runRemoteAction(context, 'summary');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.summary.despesas_dre, 1620);
+    assert.strictEqual(result.summary.health_check.renda_base, 7000);
+    assert.strictEqual(result.summary.health_check.taxa_poupanca, 0.77);
+    assert.strictEqual(result.summary.health_check.classificacao_fluxo, 'abaixo_da_renda');
+    assert.strictEqual(result.summary.health_check.custo_vida.essencial, 1200);
+    assert.strictEqual(result.summary.health_check.custo_vida.variavel_controlavel, 420);
+    assert.strictEqual(result.summary.health_check.base_taxa_poupanca, 'resultado_dre_sobre_renda_livre');
+});
+
+test('Apps Script monthly review recommends concrete savings opportunities and aggregates private categories', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeRecurringIncome(sheets, { valor_planejado: 6900, beneficio_restrito: false });
+    appendFakeLaunch(sheets, {
+        tipo_evento: 'receita',
+        valor: 6900,
+        id_categoria: 'REC_RECEITA_FAMILIAR',
+        afeta_dre: true,
+        afeta_caixa_familiar: true,
+    });
+    appendFakeLaunch(sheets, {
+        valor: 420,
+        id_categoria: 'OPEX_ALIMENTACAO_FORA',
+        tipo_evento: 'compra_cartao',
+        afeta_caixa_familiar: false,
+        descricao: 'restaurante casal',
+    });
+    appendFakeLaunch(sheets, {
+        valor: 180,
+        id_categoria: 'OPEX_ROUPAS_GUSTAVO',
+        tipo_evento: 'compra_cartao',
+        afeta_caixa_familiar: false,
+        escopo: 'Gustavo',
+        visibilidade: 'privada',
+        descricao: 'item privado nao deve aparecer',
+    });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+    appendFakeAsset(sheets, { saldo_atual: 1000, conta_reserva_emergencia: true });
+
+    const result = postPilotMessage(context, '/revisar_mes');
+
+    assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /Taxa de poupanca: 91%/);
+    assert.match(result.responseText, /reduzir Alimentacao fora de R\$ 420,00 para R\$ 300,00 libera R\$ 120,00/i);
+    assert.match(result.responseText, /Gastos pessoais privados: R\$ 180,00/);
+    assert.match(result.responseText, /Nao fazer: investir antes de cobrir reserva e pagamentos registrados/i);
+    assert.doesNotMatch(result.responseText, /item privado nao deve aparecer/);
+});
+
+test('Apps Script safe question answers how much to save and blocks investment without real balances', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeRecurringIncome(sheets, { valor_planejado: 7000, beneficio_restrito: false });
+    appendFakeLaunch(sheets, {
+        tipo_evento: 'receita',
+        valor: 7000,
+        id_categoria: 'REC_RECEITA_FAMILIAR',
+        afeta_dre: true,
+        afeta_caixa_familiar: true,
+    });
+    appendFakeLaunch(sheets, { valor: 5000, id_categoria: 'OPEX_MERCADO_SEMANA' });
+    appendFakeInvoice(sheets, { valor_previsto: 1200, status: 'prevista' });
+
+    const result = postPilotMessage(context, 'quanto devo guardar este mes?');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Meta mensal de guardar dinheiro/);
+    assert.match(result.responseText, /Meta sugerida: R\$ 2000,00/);
+    assert.match(result.responseText, /Bloqueio de investimento/);
+    assert.match(result.responseText, /falta saldo real das contas/);
+});
+
 test('Apps Script answers singular open-invoice question without mutating', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
     appendFakeInvoice(sheets, {

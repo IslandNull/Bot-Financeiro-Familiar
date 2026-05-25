@@ -359,3 +359,19 @@ Sources:
 - CFPB, "Assess your spending": https://www.consumerfinance.gov/owning-a-home/prepare/assess-your-spending/
 - YNAB, "A Variable & Non-Monthly Expense List for Your Budget": https://www.ynab.com/blog/non-monthly-expenses-for-your-budget
 - YNAB Support, "When the Month Rolls Over in YNAB": https://support.ynab.com/en_us/when-the-month-rolls-over-a-guide-rkyyd6qC9
+
+## V55-D025 - Family Financial Health Is Deterministic
+
+Status: Accepted
+Date: 2026-05-25
+
+Decision:
+Compute family financial health inside Apps Script reporting code, not in LLM prompts. The first layer derives savings rate, cost-of-life buckets, monthly saving goal, investment blockers, and saving opportunities from deterministic summary data. Private personal categories may influence totals and aggregate opportunities, but item-level private details stay hidden.
+
+Reason:
+The bot is now used for couple decisions, not just bookkeeping. Recommendations such as how much to save, where to cut first, and whether investment is blocked must be explainable, testable, and based on the same DRE/cash/invoice/reserve data used by `/resumo`.
+
+Rejected:
+- Letting the LLM calculate savings rate, spending cuts, or investment readiness.
+- Showing private personal line items in shared reviews.
+- Treating invoice payment as new spending when analyzing cost of life.

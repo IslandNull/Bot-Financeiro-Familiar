@@ -17,13 +17,14 @@ VERIFIED in this repo:
 - Deployed Apps Script runtime for pilot mutations, `/resumo`, `/agenda`, `/revisar_mes`, deterministic safe questions, snapshot, summary, selftest, monthly closing, and sheet audit.
 - Read-only sheet auditor for schema, status, reference, invoice and obligation risks.
 - Audit hardening for strict dates, ambiguous money fallback, payable invoice validation, partial invoice payment, sheet validation, and closed-period mutation guards.
+- Budget/envelope reporting and deterministic family financial health checks for savings rate, monthly saving goal, investment blockers, and saving opportunities.
 - Local tests that do not call Google Sheets, Telegram, OpenAI, or network services.
 
 UNVERIFIED:
 
 - Full production readiness beyond owner pilot usage.
 - UX readiness with Luana using real Telegram messages after prior UX passes.
-- Budget/envelope limits by category; this still needs an explicit config/schema decision before active use.
+- Long-term budget limit calibration beyond pilot usage.
 
 ## Execution Plan
 

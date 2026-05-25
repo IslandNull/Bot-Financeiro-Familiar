@@ -1093,6 +1093,9 @@ function isSafeFinanceQuestion_(text) {
     containsAliasPhrase_(normalized, 'posso comprar') ||
     containsAliasPhrase_(normalized, 'posso gastar') ||
     containsAliasPhrase_(normalized, 'assumir parcela') ||
+    containsAliasPhrase_(normalized, 'guardar') ||
+    containsAliasPhrase_(normalized, 'poupar') ||
+    containsAliasPhrase_(normalized, 'economizar') ||
     containsAliasPhrase_(normalized, 'reserva') ||
     containsAliasPhrase_(normalized, 'liquidez');
 }
@@ -1116,6 +1119,15 @@ function buildSafeFinanceQuestionResponse_(text, config, event) {
     return {
       ok: true,
       responseText: formatCostOfLifeAnswer_(result.summary),
+      shouldApplyDomainMutation: false,
+    };
+  }
+  if (containsAliasPhrase_(normalized, 'guardar') ||
+      containsAliasPhrase_(normalized, 'poupar') ||
+      containsAliasPhrase_(normalized, 'economizar')) {
+    return {
+      ok: true,
+      responseText: formatSavingsGoalAnswer_(result.summary),
       shouldApplyDomainMutation: false,
     };
   }

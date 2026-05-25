@@ -281,6 +281,23 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     });
   }
 
+  var categoryForecast = summarizePilotForecastCategories_(launches, categoriesById || {}, competencia);
+  var categoryDetails = summarizePilotCategoryDetails_(launches, categoriesById || {}, competencia);
+  var healthCheck = computeFamilyFinancialHealth_({
+    competencia: competencia,
+    launches: launches,
+    categoriesById: categoriesById || {},
+    dre: dre,
+    recurringIncome: recurringIncome,
+    faturasAtuais: currentInvoiceExposure.total,
+    obrigacoesCiclo: obligationExposure.cycle_total,
+    reservaTotal: reservaTotal,
+    reserveTarget: reserveTarget,
+    sourceBalanceSummary: sourceBalanceSummary,
+    projectedCashFlow: projectedCashFlow,
+    categoryForecast: categoryForecast,
+  });
+
   return {
     competencia: competencia,
     receitas_dre: dre.receitas_dre,
@@ -326,11 +343,160 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     eventos_detalhados: countSharedDetailedEvents_(launches),
     eventos_detalhados_preview: buildSharedDetailedEventPreview_(launches, 5, categoriesById || {}),
     categorias_gastos: summarizePilotSpendingCategories_(launches, categoriesById || {}, competencia),
-    categorias_previsao: summarizePilotForecastCategories_(launches, categoriesById || {}, competencia),
-    categorias_detalhe: summarizePilotCategoryDetails_(launches, categoriesById || {}, competencia),
+    categorias_previsao: categoryForecast,
+    categorias_detalhe: categoryDetails,
+    health_check: healthCheck,
     caixa_saida_pagamento_fatura: summarizePilotCashOutByType_(launches, competencia, 'pagamento_fatura'),
     caixa_saida_obrigacoes: summarizePilotCashOutByType_(launches, competencia, 'divida_pagamento'),
   };
+}
+
+function computeFamilyFinancialHealth_(input) {
+  var dre = input.dre || {};
+  var recurringIncome = input.recurringIncome || {};
+  var rendaLivre = numberFromSheetValue_(recurringIncome.renda_caixa_planejada);
+  if (rendaLivre <= 0) rendaLivre = numberFromSheetValue_(dre.receitas_dre);
+  var resultado = numberFromSheetValue_(dre.resultado_dre);
+  var savingsRate = rendaLivre > 0 ? roundRatio_(Math.max(0, resultado) / rendaLivre) : 0;
+  var custoVida = computeCostOfLifeBreakdown_(input.launches || [], input.categoriesById || {}, input.competencia, input.faturasAtuais, input.obrigacoesCiclo);
+  var reserveTarget = input.reserveTarget !== undefined ? numberFromSheetValue_(input.reserveTarget) : 15000;
+  var reserveGap = roundMoney_(Math.max(0, reserveTarget - numberFromSheetValue_(input.reservaTotal)));
+  var goal = buildSavingsGoalRecommendation_({
+    resultado_dre: resultado,
+    renda_livre: rendaLivre,
+    reserva_gap: reserveGap,
+    faturas_atuais: numberFromSheetValue_(input.faturasAtuais),
+    obrigacoes_ciclo: numberFromSheetValue_(input.obrigacoesCiclo),
+    saldos_fontes_count: numberFromSheetValue_(input.sourceBalanceSummary && input.sourceBalanceSummary.saldos_fontes_count),
+    sobra_projetada_pos_pagamentos: numberFromSheetValue_(input.projectedCashFlow && input.projectedCashFlow.sobra_projetada_pos_pagamentos),
+  });
+  return {
+    renda_base: roundMoney_(rendaLivre),
+    beneficios_restritos_informados: roundMoney_(numberFromSheetValue_(recurringIncome.beneficios_restritos_planejados)),
+    base_taxa_poupanca: 'resultado_dre_sobre_renda_livre',
+    taxa_poupanca: savingsRate,
+    classificacao_fluxo: classifyFamilyCashFlow_(resultado, savingsRate),
+    custo_vida: custoVida,
+    meta_guardar: goal,
+    oportunidades_economia: buildSavingOpportunities_(input.categoryForecast || [], input.categoriesById || {}),
+  };
+}
+
+function computeCostOfLifeBreakdown_(launches, categoriesById, competencia, faturasAtuais, obrigacoesCiclo) {
+  var result = {
+    essencial: 0,
+    recorrente_obrigatorio: roundMoney_(numberFromSheetValue_(faturasAtuais) + numberFromSheetValue_(obrigacoesCiclo)),
+    variavel_controlavel: 0,
+    pessoal_privado: 0,
+    aportes: 0,
+  };
+  (launches || []).forEach(function(row) {
+    if (normalizeSheetCompetencia_(row.competencia) !== competencia) return;
+    if (row.status && stringValue_(row.status) !== 'efetivado') return;
+    var amount = numberFromSheetValue_(row.valor);
+    if (amount <= 0) return;
+    if (row.tipo_evento === 'aporte') {
+      result.aportes = roundMoney_(result.aportes + amount);
+      return;
+    }
+    if (row.afeta_dre !== true) return;
+    if (row.tipo_evento !== 'despesa' && row.tipo_evento !== 'compra_cartao') return;
+    var role = classifyPilotExpenseCategory_(categoriesById[stringValue_(row.id_categoria)] || {}, row);
+    result[role] = roundMoney_(result[role] + amount);
+  });
+  return result;
+}
+
+function classifyPilotExpenseCategory_(category, row) {
+  if (isPrivateFinancialCategory_(category, row)) return 'pessoal_privado';
+  var id = stringValue_(row.id_categoria || category.id_categoria);
+  var group = normalizeAliasText_(category.grupo);
+  if (id === 'OPEX_ALIMENTACAO_FORA' || group === 'lazer' || group === 'pessoal' || group === 'carreira' || group === 'trabalho') {
+    return 'variavel_controlavel';
+  }
+  if (group === 'casa' || group === 'casa futura' || group === 'saude' || group === 'saude e bem estar' || group === 'transporte' || id === 'OPEX_MERCADO_SEMANA') {
+    return 'essencial';
+  }
+  return 'variavel_controlavel';
+}
+
+function isPrivateFinancialCategory_(category, row) {
+  if (stringValue_(row.visibilidade) === 'privada') return true;
+  if (stringValue_(category.visibilidade_padrao) === 'privada') return true;
+  var scope = stringValue_(row.escopo || category.escopo_padrao);
+  return scope === 'Gustavo' || scope === 'Luana';
+}
+
+function classifyFamilyCashFlow_(resultado, savingsRate) {
+  if (resultado < 0) return 'acima_da_renda';
+  if (savingsRate < 0.05) return 'no_limite';
+  return 'abaixo_da_renda';
+}
+
+function buildSavingsGoalRecommendation_(input) {
+  var availableResult = roundMoney_(Math.max(0, numberFromSheetValue_(input.resultado_dre)));
+  var minimumRateTarget = roundMoney_(numberFromSheetValue_(input.renda_livre) * 0.10);
+  var suggested = roundMoney_(Math.max(0, Math.min(availableResult, Math.max(minimumRateTarget, numberFromSheetValue_(input.reserva_gap)))));
+  if (numberFromSheetValue_(input.reserva_gap) === 0) {
+    suggested = roundMoney_(Math.max(0, Math.min(availableResult, minimumRateTarget)));
+  }
+  var blockers = [];
+  if (numberFromSheetValue_(input.saldos_fontes_count) === 0) blockers.push('falta saldo real das contas');
+  if (numberFromSheetValue_(input.faturas_atuais) + numberFromSheetValue_(input.obrigacoes_ciclo) > 0 &&
+      numberFromSheetValue_(input.sobra_projetada_pos_pagamentos) < 0) blockers.push('sobra projetada negativa apos pagamentos');
+  if (numberFromSheetValue_(input.reserva_gap) > 0) blockers.push('reserva abaixo da meta minima');
+  return {
+    meta_sugerida: suggested,
+    realizado_base: availableResult,
+    prioridade: numberFromSheetValue_(input.reserva_gap) > 0 ? 'reserva_emergencial' : 'aporte_investimento',
+    investimento_bloqueado: blockers.length > 0,
+    bloqueios_investimento: blockers,
+  };
+}
+
+function buildSavingOpportunities_(categoryForecast, categoriesById) {
+  var opportunities = [];
+  var privateTotal = 0;
+  var privateLimit = 0;
+  (categoryForecast || []).forEach(function(item) {
+    var cat = categoriesById[stringValue_(item.id_categoria)] || {};
+    var limit = numberFromSheetValue_(cat.limite_mensal);
+    var current = numberFromSheetValue_(item.valor);
+    if (isPrivateFinancialCategory_(cat, { escopo: cat.escopo_padrao, visibilidade: cat.visibilidade_padrao })) {
+      privateTotal = roundMoney_(privateTotal + current);
+      if (limit > 0) privateLimit = roundMoney_(privateLimit + limit);
+      return;
+    }
+    if (limit <= 0 || current <= limit) return;
+    opportunities.push(savingOpportunity_(item.categoria, current, limit, false));
+  });
+  if (privateTotal > 0) {
+    opportunities.push(savingOpportunity_('Gastos pessoais privados', privateTotal, privateLimit, true));
+  }
+  return opportunities.sort(function(a, b) {
+    if (b.economia_potencial !== a.economia_potencial) return b.economia_potencial - a.economia_potencial;
+    return a.categoria < b.categoria ? -1 : 1;
+  }).slice(0, 5);
+}
+
+function savingOpportunity_(categoryName, current, reference, isPrivate) {
+  var potential = reference > 0 ? roundMoney_(Math.max(0, current - reference)) : 0;
+  return {
+    categoria: categoryName,
+    valor_atual: roundMoney_(current),
+    referencia: roundMoney_(reference),
+    economia_potencial: potential,
+    acao_sugerida: isPrivate
+      ? 'manter o agregado pessoal dentro do limite combinado, sem abrir itens privados'
+      : 'reduzir ' + categoryName + ' de ' + formatMoney_(current) + ' para ' + formatMoney_(reference) + ' libera ' + formatMoney_(potential),
+    confianca: reference > 0 && potential > 0 ? 'alta' : 'baixa',
+    motivo: isPrivate ? 'categoria privada agregada para preservar privacidade' : 'categoria acima do limite mensal ativo',
+  };
+}
+
+function roundRatio_(value) {
+  if (!isFinite(value)) return 0;
+  return Math.round(value * 100) / 100;
 }
 
 function summarizePilotObligationExposure_(debts) {
@@ -1369,41 +1535,105 @@ function parseSpendingSimulation_(text) {
   };
 }
 
-function formatMonthlyReviewAnswer_(summary) {
+function formatSavingsGoalAnswer_(summary) {
+  var health = summary.health_check || {};
+  var goal = health.meta_guardar || {};
   var lines = [
-    '🧾 Revisão de ' + friendlyCompetencia_(summary.competencia),
+    'Meta mensal de guardar dinheiro',
     '',
-    '✅ Status',
+    'Base usada',
+    'Renda livre: ' + formatMoney_(health.renda_base),
+    'Taxa de poupanca: ' + Math.round(numberFromSheetValue_(health.taxa_poupanca) * 100) + '%',
+    'Meta sugerida: ' + formatMoney_(goal.meta_sugerida),
+    'Prioridade: ' + friendlySavingsPriority_(goal.prioridade),
+  ];
+  if (goal.investimento_bloqueado) {
+    lines.push('');
+    lines.push('Bloqueio de investimento');
+    (goal.bloqueios_investimento || []).forEach(function(reason) {
+      lines.push('- ' + reason);
+    });
+  }
+  lines.push('');
+  lines.push('Decisao agora');
+  if (goal.prioridade === 'reserva_emergencial') {
+    lines.push('Guardar primeiro para reserva, depois reavaliar amortizacao ou investimento.');
+  } else {
+    lines.push('A reserva parece coberta; aporte ou amortizacao ainda dependem de comparar juros, retorno e liquidez.');
+  }
+  return lines.join('\n');
+}
+
+function friendlySavingsPriority_(value) {
+  if (value === 'reserva_emergencial') return 'reserva emergencial';
+  if (value === 'aporte_investimento') return 'aporte/investimento';
+  return stringValue_(value) || 'revisar';
+}
+
+function formatMonthlyReviewAnswer_(summary) {
+  var health = summary.health_check || {};
+  var goal = health.meta_guardar || {};
+  var opportunities = health.oportunidades_economia || [];
+  var lines = [
+    'Revisao de ' + friendlyCompetencia_(summary.competencia),
+    '',
+    'Status',
   ];
   if (summary.competencia >= todaySaoPaulo_().slice(0, 7)) {
-    lines.push('Mês atual ainda aberto.');
-    lines.push('Não vou fechar este mês agora.');
+    lines.push('Mes atual ainda aberto.');
+    lines.push('Nao vou fechar este mes agora.');
   } else {
-    lines.push('Mês anterior pode ser revisado para fechamento.');
+    lines.push('Mes anterior pode ser revisado para fechamento.');
   }
   lines = lines.concat([
     '',
-    '📌 Conferência',
+    'Conferencia',
     'Faturas atuais: ' + formatMoney_(summary.faturas_atuais),
     'Compromissos 60d: ' + formatMoney_(summary.obrigacoes_60d),
     'Caixa registrado: ' + formatMoney_(summary.sobra_caixa),
+    'Taxa de poupanca: ' + Math.round(numberFromSheetValue_(health.taxa_poupanca) * 100) + '%',
+    'Meta sugerida para guardar: ' + formatMoney_(goal.meta_sugerida),
     '',
-    '🔎 Maiores impactos',
+    'Maiores impactos',
   ]);
   var categories = summary.categorias_previsao || [];
   if (categories.length === 0) {
-    lines.push('Ainda não há categorias de gasto registradas.');
+    lines.push('Ainda nao ha categorias de gasto registradas.');
   } else {
     categories.slice(0, 5).forEach(function(item) {
       lines.push(item.categoria + ': ' + formatMoney_(item.valor));
     });
   }
   lines.push('');
-  lines.push('Próximo passo');
-  lines.push('Conferir faturas reais, saldos e reembolsáveis antes de fechar.');
+  lines.push('Onde economizar primeiro');
+  if (opportunities.length === 0) {
+    lines.push('Nenhuma categoria com limite ativo apareceu acima do limite.');
+  } else {
+    opportunities.slice(0, 3).forEach(function(item) {
+      if (item.categoria === 'Gastos pessoais privados') {
+        lines.push('Gastos pessoais privados: ' + formatMoney_(item.valor_atual));
+        if (item.economia_potencial > 0) {
+          lines.push('Acao: manter o agregado pessoal perto de ' + formatMoney_(item.referencia) + ' libera ' + formatMoney_(item.economia_potencial) + '.');
+        }
+      } else {
+        lines.push(item.acao_sugerida + '.');
+      }
+      lines.push('Motivo: ' + item.motivo + ' | confianca: ' + item.confianca + '.');
+    });
+  }
+  lines.push('');
+  lines.push('Decisao agora');
+  if (numberFromSheetValue_(goal.meta_sugerida) > 0) {
+    lines.push('Separar ' + formatMoney_(goal.meta_sugerida) + ' para ' + friendlySavingsPriority_(goal.prioridade) + '.');
+  } else {
+    lines.push('Priorizar cobertura de faturas, obrigacoes e caixa minimo antes de guardar dinheiro novo.');
+  }
+  lines.push('Nao fazer: investir antes de cobrir reserva e pagamentos registrados.');
+  lines.push('');
+  lines.push('Proximo passo');
+  lines.push('Conferir faturas reais, saldos e reembolsaveis antes de fechar.');
   return lines.join('\n');
 }
-
 function shortCardName_(value) {
   var text = stringValue_(value);
   var normalized = normalizeAliasText_(text);
