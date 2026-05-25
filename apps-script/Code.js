@@ -113,6 +113,12 @@ function doGet(e) {
   if (action === 'selftest') {
     return json_(runHelpSmokeSelfTest());
   }
+  if (action === 'telegram_webhook_setup_dry_run') {
+    return json_(runTelegramWebhookSetupDryRun());
+  }
+  if (action === 'telegram_webhook_setup_apply') {
+    return json_(runTelegramWebhookSetupApply());
+  }
   if (action === 'sheet_audit') {
     return json_(exportSheetAuditV55());
   }

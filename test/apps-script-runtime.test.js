@@ -81,6 +81,22 @@ test('Apps Script runtime exposes webhook and self-test functions', () => {
     assert.ok(code.includes('function runTelegramWebhookSetupApply()'));
 });
 
+test('Apps Script doGet exposes protected Telegram webhook setup actions', () => {
+    const { context } = createAppsScriptHarness({}, {
+        failOnFetch: true,
+        properties: {
+            TELEGRAM_BOT_TOKEN: '123456:test_token',
+            VAL_TOWN_WEBHOOK_URL: 'https://example.com/telegram',
+        },
+    });
+
+    const dryRun = runRemoteAction(context, 'telegram_webhook_setup_dry_run');
+
+    assert.strictEqual(dryRun.ok, true, JSON.stringify(dryRun.errors));
+    assert.deepStrictEqual(dryRun.allowedUpdates, ['message', 'edited_message', 'callback_query']);
+    assert.strictEqual(dryRun.target, 'redacted_val_town_proxy');
+});
+
 test('Apps Script runtime reads expected script properties without hardcoded secrets', () => {
     assert.ok(code.includes("getProperty('WEBHOOK_SECRET')"));
     assert.ok(code.includes("getProperty('AUTHORIZED_USER_IDS')"));
