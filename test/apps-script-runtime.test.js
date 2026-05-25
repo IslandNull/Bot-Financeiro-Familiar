@@ -23,6 +23,7 @@ const {
     createFakeSheet,
     createAppsScriptHarness,
     postPilotMessage,
+    postTelegramCallback,
     appendRuntimeConfigRows,
     runRemoteAction,
     appendFakeInvoice,
@@ -136,6 +137,79 @@ test('Apps Script help gives practical launch examples without mutating', () => 
     assert.match(result.responseText, /\/ajuda: exemplos\n\n.*Regra de seguran/s);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script /start and /help return Home with inline keyboard', () => {
+    const { context } = createAppsScriptHarness({}, { failOnFetch: true });
+    const start = postPilotMessage(context, '/start');
+    const help = postPilotMessage(context, '/help');
+
+    assert.strictEqual(start.ok, true);
+    assert.strictEqual(help.ok, true);
+    assert.match(start.responseText, /Bot financeiro familiar/);
+    assert.match(start.responseText, /escrever direto/i);
+    assert.ok(start.reply_markup.inline_keyboard.length > 0);
+    assert.ok(help.reply_markup.inline_keyboard.length > 0);
+    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:summary_current'));
+});
+
+test('Apps Script callback home edits menu and answers callback', () => {
+    const { context } = createAppsScriptHarness({}, { failOnFetch: true });
+    const result = postTelegramCallback(context, 'nav:home');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(result.telegramActions[0].method, 'answerCallbackQuery');
+    assert.strictEqual(result.telegramActions[1].method, 'editMessageText');
+    assert.match(result.telegramActions[1].text, /Bot financeiro familiar/);
+    assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.length > 0);
+});
+
+test('Apps Script unauthorized callback fails closed without financial data', () => {
+    const { context } = createAppsScriptHarness({}, { failOnFetch: true });
+    const result = postTelegramCallback(context, 'act:summary_current', { userId: 'intruder' });
+
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.responseText, 'Nao foi possivel processar esta mensagem.');
+    assert.deepStrictEqual(result.telegramActions, [{
+        method: 'answerCallbackQuery',
+        callback_query_id: 'callback_1',
+        text: 'Nao autorizado.',
+        show_alert: false,
+    }]);
+    assert.ok(!JSON.stringify(result).includes('Resumo de abril'));
+});
+
+test('Apps Script read-only callbacks reuse summary agenda and review without mutation', () => {
+    const { context } = createAppsScriptHarness({}, { failOnFetch: true });
+    const summary = postTelegramCallback(context, 'act:summary_current');
+    const agenda = postTelegramCallback(context, 'act:agenda_current');
+    const review = postTelegramCallback(context, 'act:review_month_current');
+
+    for (const result of [summary, agenda, review]) {
+        assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+        assert.strictEqual(result.shouldApplyDomainMutation, false);
+        assert.strictEqual(result.telegramActions[0].method, 'answerCallbackQuery');
+        assert.strictEqual(result.telegramActions[1].method, 'editMessageText');
+        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'nav:home'));
+    }
+    assert.match(summary.telegramActions[1].text, /Resumo/);
+    assert.match(agenda.telegramActions[1].text, /Agenda|Faturas/);
+    assert.match(review.telegramActions[1].text, /fechar|revis/i);
+});
+
+test('Apps Script launch and clear-context callbacks do not write financial rows', () => {
+    const { context, sheets } = createAppsScriptHarness({}, { failOnFetch: true });
+    postPilotMessage(context, 'mercado 42');
+    const launch = postTelegramCallback(context, 'nav:launch');
+    const clear = postTelegramCallback(context, 'act:clear_context');
+
+    assert.strictEqual(launch.ok, true);
+    assert.strictEqual(clear.ok, true);
+    assert.match(launch.telegramActions[1].text, /Lancar|movimentacao/i);
+    assert.match(clear.telegramActions[1].text, /Contexto limpo/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.deepStrictEqual(Object.keys(context.__scriptProperties).filter((key) => key.startsWith('BFF_CONVERSATION_')), []);
 });
 
 test('Apps Script UX messages use short summary-style sections', () => {
@@ -3410,6 +3484,7 @@ test('Apps Script guided registration asks only for missing source', () => {
     assert.match(result.responseText, /O que falta/);
     assert.match(result.responseText, /Fonte/);
     assert.match(result.responseText, /pela Conta familia/);
+    assert.ok(result.reply_markup.inline_keyboard.flat().some((button) => /^sel:source:/.test(button.callback_data)));
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
@@ -4552,6 +4627,149 @@ test('Apps Script correction fails when target transaction is in a closed period
     assert.strictEqual(result.ok, false);
     assert.match(result.responseText, /N.o . permitido corrigir lan.amentos de compet.ncias fechadas/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+});
+
+test('Apps Script guided registration resumes pending expense when user taps source button', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '10',
+        descricao: 'mercado 10',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const ask = postPilotMessage(context, 'mercado 10', {
+        updateId: 'pending_source_button_1',
+        messageId: 'pending_source_button_msg_1',
+    });
+    const sourceButton = ask.reply_markup.inline_keyboard.flat()
+        .find((button) => /^sel:source:/.test(button.callback_data) && /Conta familia/i.test(button.text));
+    assert.ok(sourceButton);
+
+    const resumed = postTelegramCallback(context, sourceButton.callback_data, {
+        updateId: 'pending_source_button_2',
+        messageId: 'pending_source_button_msg_2',
+    });
+
+    assert.strictEqual(resumed.ok, true, JSON.stringify(resumed.errors));
+    assert.strictEqual(resumed.shouldApplyDomainMutation, true);
+    assert.match(resumed.telegramActions[1].text, /Gasto anotado/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_FAMILIA');
+    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1).pending_intent, null);
+});
+
+test('Apps Script guided correction selects an open launch and requires confirmation before replacing it', () => {
+    const replacementEvent = {
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '50.00',
+        descricao: 'farmacia corrigida',
+        id_categoria: 'OPEX_FARMACIA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+    };
+    const { context, sheets } = createAppsScriptHarness(replacementEvent);
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_TO_FIX',
+        descricao: 'mercado errado',
+        valor: 43.9,
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+    });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+
+    const list = postTelegramCallback(context, 'flow:correction');
+    assert.strictEqual(list.ok, true, JSON.stringify(list.errors));
+    const pickButton = list.telegramActions[1].reply_markup.inline_keyboard.flat()
+        .find((button) => /^sel:tx:/.test(button.callback_data));
+    assert.ok(pickButton);
+
+    const picked = postTelegramCallback(context, pickButton.callback_data);
+    assert.strictEqual(picked.ok, true, JSON.stringify(picked.errors));
+    assert.match(picked.telegramActions[1].text, /nova descri/i);
+
+    const parsed = postPilotMessage(context, 'farmacia 50 hoje conta familia');
+    assert.strictEqual(parsed.ok, true, JSON.stringify(parsed.errors));
+    assert.strictEqual(parsed.shouldApplyDomainMutation, false);
+    assert.match(parsed.responseText, /Confirmar correcao/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+
+    const stateKey = Object.keys(context.__scriptProperties).find((key) => key.startsWith('BFF_CONVERSATION_'));
+    const pending = JSON.parse(context.__scriptProperties[stateKey]).pending_action;
+    const confirmed = postTelegramCallback(context, `confirm:${pending.token}`);
+
+    assert.strictEqual(confirmed.ok, true, JSON.stringify(confirmed.errors));
+    assert.match(confirmed.telegramActions[1].text, /Lancamento corrigido/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const descriptions = sheets.Lancamentos.rows.slice(1).map((row) => row[lancamentosHeaders.indexOf('descricao')]);
+    assert.deepStrictEqual(descriptions, ['farmacia corrigida']);
+});
+
+test('Apps Script guided correction blocks closed-month targets', () => {
+    const replacementEvent = {
+        tipo_evento: 'despesa',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '50.00',
+        descricao: 'farmacia corrigida',
+        id_categoria: 'OPEX_FARMACIA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+    };
+    const { context, sheets } = createAppsScriptHarness(replacementEvent);
+    appendFakeLaunch(sheets, { id_lancamento: 'LAN_CLOSED_TARGET', competencia: '2026-04' });
+    appendFakeClosing(sheets, { competencia: '2026-04', status: 'closed', closed_at: '2026-05-01T10:00:00Z' });
+
+    const list = postTelegramCallback(context, 'flow:correction');
+
+    assert.strictEqual(list.ok, true);
+    assert.match(list.telegramActions[1].text, /Nenhum lancamento aberto/);
+    assert.ok(!JSON.stringify(list.telegramActions).includes('LAN_CLOSED_TARGET'));
+});
+
+test('Apps Script closing flow requires explicit confirmation before writing draft', () => {
+    const { context, sheets } = createAppsScriptHarness({}, { failOnFetch: true });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+    const menu = postTelegramCallback(context, 'flow:closing');
+
+    assert.strictEqual(menu.ok, true, JSON.stringify(menu.errors));
+    assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 1);
+    const draftButton = menu.telegramActions[1].reply_markup.inline_keyboard.flat()
+        .find((button) => /^confirm:/.test(button.callback_data) && /rascunho/i.test(button.text));
+    assert.ok(draftButton);
+
+    const draft = postTelegramCallback(context, draftButton.callback_data);
+
+    assert.strictEqual(draft.ok, true, JSON.stringify(draft.errors));
+    assert.strictEqual(draft.shouldApplyDomainMutation, true);
+    assert.match(draft.telegramActions[1].text, /Rascunho|Fechamento/);
+    assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 2);
 });
 
 test('Apps Script validation alerts when category is over budget', () => {

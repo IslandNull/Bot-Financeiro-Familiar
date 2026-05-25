@@ -42,6 +42,22 @@ test('Val Town proxy sends Apps Script responseText back through Telegram webhoo
     assert.ok(proxy.includes('Telegram webhook sendMessage response prepared'));
 });
 
+test('Val Town proxy supports telegramActions for callback_query menus', () => {
+    assert.ok(proxy.includes('TELEGRAM_BOT_TOKEN_ENV'));
+    assert.ok(proxy.includes('function telegramActions'));
+    assert.ok(proxy.includes('answerCallbackQuery'));
+    assert.ok(proxy.includes('editMessageText'));
+    assert.ok(proxy.includes('callback_query'));
+    assert.ok(proxy.includes('value.callback_query?.message?.chat?.id'));
+});
+
+test('Val Town proxy can dispatch multiple Telegram actions through Bot API', () => {
+    assert.ok(proxy.includes('await dispatchTelegramActions(actions);'));
+    assert.ok(proxy.includes('https://api.telegram.org/bot'));
+    assert.ok(proxy.includes('encodeURIComponent(botToken)'));
+    assert.ok(proxy.includes('JSON.stringify(actionPayload(action))'));
+});
+
 test('Val Town proxy does not reply to failed auth gates', () => {
     assert.ok(proxy.includes('"INVALID_WEBHOOK_SECRET"'));
     assert.ok(proxy.includes('"MISSING_WEBHOOK_SECRET"'));

@@ -1,5 +1,15 @@
 'use strict';
 
+const {
+    TELEGRAM_CALLBACKS,
+    buildTelegramHelpView,
+    buildTelegramHomeView,
+    buildTelegramLaunchView,
+    buildTelegramUnknownCallbackView,
+    telegramAnswerCallbackAction,
+    telegramEditMessageAction,
+} = require('./telegram-ui');
+
 const GENERIC_FAILURE_TEXT = 'Nao consegui anotar isso agora.\nTente mandar de um jeito simples, por exemplo: mercado 42 hoje.';
 const UNAUTHORIZED_TEXT = 'Nao foi possivel processar esta mensagem.';
 const SUCCESS_TEXT = 'Anotado.';
@@ -10,6 +20,11 @@ async function handleTelegramUpdate(input) {
     const update = input && input.update;
 
     if (!update || typeof update !== 'object') return fail('INVALID_UPDATE', 'update', GENERIC_FAILURE_TEXT);
+
+    if (update.callback_query) {
+        return handleTelegramCallback(update, config);
+    }
+
     if (typeof deps.parseText !== 'function') return fail('MISSING_PARSER', 'parseText', GENERIC_FAILURE_TEXT);
     if (typeof deps.recordEvent !== 'function') return fail('MISSING_WRITER', 'recordEvent', GENERIC_FAILURE_TEXT);
 
@@ -73,6 +88,48 @@ async function handleTelegramUpdate(input) {
         request,
         state: written.state,
     };
+}
+
+function handleTelegramCallback(update, config) {
+    const callback = update.callback_query || {};
+    const callbackId = callback.id || '';
+    const message = callback.message || {};
+    const chatId = message.chat && message.chat.id;
+    const userId = callback.from && callback.from.id;
+    if (!isAuthorizedCallback(config, { chatId, userId })) {
+        return {
+            ok: false,
+            shouldApplyDomainMutation: false,
+            responseText: UNAUTHORIZED_TEXT,
+            telegramActions: [telegramAnswerCallbackAction(callbackId, 'Nao autorizado.')],
+            errors: [{ code: 'UNAUTHORIZED', field: 'authorization', message: UNAUTHORIZED_TEXT }],
+        };
+    }
+
+    const data = String(callback.data || '');
+    const view = callbackView(data);
+    return {
+        ok: true,
+        shouldApplyDomainMutation: false,
+        responseText: view.text,
+        telegramActions: [
+            telegramAnswerCallbackAction(callbackId, ''),
+            telegramEditMessageAction(chatId, message.message_id, view),
+        ],
+    };
+}
+
+function isAuthorizedCallback(config, ids) {
+    const allowedUsers = normalizeIdList(config.authorizedUserIds);
+    if (allowedUsers.length > 0) return allowedUsers.includes(String(ids.userId || ''));
+    return isAuthorized(config, ids);
+}
+
+function callbackView(data) {
+    if (data === TELEGRAM_CALLBACKS.home) return buildTelegramHomeView();
+    if (data === TELEGRAM_CALLBACKS.help) return buildTelegramHelpView();
+    if (data === TELEGRAM_CALLBACKS.launch) return buildTelegramLaunchView();
+    return buildTelegramUnknownCallbackView();
 }
 
 function isAuthorized(config, ids) {

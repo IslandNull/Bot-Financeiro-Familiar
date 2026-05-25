@@ -1,13 +1,23 @@
 const APPS_SCRIPT_WEBAPP_URL_ENV = "APPS_SCRIPT_WEBAPP_URL";
 const WEBHOOK_SECRET_ENV = "WEBHOOK_SECRET";
+const TELEGRAM_BOT_TOKEN_ENV = "TELEGRAM_BOT_TOKEN";
 const TELEGRAM_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token";
 const APPS_SCRIPT_TIMEOUT_MS = 25_000;
+const TELEGRAM_API_TIMEOUT_MS = 10_000;
 const TELEGRAM_MAX_TEXT_LENGTH = 4096;
 const TELEGRAM_SAFE_TEXT_LENGTH = 3900;
 
 export default async function (req: Request): Promise<Response> {
   const body = await req.text();
   const appsScriptResult = await forwardToAppsScript(req, body);
+  const actions = telegramActions(body, appsScriptResult);
+  if (actions.length === 1 && canUseTelegramWebhookResponse(actions[0])) {
+    return telegramActionWebhookReply(actions[0]);
+  }
+  if (actions.length > 0) {
+    await dispatchTelegramActions(actions);
+    return new Response("ok", { status: 200 });
+  }
   const telegramReply = telegramWebhookReply(body, appsScriptResult);
   if (telegramReply) return telegramReply;
 
@@ -67,15 +77,121 @@ function telegramWebhookReply(updateBody: string, appsScriptResult: unknown): Re
   }
 
   console.log("Telegram webhook sendMessage response prepared");
-  return new Response(JSON.stringify({
+  const resultValue = appsScriptResult as { responseText?: unknown; reply_markup?: unknown };
+  const payload: Record<string, unknown> = {
     method: "sendMessage",
     chat_id: chatId,
     text: telegramText((appsScriptResult as { responseText?: unknown }).responseText),
     disable_web_page_preview: true,
-  }), {
+  };
+  if (isTelegramReplyMarkup(resultValue.reply_markup)) payload.reply_markup = resultValue.reply_markup;
+  return new Response(JSON.stringify(payload), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+type TelegramAction = {
+  method?: unknown;
+  chat_id?: unknown;
+  message_id?: unknown;
+  callback_query_id?: unknown;
+  text?: unknown;
+  reply_markup?: unknown;
+  disable_web_page_preview?: unknown;
+  show_alert?: unknown;
+};
+
+function telegramActions(updateBody: string, appsScriptResult: unknown): TelegramAction[] {
+  const update = parseJson(updateBody);
+  if (!update) {
+    console.error("Telegram update JSON parse failed");
+    return [];
+  }
+  if (!appsScriptResult || typeof appsScriptResult !== "object") return [];
+  const value = appsScriptResult as { telegramActions?: unknown };
+  if (!Array.isArray(value.telegramActions)) return [];
+  return value.telegramActions
+    .map((action) => normalizeTelegramAction(action, update))
+    .filter((action): action is TelegramAction => Boolean(action));
+}
+
+function normalizeTelegramAction(action: unknown, update: unknown): TelegramAction | null {
+  if (!action || typeof action !== "object") return null;
+  const value = action as TelegramAction;
+  const method = String(value.method || "");
+  if (!["sendMessage", "editMessageText", "answerCallbackQuery"].includes(method)) return null;
+
+  const normalized: TelegramAction = { method };
+  if (method === "answerCallbackQuery") {
+    normalized.callback_query_id = stringOrEmpty(value.callback_query_id);
+    normalized.text = telegramCallbackText(value.text);
+    normalized.show_alert = Boolean(value.show_alert);
+    return normalized.callback_query_id ? normalized : null;
+  }
+
+  normalized.chat_id = stringOrEmpty(value.chat_id) || telegramChatId(update);
+  normalized.text = telegramText(value.text);
+  normalized.disable_web_page_preview = value.disable_web_page_preview !== false;
+  if (isTelegramReplyMarkup(value.reply_markup)) normalized.reply_markup = value.reply_markup;
+  if (method === "editMessageText") normalized.message_id = stringOrEmpty(value.message_id);
+  if (!normalized.chat_id || !normalized.text) return null;
+  if (method === "editMessageText" && !normalized.message_id) return null;
+  return normalized;
+}
+
+function canUseTelegramWebhookResponse(action: TelegramAction): boolean {
+  return ["sendMessage", "editMessageText", "answerCallbackQuery"].includes(String(action.method || ""));
+}
+
+function telegramActionWebhookReply(action: TelegramAction): Response {
+  console.log("Telegram webhook action response prepared:", JSON.stringify({ method: action.method }));
+  return new Response(JSON.stringify(actionPayload(action)), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+async function dispatchTelegramActions(actions: TelegramAction[]): Promise<void> {
+  const botToken = Deno.env.get(TELEGRAM_BOT_TOKEN_ENV);
+  if (!botToken) {
+    console.error("Missing TELEGRAM_BOT_TOKEN for Telegram action dispatch");
+    return;
+  }
+  for (const action of actions) {
+    const method = String(action.method || "");
+    try {
+      const response = await fetchWithTimeout(
+        "https://api.telegram.org/bot" + encodeURIComponent(botToken) + "/" + method,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(actionPayload(action)),
+        },
+        TELEGRAM_API_TIMEOUT_MS,
+      );
+      console.log("Telegram action response:", JSON.stringify({ method, status: response.status }));
+    } catch (error) {
+      console.error("Telegram action fetch error:", redactedError(error));
+    }
+  }
+}
+
+function actionPayload(action: TelegramAction): Record<string, unknown> {
+  const method = String(action.method || "");
+  const payload: Record<string, unknown> = { method };
+  if (method === "answerCallbackQuery") {
+    payload.callback_query_id = stringOrEmpty(action.callback_query_id);
+    if (stringOrEmpty(action.text)) payload.text = telegramCallbackText(action.text);
+    if (action.show_alert !== undefined) payload.show_alert = Boolean(action.show_alert);
+    return payload;
+  }
+  payload.chat_id = stringOrEmpty(action.chat_id);
+  payload.text = telegramText(action.text);
+  payload.disable_web_page_preview = action.disable_web_page_preview !== false;
+  if (method === "editMessageText") payload.message_id = stringOrEmpty(action.message_id);
+  if (isTelegramReplyMarkup(action.reply_markup)) payload.reply_markup = action.reply_markup;
+  return payload;
 }
 
 function telegramSendDecision(result: unknown): {
@@ -125,8 +241,9 @@ function telegramChatId(update: unknown): string {
   const value = update as {
     message?: { chat?: { id?: unknown } };
     edited_message?: { chat?: { id?: unknown } };
+    callback_query?: { message?: { chat?: { id?: unknown } } };
   };
-  const id = value.message?.chat?.id ?? value.edited_message?.chat?.id;
+  const id = value.message?.chat?.id ?? value.edited_message?.chat?.id ?? value.callback_query?.message?.chat?.id;
   return id === undefined || id === null ? "" : String(id);
 }
 
@@ -142,6 +259,20 @@ function telegramText(value: unknown): string {
   const text = String(value || "").trim();
   if (text.length <= TELEGRAM_MAX_TEXT_LENGTH) return text;
   return text.slice(0, TELEGRAM_SAFE_TEXT_LENGTH) + "\n\n[resposta truncada]";
+}
+
+function telegramCallbackText(value: unknown): string {
+  return String(value || "").trim().slice(0, 200);
+}
+
+function stringOrEmpty(value: unknown): string {
+  return value === undefined || value === null ? "" : String(value);
+}
+
+function isTelegramReplyMarkup(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const keyboard = (value as { inline_keyboard?: unknown }).inline_keyboard;
+  return Array.isArray(keyboard);
 }
 
 function appsScriptForwardUrl(appsScriptUrl: string, webhookSecret: string): string {

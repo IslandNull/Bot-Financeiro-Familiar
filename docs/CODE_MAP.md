@@ -9,6 +9,7 @@ Codebase navigation guide for V55.
 | `apps-script/Code.js` | Apps Script entry points, constants, web actions, setup helpers, snapshot and closing wrappers. Deploy via `npm run push`. |
 | `apps-script/infra.js` | Runtime config, auth, request parsing, sheet readers, row conversion, date/money/string utilities. |
 | `apps-script/parser.js` | Telegram command classification, OpenAI parser boundary, prompt construction, NLP parsers and deterministic parser overrides. |
+| `apps-script/telegram-ui.js` | Telegram inline keyboard views, callback action builders, and button response helpers. |
 | `apps-script/reporting.js` | `/resumo`, agenda, read-only answers, summary calculations, canonicalization and runtime validation. |
 | `apps-script/mutation.js` | Telegram writes, closing writes, idempotency and low-level sheet mutation helpers. |
 | `apps-script/appsscript.json` | Apps Script manifest with scopes. |
@@ -41,6 +42,7 @@ Codebase navigation guide for V55.
 | `write-adapter.js` | Atomic sheet mutations with idempotency + lock boundary |
 | `telegram-handler.js` | Telegram update handler with injected dependencies |
 | `telegram-webhook.js` | Webhook secret verification and smoke commands |
+| `telegram-ui.js` | Pure Telegram inline keyboard/view builders and callback action contracts |
 | `pilot-evidence.js` | Redacted evidence generation for pilot scenarios |
 | `index.js` | Barrel export of all modules |
 
@@ -81,7 +83,7 @@ doGet(e)
 
 **Key patterns:**
 - All config from `PropertiesService.getScriptProperties()` (never hardcoded secrets)
-- Per-chat conversation state is stored in Script Properties under `BFF_CONVERSATION_<chat_id>` with a rolling 25-message window and one pending guided intent.
+- Per-chat conversation state is stored in Script Properties under `BFF_CONVERSATION_<chat_id>` with rolling context, one parser `pending_intent`, one button `pending_action`, and the last successful result reference.
 - Idempotency: write `Idempotency_Log` before financial rows, suppress completed duplicates
 - LockService for concurrent mutation protection
 - Runtime mutation validation reads active categories, sources, cards, payable invoices, assets, debts, and closed competencias from sheets

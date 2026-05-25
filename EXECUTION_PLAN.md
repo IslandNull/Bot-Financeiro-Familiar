@@ -27,11 +27,12 @@ Operational authority for Bot Financeiro Familiar V55.
 - Delivery/iFood/restaurant couple spending is consolidated under `OPEX_ALIMENTACAO_FORA`; `OPEX_DELIVERY_FAMILIAR` is inactive in the real config snapshot.
 - Individual categories are active for `OPEX_ROUPAS_GUSTAVO`, `OPEX_ROUPAS_LUANA`, `OPEX_CAFE_TRABALHO_GUSTAVO`, and `OPEX_CAFE_TRABALHO_LUANA`.
 - Snapshot generated on 2026-05-24 reports `OPEX_ALIMENTACAO_FORA` with May spending, including private food-out detail aggregated instead of exposed.
+- Telegram inline UX revamp is deployed: webhook setup accepts `callback_query`, Apps Script returns `telegramActions`, Val Town proxy supports callback actions, Home/Help/read-only buttons, guided missing-field buttons, guided correction, and closing confirmations.
 
 ### Unverified
 
 - Full production readiness beyond owner pilot usage.
-- UX readiness with Luana using real Telegram messages.
+- UX readiness with Luana using real Telegram messages after Gustavo pilot of the new inline buttons.
 - Long-term budget limit tuning beyond the initial pilot limits.
 
 ## Execution Rules

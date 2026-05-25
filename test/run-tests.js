@@ -9,6 +9,7 @@
     await require('./event-planner.test');
     await require('./idempotency.test');
     await require('./write-adapter.test');
+    await require('./telegram-ui.test');
     await require('./telegram-handler.test');
     await require('./telegram-webhook.test');
     await require('./pilot-evidence.test');

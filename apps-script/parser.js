@@ -3,6 +3,10 @@ function handleTelegramUpdate_(update, config) {
     return fail_('INVALID_UPDATE', 'update', GENERIC_MESSAGE_FAILURE);
   }
 
+  if (update.callback_query) {
+    return handleTelegramCallback_(update, config);
+  }
+
   if (update.edited_message) {
     return {
       ok: false,
@@ -29,12 +33,18 @@ function handleTelegramUpdate_(update, config) {
     };
   }
 
+  if (isStartCommand_(text)) {
+    return finishConversationTurn_(chatId, text, telegramPlainResponseFromView_(buildTelegramHomeView_()), conversation, null);
+  }
+
   if (isHelpCommand_(text)) {
-    return finishConversationTurn_(chatId, text, {
+    var helpResult = text === '/ajuda' || text === '/exemplos' ? {
       ok: true,
       responseText: HELP_TEXT + '\n\n' + FAMILY_SUMMARY_HELP_TEXT,
+      reply_markup: buildTelegramHelpView_().reply_markup,
       shouldApplyDomainMutation: false,
-    }, conversation, null);
+    } : telegramPlainResponseFromView_(buildTelegramHelpView_());
+    return finishConversationTurn_(chatId, text, helpResult, conversation, null);
   }
 
   if (isFamilySummaryCommand_(text)) {
@@ -53,6 +63,11 @@ function handleTelegramUpdate_(update, config) {
     var parts = text.split(' ');
     var requestedComp = parts.length > 1 ? parts[1].trim() : '';
     return finishConversationTurn_(chatId, text, buildBudgetReportResponse_(config, requestedComp), conversation, null);
+  }
+
+  if (conversation.pending_action) {
+    var pendingActionResult = handlePendingTelegramActionMessage_(update, message, text, config, conversation);
+    if (pendingActionResult.handled) return pendingActionResult.result;
   }
 
   if (!config.spreadsheetId) {
@@ -77,7 +92,7 @@ function handleTelegramUpdate_(update, config) {
   var resumed = resumePendingConversationIntent_(conversation.pending_intent, text, referenceData);
   if (resumed.ok) {
     var resumedResult = applyParsedFinancialEvent_(update, message, resumed.event, config, referenceData);
-    return finishConversationTurn_(chatId, text, resumedResult, conversation, resumedResult.ok ? null : pendingIntentFromFailure_(resumedResult, resumed.event));
+    return finishWithPendingIntent_(chatId, text, resumedResult, conversation, resumed.event, referenceData, resumedResult.ok ? null : undefined);
   }
 
   if (isPilotBalanceSnapshotText_(text)) {
@@ -199,7 +214,7 @@ function handleTelegramUpdate_(update, config) {
     var result = applyParsedFinancialEvent_(update, message, newParsed.event, config, referenceData);
     if (!result.ok) {
       result.responseText = '⚠️ A correção foi recusada: ' + result.responseText;
-      return finishConversationTurn_(chatId, text, result, conversation, pendingIntentFromFailure_(result, newParsed.event));
+      return finishWithPendingIntent_(chatId, text, result, conversation, newParsed.event, referenceData);
     }
     
     // 3. Permanently delete old transaction
@@ -228,7 +243,7 @@ function handleTelegramUpdate_(update, config) {
   if (parsed.event.tipo_evento === 'leitura') {
     return finishConversationTurn_(chatId, text, result, conversation, null);
   }
-  return finishConversationTurn_(chatId, text, result, conversation, pendingIntentFromFailure_(result, parsed.event));
+  return finishWithPendingIntent_(chatId, text, result, conversation, parsed.event, referenceData);
 }
 
 function applyParsedFinancialEvent_(update, message, event, config, referenceData) {
@@ -335,8 +350,522 @@ function validateParsedFinancialEvent_(event, referenceData) {
   return { ok: true };
 }
 
+function handleTelegramCallback_(update, config) {
+  var callback = update.callback_query || {};
+  var callbackId = callback.id || '';
+  var data = stringValue_(callback.data);
+  var callbackMessage = callback.message || {};
+  var chatId = callbackMessage.chat && callbackMessage.chat.id;
+  var messageId = callbackMessage.message_id;
+  var userId = callback.from && callback.from.id;
+
+  if (!isAuthorizedCallback_(config, chatId, userId)) {
+    return {
+      ok: false,
+      responseText: GENERIC_MESSAGE_FAILURE,
+      shouldApplyDomainMutation: false,
+      telegramActions: [telegramAnswerCallbackAction_(callbackId, 'Nao autorizado.', false)],
+      errors: [{ code: 'UNAUTHORIZED', field: 'authorization', message: GENERIC_MESSAGE_FAILURE }],
+    };
+  }
+
+  var state = readConversationState_(chatId);
+  if (data.indexOf('cancel:') === 0) {
+    state.pending_intent = null;
+    state.pending_action = null;
+    writeConversationState_(chatId, state);
+    return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramContextClearedView_(), false);
+  }
+
+  if (data === TELEGRAM_CALLBACKS.home) {
+    return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramHomeView_(), false);
+  }
+  if (data === TELEGRAM_CALLBACKS.help) {
+    return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramHelpView_(), false);
+  }
+  if (data === TELEGRAM_CALLBACKS.examples) {
+    return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramExamplesView_(), false);
+  }
+  if (data === TELEGRAM_CALLBACKS.launch) {
+    return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramLaunchView_(), false);
+  }
+  if (data === TELEGRAM_CALLBACKS.clearContext) {
+    clearConversationState_(chatId);
+    return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramContextClearedView_(), false);
+  }
+  if (data === TELEGRAM_CALLBACKS.summary) {
+    return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, buildPilotFamilySummaryResponse_(config));
+  }
+  if (data === TELEGRAM_CALLBACKS.agenda) {
+    return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, buildAgendaResponse_(config));
+  }
+  if (data === TELEGRAM_CALLBACKS.reviewMonth) {
+    return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, buildMonthlyReviewResponse_(config));
+  }
+  if (data === TELEGRAM_CALLBACKS.budget) {
+    return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, buildBudgetReportResponse_(config, ''));
+  }
+  if (data.indexOf('flow:') === 0) {
+    return handleTelegramFlowCallback_(update, config, state, data, chatId, messageId);
+  }
+  if (/^sel:(source|card|cat|invoice):/.test(data)) {
+    return handleTelegramPendingIntentSelectionCallback_(update, config, state, data, chatId, messageId);
+  }
+  if (data.indexOf('sel:tx:') === 0) {
+    return handleTelegramTransactionSelectionCallback_(update, config, state, data, chatId, messageId);
+  }
+  if (data.indexOf('confirm:') === 0) {
+    return handleTelegramConfirmationCallback_(update, config, state, data, chatId, messageId);
+  }
+
+  return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramUnknownCallbackView_(), false);
+}
+
+function isAuthorizedCallback_(config, chatId, userId) {
+  if (config.authorizedUserIds && config.authorizedUserIds.length > 0) {
+    return contains_(config.authorizedUserIds, String(userId || ''));
+  }
+  return isAuthorized_(config, chatId, userId);
+}
+
+function telegramCallbackViewResult_(callback, chatId, messageId, view, shouldApplyDomainMutation) {
+  return {
+    ok: true,
+    responseText: view.text,
+    reply_markup: view.reply_markup,
+    shouldApplyDomainMutation: Boolean(shouldApplyDomainMutation),
+    telegramActions: [
+      telegramAnswerCallbackAction_(callback.id || '', '', false),
+      telegramEditMessageAction_(chatId, messageId, view),
+    ],
+  };
+}
+
+function telegramCallbackViewResultFromResponse_(callback, chatId, messageId, response) {
+  if (!response || !response.ok) {
+    var errorView = telegramView_(stringValue_(response && response.responseText) || GENERIC_MESSAGE_FAILURE, [
+      telegramCallbackButton_('Inicio', TELEGRAM_CALLBACKS.home),
+    ]);
+    return telegramCallbackViewResult_(callback, chatId, messageId, errorView, false);
+  }
+  return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramReadOnlyView_(response.responseText), false);
+}
+
+function handleTelegramFlowCallback_(update, config, state, data, chatId, messageId) {
+  var callback = update.callback_query || {};
+  if (data === TELEGRAM_CALLBACKS.correction) {
+    return buildTelegramCorrectionPicker_(update, config, state, chatId, messageId);
+  }
+  if (data === TELEGRAM_CALLBACKS.closing) {
+    return buildTelegramClosingMenu_(update, state, chatId, messageId);
+  }
+
+  var labels = {
+    'flow:expense': ['Despesa', 'Escreva a despesa com valor, data e fonte. Exemplo: mercado 42 hoje no Nubank'],
+    'flow:card_purchase': ['Compra no cartao', 'Escreva compra, valor, parcelas e cartao. Exemplo: notebook 3000 em 3x no Nubank'],
+    'flow:invoice_payment': ['Pagamento de fatura', 'Escreva cartao, valor e fonte pagadora. Exemplo: paguei fatura Nubank 300 pela conta familia'],
+    'flow:transfer': ['Transferencia', 'Escreva origem, destino e valor. Exemplo: transferi 500 do Nubank para Mercado Pago'],
+    'flow:income': ['Receita/Aporte', 'Escreva quem recebeu/enviou, valor e destino. Exemplo: Luana mandou 200 para caixa familiar'],
+    'flow:source_balance': ['Saldo de fonte', 'Escreva a fonte e o saldo. Exemplo: saldo Mercado Pago Gustavo 324,41 em 18/05'],
+    'flow:asset_balance': ['Saldo de ativo', 'Escreva o ativo e o saldo. Exemplo: cofrinho Mercado Pago Gustavo saldo 9482,99'],
+  };
+  var label = labels[data];
+  if (!label) return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramUnknownCallbackView_(), false);
+
+  state.pending_action = newPendingAction_('launch_text', {
+    flow: data,
+    title: label[0],
+  });
+  writeConversationState_(chatId, state);
+  return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramPendingTextView_(label[0], label[1]), false);
+}
+
+function buildTelegramCorrectionPicker_(update, config, state, chatId, messageId) {
+  var callback = update.callback_query || {};
+  if (!config.spreadsheetId) {
+    return telegramCallbackViewResult_(callback, chatId, messageId, telegramView_('Nao consigo corrigir sem planilha configurada.', [
+      telegramCallbackButton_('Inicio', TELEGRAM_CALLBACKS.home),
+    ]), false);
+  }
+  var referenceData = readRuntimeReferenceData_(config);
+  if (!referenceData.ok) return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, referenceData);
+
+  var options = readRecentCorrectableTransactions_(config, referenceData.closedCompetencias, 5);
+  if (!options.length) {
+    return telegramCallbackViewResult_(callback, chatId, messageId, telegramView_([
+      'Nenhum lancamento aberto para corrigir.',
+      '',
+      'Meses fechados precisam de ajuste revisado, nao correcao direta.',
+    ].join('\n'), [
+      telegramCallbackButton_('Inicio', TELEGRAM_CALLBACKS.home),
+    ]), false);
+  }
+
+  state.pending_action = newPendingAction_('correction_pick', { options: options });
+  writeConversationState_(chatId, state);
+  var buttons = options.map(function(option) {
+    return telegramCallbackButton_(option.label, 'sel:tx:' + option.token);
+  });
+  buttons.push(telegramCallbackButton_('Cancelar', 'cancel:pending'));
+  buttons.push(telegramCallbackButton_('Inicio', TELEGRAM_CALLBACKS.home));
+  return telegramCallbackViewResult_(callback, chatId, messageId, telegramView_([
+    'Corrigir lancamento',
+    '',
+    'Escolha o item aberto que quer substituir.',
+  ].join('\n'), buttons), false);
+}
+
+function buildTelegramClosingMenu_(update, state, chatId, messageId) {
+  var callback = update.callback_query || {};
+  var draftToken = shortPendingToken_('draft');
+  var closeToken = shortPendingToken_('close');
+  state.pending_action = newPendingAction_('closing_menu', {
+    draft_token: draftToken,
+    close_token: closeToken,
+  });
+  writeConversationState_(chatId, state);
+  return telegramCallbackViewResult_(callback, chatId, messageId, telegramView_([
+    'Fechamento familiar',
+    '',
+    'Revise faturas, saldos e pendencias antes de fechar.',
+    '',
+    'Gerar rascunho escreve uma linha draft. Fechar exige draft existente.',
+  ].join('\n'), [
+    telegramCallbackButton_('Confirmar rascunho', 'confirm:' + draftToken),
+    telegramCallbackButton_('Confirmar fechamento', 'confirm:' + closeToken),
+    telegramCallbackButton_('Revisar mes', TELEGRAM_CALLBACKS.reviewMonth),
+    telegramCallbackButton_('Inicio', TELEGRAM_CALLBACKS.home),
+  ]), false);
+}
+
+function handleTelegramPendingIntentSelectionCallback_(update, config, state, data, chatId, messageId) {
+  var callback = update.callback_query || {};
+  var match = /^sel:(source|card|cat|invoice):(.+)$/.exec(data);
+  if (!match || !state.pending_intent || !state.pending_intent.event) {
+    return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramUnknownCallbackView_(), false);
+  }
+  var kind = match[1];
+  var token = match[2];
+  var pending = state.pending_intent;
+  var options = pending.options || [];
+  var selected = null;
+  for (var i = 0; i < options.length; i += 1) {
+    if (options[i].token === token) selected = options[i];
+  }
+  if (!selected) return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramUnknownCallbackView_(), false);
+
+  var referenceData = readRuntimeReferenceData_(config);
+  if (!referenceData.ok) return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, referenceData);
+
+  var event = cloneEventForConversation_(pending.event);
+  if (kind === 'source') {
+    event.id_fonte = selected.id;
+    event.raw_text = [event.raw_text || event.descricao, 'pela', selected.label].join(' ');
+  } else if (kind === 'card') {
+    event.id_cartao = selected.id;
+    event.id_fonte = selected.id_fonte || event.id_fonte;
+    event.raw_text = [event.raw_text || event.descricao, 'no', selected.label].join(' ');
+  } else if (kind === 'invoice') {
+    event.id_fatura = selected.id;
+    event.raw_text = [event.raw_text || event.descricao, selected.label].join(' ');
+  } else if (kind === 'cat') {
+    event.id_categoria = selected.id;
+    event.raw_text = [event.raw_text || event.descricao, 'categoria', selected.label].join(' ');
+  }
+
+  var requestMessage = {
+    message_id: messageId,
+    chat: { id: chatId },
+    from: callback.from || {},
+    __request: {
+      idempotency_key: 'telegram:' + String(update.update_id || '') + ':' + String(callback.id || '') + ':' + data,
+      source: 'telegram',
+      external_update_id: String(update.update_id || ''),
+      external_message_id: String(messageId || ''),
+      chat_id: String(chatId || ''),
+      payload_hash: '',
+    },
+  };
+  var result = applyParsedFinancialEvent_(update, requestMessage, event, config, referenceData);
+  state.pending_intent = result.ok ? null : withPendingIntentOptions_(pendingIntentFromFailure_(result, event), referenceData);
+  if (state.pending_intent && !result.ok) result.reply_markup = replyMarkupForPendingIntent_(state.pending_intent);
+  writeConversationState_(chatId, state);
+  var view = telegramView_(result.responseText || GENERIC_RECORD_FAILURE, [
+    telegramCallbackButton_('Resumo', TELEGRAM_CALLBACKS.summary),
+    telegramCallbackButton_('Lancar', TELEGRAM_CALLBACKS.launch),
+    telegramCallbackButton_('Inicio', TELEGRAM_CALLBACKS.home),
+  ]);
+  if (result.reply_markup) view.reply_markup = result.reply_markup;
+  return {
+    ok: Boolean(result.ok),
+    responseText: result.responseText,
+    reply_markup: view.reply_markup,
+    shouldApplyDomainMutation: Boolean(result.shouldApplyDomainMutation),
+    result_ref: result.result_ref || '',
+    errors: result.errors,
+    telegramActions: [
+      telegramAnswerCallbackAction_(callback.id || '', '', false),
+      telegramEditMessageAction_(chatId, messageId, view),
+    ],
+  };
+}
+
+function handleTelegramTransactionSelectionCallback_(update, config, state, data, chatId, messageId) {
+  var callback = update.callback_query || {};
+  var token = data.replace(/^sel:tx:/, '');
+  var pending = state.pending_action;
+  if (!pending || pending.type !== 'correction_pick') {
+    return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramUnknownCallbackView_(), false);
+  }
+  var options = pending.payload && pending.payload.options ? pending.payload.options : [];
+  var selected = null;
+  for (var i = 0; i < options.length; i += 1) {
+    if (options[i].token === token) selected = options[i];
+  }
+  if (!selected) return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramUnknownCallbackView_(), false);
+
+  state.pending_action = newPendingAction_('correction_text', { target_id: selected.id, target_label: selected.label });
+  writeConversationState_(chatId, state);
+  return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramPendingTextView_(
+    'Corrigir: ' + selected.label,
+    'Envie a nova descricao completa. Exemplo: farmacia 50 hoje conta familia'
+  ), false);
+}
+
+function handleTelegramConfirmationCallback_(update, config, state, data, chatId, messageId) {
+  var callback = update.callback_query || {};
+  var token = data.replace(/^confirm:/, '');
+  var pending = state.pending_action;
+  if (!pending || !pending.payload) {
+    return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramUnknownCallbackView_(), false);
+  }
+  if (pending.type === 'confirm_correction' && pending.token === token) {
+    return applyGuidedCorrectionConfirmation_(update, config, state, chatId, messageId);
+  }
+  if (pending.type === 'closing_menu') {
+    if (pending.payload.draft_token === token) {
+      var draft = writeDraftFamilyClosingV55('');
+      state.pending_action = null;
+      writeConversationState_(chatId, state);
+      return telegramCallbackViewResult_(callback, chatId, messageId, telegramView_(
+        draft.ok ? 'Rascunho de fechamento atualizado.' : (draft.responseText || GENERIC_RECORD_FAILURE),
+        [telegramCallbackButton_('Revisar mes', TELEGRAM_CALLBACKS.reviewMonth), telegramCallbackButton_('Inicio', TELEGRAM_CALLBACKS.home)]
+      ), Boolean(draft && draft.shouldApplyDomainMutation));
+    }
+    if (pending.payload.close_token === token) {
+      var closed = closeReviewedFamilyClosingV55('', { closed_at: isoNow_(), observacao: 'confirmado via Telegram' });
+      state.pending_action = null;
+      writeConversationState_(chatId, state);
+      return telegramCallbackViewResult_(callback, chatId, messageId, telegramView_(
+        closed.ok ? 'Fechamento confirmado.' : (closed.responseText || GENERIC_RECORD_FAILURE),
+        [telegramCallbackButton_('Revisar mes', TELEGRAM_CALLBACKS.reviewMonth), telegramCallbackButton_('Inicio', TELEGRAM_CALLBACKS.home)]
+      ), Boolean(closed && closed.shouldApplyDomainMutation));
+    }
+  }
+  return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramUnknownCallbackView_(), false);
+}
+
+function handlePendingTelegramActionMessage_(update, message, text, config, conversation) {
+  var action = conversation.pending_action;
+  if (!action || !action.type) return { handled: false };
+  if (String(text || '').indexOf('/') === 0) return { handled: false };
+  var chatId = message && message.chat && message.chat.id;
+
+  if (action.type === 'launch_text') {
+    conversation.pending_action = null;
+    writeConversationState_(chatId, conversation);
+    return { handled: false };
+  }
+
+  if (action.type !== 'correction_text') return { handled: false };
+  if (!config.spreadsheetId) {
+    return { handled: true, result: fail_('MISSING_SPREADSHEET_ID', 'spreadsheetId', GENERIC_RECORD_FAILURE) };
+  }
+  var referenceData = readRuntimeReferenceData_(config);
+  if (!referenceData.ok) return { handled: true, result: referenceData };
+
+  var parsed = parseFinancialEventWithOpenAI_(text, config, referenceData, conversation);
+  if (parsed.ok && parsed.event && parsed.event.tipo_evento === 'correcao_transacao') {
+    parsed = parseFinancialEventWithOpenAI_(parsed.event.descricao || text, config, referenceData, conversation);
+  }
+  if (!parsed.ok) {
+    return { handled: true, result: finishConversationTurn_(chatId, text, parsed, conversation, null) };
+  }
+  var validation = validateParsedFinancialEvent_(parsed.event, referenceData);
+  if (!validation.ok) {
+    conversation.pending_action = null;
+    return { handled: true, result: finishConversationTurn_(chatId, text, validation, conversation, pendingIntentFromFailure_(validation, parsed.event)) };
+  }
+  var closedCheck = validateClosedPeriodForEvent_(parsed.event, referenceData.closedCompetencias);
+  if (!closedCheck.ok) {
+    return { handled: true, result: finishConversationTurn_(chatId, text, closedCheck, conversation, null) };
+  }
+  var targetId = action.payload && action.payload.target_id;
+  var dryRun = deleteFinancialTransaction_(targetId, config, referenceData.closedCompetencias, true);
+  if (!dryRun.ok) {
+    var msg = dryRun.error === 'CLOSED_PERIOD'
+      ? 'Nao e permitido corrigir lancamentos de competencias fechadas. Use ajuste revisado com motivo.'
+      : 'Nao foi possivel validar a correcao antes de aplicar.';
+    return { handled: true, result: finishConversationTurn_(chatId, text, {
+      ok: false,
+      responseText: msg,
+      shouldApplyDomainMutation: false,
+    }, conversation, null) };
+  }
+
+  var token = shortPendingToken_('corr');
+  conversation.pending_action = newPendingAction_('confirm_correction', {
+    target_id: targetId,
+    target_label: action.payload.target_label,
+    new_event: cloneEventForConversation_(parsed.event),
+  }, token);
+  var view = buildTelegramConfirmationView_(
+    'Confirmar correcao',
+    'Substituir: ' + action.payload.target_label + '\nPor: ' + parsed.event.descricao + ' - ' + formatMoney_(numberFromSheetValue_(parsed.event.valor)),
+    token,
+    'cancel:pending'
+  );
+  return { handled: true, result: finishConversationTurn_(chatId, text, {
+    ok: true,
+    responseText: view.text,
+    reply_markup: view.reply_markup,
+    shouldApplyDomainMutation: false,
+  }, conversation, null) };
+}
+
+function applyGuidedCorrectionConfirmation_(update, config, state, chatId, messageId) {
+  var callback = update.callback_query || {};
+  var action = state.pending_action;
+  var payload = action.payload || {};
+  var referenceData = readRuntimeReferenceData_(config);
+  if (!referenceData.ok) return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, referenceData);
+
+  var event = cloneEventForConversation_(payload.new_event || {});
+  var requestMessage = {
+    message_id: messageId,
+    chat: { id: chatId },
+    from: callback.from || {},
+    __request: {
+      idempotency_key: 'telegram:' + String(update.update_id || '') + ':' + String(callback.id || '') + ':' + action.token,
+      source: 'telegram',
+      external_update_id: String(update.update_id || ''),
+      external_message_id: String(messageId || ''),
+      chat_id: String(chatId || ''),
+      payload_hash: '',
+    },
+  };
+  var applyResult = applyParsedFinancialEvent_(update, requestMessage, event, config, referenceData);
+  if (!applyResult.ok) {
+    return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, applyResult);
+  }
+
+  var deleteResult = deleteFinancialTransaction_(payload.target_id, config, referenceData.closedCompetencias, false);
+  if (!deleteResult.ok) {
+    deleteFinancialTransaction_(applyResult.result_ref, config, referenceData.closedCompetencias, false);
+    return telegramCallbackViewResult_(callback, chatId, messageId, telegramView_(
+      'Erro interno ao apagar lancamento original. A correcao foi revertida para evitar duplicacao.',
+      [telegramCallbackButton_('Inicio', TELEGRAM_CALLBACKS.home)]
+    ), false);
+  }
+
+  state.pending_action = null;
+  if (applyResult.result_ref) state.last_success_ref = applyResult.result_ref;
+  writeConversationState_(chatId, state);
+  var text = [
+    'Lancamento corrigido.',
+    '',
+    'Substituido: ' + (payload.target_label || payload.target_id),
+    '',
+    applyResult.responseText,
+  ].join('\n');
+  return telegramCallbackViewResult_(callback, chatId, messageId, telegramView_(text, [
+    telegramCallbackButton_('Resumo', TELEGRAM_CALLBACKS.summary),
+    telegramCallbackButton_('Lancar', TELEGRAM_CALLBACKS.launch),
+    telegramCallbackButton_('Inicio', TELEGRAM_CALLBACKS.home),
+  ]), true);
+}
+
+function readRecentCorrectableTransactions_(config, closedCompetencias, limit) {
+  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+  var results = [];
+  var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+  if (launchSheet && launchSheet.getLastRow() >= 2) {
+    var launchHeaders = HEADERS[SHEETS.LANCAMENTOS];
+    var rows = launchSheet.getRange(2, 1, launchSheet.getLastRow() - 1, launchHeaders.length).getValues();
+    for (var i = rows.length - 1; i >= 0 && results.length < limit; i -= 1) {
+      var row = rowToObject_(launchHeaders, rows[i]);
+      var comp = normalizeSheetCompetencia_(row.competencia);
+      if (closedCompetencias && contains_(closedCompetencias, comp)) continue;
+      if (String(row.status || '') === 'cancelado' || String(row.status || '') === 'cancelado_revisao') continue;
+      results.push({
+        token: 't' + (results.length + 1),
+        id: String(row.id_lancamento),
+        label: correctionOptionLabel_(row.data, row.descricao, row.valor),
+      });
+    }
+  }
+  var transferSheet = spreadsheet.getSheetByName(SHEETS.TRANSFERENCIAS_INTERNAS);
+  if (transferSheet && transferSheet.getLastRow() >= 2) {
+    var transferHeaders = HEADERS[SHEETS.TRANSFERENCIAS_INTERNAS];
+    var transferRows = transferSheet.getRange(2, 1, transferSheet.getLastRow() - 1, transferHeaders.length).getValues();
+    for (var j = transferRows.length - 1; j >= 0 && results.length < limit; j -= 1) {
+      var transfer = rowToObject_(transferHeaders, transferRows[j]);
+      var transferComp = normalizeSheetCompetencia_(transfer.competencia);
+      if (closedCompetencias && contains_(closedCompetencias, transferComp)) continue;
+      results.push({
+        token: 't' + (results.length + 1),
+        id: String(transfer.id_transferencia),
+        label: correctionOptionLabel_(transfer.data, transfer.descricao, transfer.valor),
+      });
+    }
+  }
+  return results;
+}
+
+function rowToObject_(headers, row) {
+  var result = {};
+  headers.forEach(function(header, index) {
+    result[header] = row[index];
+  });
+  return result;
+}
+
+function correctionOptionLabel_(dateValue, description, value) {
+  var date = formatSheetDate_(dateValue).slice(5).split('-').reverse().join('/');
+  var desc = stringValue_(description).slice(0, 28);
+  return [date, desc, formatMoney_(numberFromSheetValue_(value))].filter(Boolean).join(' ');
+}
+
+function newPendingAction_(type, payload, token) {
+  return {
+    type: type,
+    token: token || shortPendingToken_(type),
+    payload: payload || {},
+    created_at: isoNow_(),
+    expires_at: pendingActionExpiresAt_(),
+  };
+}
+
+function shortPendingToken_(seed) {
+  return String(seed || 'p').replace(/[^a-z0-9]/gi, '').slice(0, 6).toLowerCase() + String(new Date().getTime()).slice(-6);
+}
+
+function pendingActionExpiresAt_() {
+  return Utilities.formatDate(new Date(new Date().getTime() + 30 * 60 * 1000), 'Etc/UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
+}
+
 function isClearConversationCommand_(text) {
   return text === '/limpar_contexto' || text === '/clear_context';
+}
+
+function finishWithPendingIntent_(chatId, userText, result, state, event, referenceData, forcedPendingIntent) {
+  var pendingIntent = forcedPendingIntent === undefined ? pendingIntentFromFailure_(result, event) : forcedPendingIntent;
+  pendingIntent = withPendingIntentOptions_(pendingIntent, referenceData);
+  if (pendingIntent && result && !result.ok) {
+    var markup = replyMarkupForPendingIntent_(pendingIntent);
+    if (markup) result.reply_markup = markup;
+  }
+  return finishConversationTurn_(chatId, userText, result, state, pendingIntent);
 }
 
 function finishConversationTurn_(chatId, userText, result, state, pendingIntent) {
@@ -364,7 +893,7 @@ function finishConversationTurn_(chatId, userText, result, state, pendingIntent)
 }
 
 function emptyConversationState_() {
-  return { messages: [], pending_intent: null, last_success_ref: null };
+  return { messages: [], pending_intent: null, pending_action: null, last_success_ref: null };
 }
 
 function conversationStateKey_(chatId) {
@@ -379,6 +908,7 @@ function readConversationState_(chatId) {
   return {
     messages: Array.isArray(parsed.messages) ? parsed.messages.slice(-10) : [],
     pending_intent: parsed.pending_intent || null,
+    pending_action: activePendingAction_(parsed.pending_action),
     last_success_ref: parsed.last_success_ref || null,
   };
 }
@@ -388,8 +918,16 @@ function writeConversationState_(chatId, state) {
   PropertiesService.getScriptProperties().setProperty(conversationStateKey_(chatId), JSON.stringify({
     messages: (state.messages || []).slice(-10),
     pending_intent: state.pending_intent || null,
+    pending_action: activePendingAction_(state.pending_action),
     last_success_ref: state.last_success_ref || null,
   }));
+}
+
+function activePendingAction_(pendingAction) {
+  if (!pendingAction || typeof pendingAction !== 'object') return null;
+  var expiresAt = stringValue_(pendingAction.expires_at);
+  if (expiresAt && expiresAt < isoNow_()) return null;
+  return pendingAction;
 }
 
 function clearConversationState_(chatId) {
@@ -407,6 +945,48 @@ function pendingIntentFromFailure_(result, event) {
     event: cloneEventForConversation_(event),
     created_at: isoNow_(),
   };
+}
+
+function withPendingIntentOptions_(pendingIntent, referenceData) {
+  if (!pendingIntent || !referenceData) return pendingIntent;
+  var options = [];
+  if (pendingIntent.missing_field === 'fonte') {
+    options = referenceData.sources.filter(function(source) {
+      return source.tipo !== 'cartao_credito';
+    }).slice(0, 6).map(function(source, index) {
+      return { token: 's' + (index + 1), id: source.id_fonte, label: source.nome };
+    });
+  } else if (pendingIntent.missing_field === 'cartao') {
+    options = referenceData.cards.slice(0, 6).map(function(card, index) {
+      return { token: 'c' + (index + 1), id: card.id_cartao, id_fonte: card.id_fonte, label: card.nome };
+    });
+  } else if (pendingIntent.missing_field === 'fatura') {
+    options = referenceData.invoices.slice(0, 6).map(function(invoice, index) {
+      return { token: 'i' + (index + 1), id: invoice.id_fatura, label: invoice.competencia + ' ' + formatMoney_(numberFromSheetValue_(invoice.valor_aberto || invoice.valor_previsto_total)) };
+    });
+  } else if (pendingIntent.missing_field === 'categoria') {
+    options = referenceData.categories.slice(0, 6).map(function(category, index) {
+      return { token: 'g' + (index + 1), id: category.id_categoria, label: category.nome };
+    });
+  }
+  pendingIntent.options = options;
+  return pendingIntent;
+}
+
+function replyMarkupForPendingIntent_(pendingIntent) {
+  if (!pendingIntent || !pendingIntent.options || !pendingIntent.options.length) return null;
+  var prefix = {
+    fonte: 'sel:source:',
+    cartao: 'sel:card:',
+    fatura: 'sel:invoice:',
+    categoria: 'sel:cat:',
+  }[pendingIntent.missing_field];
+  if (!prefix) return null;
+  var buttons = pendingIntent.options.map(function(option) {
+    return telegramCallbackButton_(option.label, prefix + option.token);
+  });
+  buttons.push(telegramCallbackButton_('Cancelar', 'cancel:pending'));
+  return telegramInlineKeyboard_(buttons, 2);
 }
 
 function missingConversationFieldFromError_(code, field) {
@@ -454,8 +1034,12 @@ function resumePendingConversationIntent_(pendingIntent, text, referenceData) {
   return { ok: false };
 }
 
+function isStartCommand_(text) {
+  return text === '/start';
+}
+
 function isHelpCommand_(text) {
-  return text === '/start' || text === '/help' || text === '/ajuda' || text === '/exemplos';
+  return text === '/help' || text === '/ajuda' || text === '/exemplos';
 }
 
 function isFamilySummaryCommand_(text) {

@@ -12,6 +12,7 @@ module.exports = {
     ...require('./event-planner'),
     ...require('./write-adapter'),
     ...require('./parser-runtime'),
+    ...require('./telegram-ui'),
     ...require('./telegram-handler'),
     ...require('./telegram-webhook'),
     ...require('./pilot-evidence'),

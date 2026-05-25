@@ -157,7 +157,7 @@ function runTelegramWebhookSetupDryRun() {
     action: 'telegram_setWebhook',
     target: 'redacted_val_town_proxy',
     dropPendingUpdates: true,
-    allowedUpdates: ['message'],
+    allowedUpdates: ['message', 'edited_message', 'callback_query'],
   };
 }
 
@@ -175,7 +175,7 @@ function runTelegramWebhookSetupApply() {
         url: config.valTownWebhookUrl,
         secret_token: config.webhookSecret,
         drop_pending_updates: true,
-        allowed_updates: ['message'],
+        allowed_updates: ['message', 'edited_message', 'callback_query'],
       }),
       muteHttpExceptions: true,
     }

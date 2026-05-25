@@ -5,6 +5,7 @@ const {
     GENERIC_FAILURE_TEXT,
     SUCCESS_TEXT,
     UNAUTHORIZED_TEXT,
+    TELEGRAM_CALLBACKS,
     createEmptyFakeSheetState,
     handleTelegramUpdate,
     recordEventV55,
@@ -52,6 +53,23 @@ function config(overrides) {
     return {
         authorizedUserIds: ['user_ok'],
         authorizedChatIds: [],
+        ...overrides,
+    };
+}
+
+function callbackUpdate(data, overrides) {
+    return {
+        update_id: 124,
+        callback_query: {
+            id: 'callback_1',
+            from: { id: 'user_ok' },
+            data,
+            message: {
+                message_id: 457,
+                chat: { id: 'chat_ok' },
+                text: 'old menu',
+            },
+        },
         ...overrides,
     };
 }
@@ -172,6 +190,53 @@ test('writer failures return generic text without secrets or stack traces', asyn
     assert.strictEqual(result.responseText, GENERIC_FAILURE_TEXT);
     assert.ok(!serialized.includes('telegram-token'));
     assert.ok(!serialized.includes('stack trace'));
+});
+
+test('authorized callback returns answerCallbackQuery and edited menu action', async () => {
+    const result = await handleTelegramUpdate({
+        update: callbackUpdate(TELEGRAM_CALLBACKS.home),
+        config: config(),
+        deps: {},
+    });
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(result.telegramActions[0].method, 'answerCallbackQuery');
+    assert.strictEqual(result.telegramActions[0].callback_query_id, 'callback_1');
+    assert.strictEqual(result.telegramActions[1].method, 'editMessageText');
+    assert.strictEqual(result.telegramActions[1].chat_id, 'chat_ok');
+    assert.strictEqual(result.telegramActions[1].message_id, '457');
+    assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.length > 0);
+});
+
+test('unauthorized callback answers privately without leaking financial text', async () => {
+    const result = await handleTelegramUpdate({
+        update: callbackUpdate(TELEGRAM_CALLBACKS.summary, {
+            callback_query: {
+                ...callbackUpdate(TELEGRAM_CALLBACKS.summary).callback_query,
+                from: { id: 'intruder' },
+            },
+        }),
+        config: config(),
+        deps: {
+            parseText: async () => {
+                throw new Error('should not parse');
+            },
+            recordEvent: async () => {
+                throw new Error('should not write');
+            },
+        },
+    });
+
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(result.responseText, UNAUTHORIZED_TEXT);
+    assert.deepStrictEqual(result.telegramActions, [{
+        method: 'answerCallbackQuery',
+        callback_query_id: 'callback_1',
+        text: 'Nao autorizado.',
+        show_alert: false,
+    }]);
 });
 
 module.exports = (async function run() {

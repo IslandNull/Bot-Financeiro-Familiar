@@ -247,6 +247,33 @@ function postPilotMessage(context, text, options = {}) {
     return JSON.parse(output.getContentText());
 }
 
+function postTelegramCallback(context, data, options = {}) {
+    const updateId = options.updateId || 'callback_update_1';
+    const callbackId = options.callbackId || 'callback_1';
+    const messageId = options.messageId || 'callback_message_1';
+    const chatId = options.chatId || 'chat_1';
+    const userId = options.userId || 'user_1';
+    const output = context.doPost({
+        parameter: { secret: 'test_secret' },
+        postData: {
+            contents: JSON.stringify({
+                update_id: updateId,
+                callback_query: {
+                    id: callbackId,
+                    from: { id: userId },
+                    data,
+                    message: {
+                        message_id: messageId,
+                        chat: { id: chatId },
+                        text: options.messageText || 'menu',
+                    },
+                },
+            }),
+        },
+    });
+    return JSON.parse(output.getContentText());
+}
+
 function appendRuntimeConfigRows(sheets) {
     [
         {
@@ -721,6 +748,7 @@ module.exports = {
     createFakeSheet,
     createAppsScriptHarness,
     postPilotMessage,
+    postTelegramCallback,
     appendRuntimeConfigRows,
     runRemoteAction,
     appendFakeInvoice,
