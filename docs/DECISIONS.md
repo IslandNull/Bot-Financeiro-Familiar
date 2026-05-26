@@ -375,3 +375,19 @@ Rejected:
 - Letting the LLM calculate savings rate, spending cuts, or investment readiness.
 - Showing private personal line items in shared reviews.
 - Treating invoice payment as new spending when analyzing cost of life.
+
+## V56-D026 - Telegram-First Deterministic Financial Copilot
+
+Status: Accepted
+Date: 2026-05-26
+
+Decision:
+Evolve the product toward a Telegram-first financial copilot. The copilot should produce deterministic, testable insights and decision cards from the existing V55 financial data, then optionally use an LLM only to phrase or clarify those already-computed facts. The initial V56 roadmap excludes automatic banking/Open Finance integration; that remains a future reviewed epic after the copilot proves useful on the current Sheets/Telegram base.
+
+Reason:
+The system is now used for real family decisions. The next product step is not another passive dashboard, but a conversational assistant that explains what changed, where spending is drifting, what action protects invoices/reserve/obligations, and what data is missing before a confident recommendation. Keeping calculations deterministic preserves trust, privacy and testability.
+
+Rejected:
+- Letting the LLM invent financial numbers, thresholds or recommendations.
+- Sending proactive messages that mutate the spreadsheet.
+- Bundling bank integration into the first copilot implementation batch.

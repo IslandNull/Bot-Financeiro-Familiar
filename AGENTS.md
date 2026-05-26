@@ -8,6 +8,27 @@ This is a personal finance system for Gustavo and Luana. The main goals are reli
 
 The codebase must clearly separate living product code from historical repair code.
 
+## Copilot Product Direction
+
+V56 direction is a Telegram-first financial copilot, not another passive dashboard.
+
+The system should help Gustavo and Luana understand:
+- what needs attention now;
+- where spending is drifting from limits;
+- what decision protects invoices, obligations and reserve;
+- what not to do yet;
+- what data is missing before a confident recommendation.
+
+Prefer decision cards, next actions, and explainable recommendations over generic summaries.
+
+Default proactive behavior:
+- weekly digest;
+- high-signal alerts for risk or clear opportunity;
+- no daily nagging unless explicitly requested;
+- no spreadsheet mutation from proactive flows.
+
+Keep the detailed roadmap in `docs/COPILOTO_FINANCEIRO_V56_PLAN.md`. Keep `EXECUTION_PLAN.md` compact.
+
 ## Core Operating Principle
 
 Work in useful batches, not micro-steps.
@@ -76,6 +97,24 @@ The V55 domain is Caixa Familiar Integrado:
 - fechamento familiar.
 
 Do not introduce couple-settlement language, debt language between Gustavo and Luana, or columns that compute what one person owes the other.
+
+## Deterministic AI Policy
+
+Financial calculations, recommendations, limits, safe-to-spend, reserve status, debt readiness and investment blockers must come from deterministic, tested code.
+
+The LLM may:
+- parse user text inside the existing guarded parser boundary;
+- phrase deterministic insight payloads in friendlier language;
+- help resolve conversational context when the runtime has enough evidence.
+
+The LLM must not:
+- invent financial numbers;
+- create new financial rules;
+- decide whether to invest, amortize or spend without deterministic evidence;
+- expose private personal line items;
+- replace tests for finance behavior.
+
+Every copilot insight must carry evidence, confidence and privacy level. If data is missing, say what is missing instead of guessing.
 
 ## Living Code vs Historical Code
 
@@ -222,6 +261,7 @@ If Apps Script runtime changed and validation passed, also run:
 
 - `npm run push`
 - `clasp deploy -i $DEPLOY_ID`
+- `npm run smoke`
 
 ### Finance logic, parser, fatura, saldo, dívida, patrimônio or fechamento change
 
@@ -235,6 +275,7 @@ If Apps Script runtime changed and validation passed, also run:
 
 - `npm run push`
 - `clasp deploy -i $DEPLOY_ID`
+- `npm run smoke`
 
 ### Spreadsheet/schema inspection
 
@@ -244,6 +285,14 @@ Run:
 - `npm run snapshot` only if the task requires reading current spreadsheet state.
 
 Do not mutate the real spreadsheet unless explicitly instructed.
+
+### Smoke and remote evidence
+
+- `npm run smoke` is quick remote smoke only: no local tests and no snapshot.
+- Use `npm run verify` when a single command should run local validation plus quick remote smoke.
+- Use `npm run smoke:full` for heavier remote smoke/audit.
+- Use `npm run snapshot` only when a task requires current spreadsheet evidence.
+- Do not treat smoke as a substitute for `npm run check` before runtime deploy.
 
 ### Destructive spreadsheet mutation
 

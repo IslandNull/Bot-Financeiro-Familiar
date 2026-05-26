@@ -14,6 +14,7 @@
     await require('./telegram-webhook.test');
     await require('./pilot-evidence.test');
     await require('./sheet-audit.test');
+    await require('./smoke-script.test');
     await require('./invoice-ledger.test');
     await require('./apps-script-runtime.test');
     await require('./val-town-proxy.test');

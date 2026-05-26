@@ -1,8 +1,8 @@
 # EXECUTION_PLAN.md
 
-Operational authority for Bot Financeiro Familiar V55.
+Operational authority for Bot Financeiro Familiar V55/V56.
 
-### Current State (2026-05-24)
+### Current State (2026-05-26)
 
 ### Verified
 
@@ -29,6 +29,7 @@ Operational authority for Bot Financeiro Familiar V55.
 - Snapshot generated on 2026-05-24 reports `OPEX_ALIMENTACAO_FORA` with May spending, including private food-out detail aggregated instead of exposed.
 - Telegram inline UX revamp is deployed: webhook setup accepts `callback_query`, Apps Script returns `telegramActions`, Val Town proxy supports callback actions, Home/Help/read-only buttons, guided missing-field buttons, guided correction, and closing confirmations.
 - First deterministic family financial health layer exists in Apps Script reporting: savings rate, cost-of-life buckets, monthly saving goal, investment blockers, saving opportunities, and more actionable `/revisar_mes` guidance with private spending kept aggregate-only.
+- V56 product direction is documented in `docs/COPILOTO_FINANCEIRO_V56_PLAN.md`: Telegram-first financial copilot, deterministic insight engine, IA as explanation layer only, weekly digest plus high-signal alerts, and no automatic banking integration in v1.
 
 ### Unverified
 
@@ -40,7 +41,8 @@ Operational authority for Bot Financeiro Familiar V55.
 
 - Local validation before deploy: `npm run check`.
 - Runtime deploy after verified Apps Script changes: `npm run push`; then `clasp deploy -i $DEPLOY_ID`.
-- After deploy or spreadsheet-state changes, run `npm run smoke`.
+- After deploy, run quick remote smoke with `npm run smoke`; it does not run local tests or snapshot.
+- Use `npm run smoke:full` for heavier remote smoke/audit and `npm run snapshot` only when current spreadsheet evidence is required.
 - `npm run sheet:audit` is read-only; it may report issues but must not mutate Sheets.
 - Always commit and push verified non-trivial batches. Do not leave the working tree dirty unless blocked.
 - Never commit `.env`, tokens, spreadsheet IDs, webhook URLs, chat/user IDs, or private financial dumps.
@@ -53,6 +55,7 @@ The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>`.
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env`.
 
 Available actions: `snapshot`, `summary`, `closing_draft`, `closing_close`, `selftest`, and `sheet_audit`.
+`scripts/smoke.js` defaults to quick `selftest` + `summary`; `--full` adds `sheet_audit`. `snapshot` is intentionally explicit.
 
 On Windows with PowerShell execution policy, use `npm.cmd` and `clasp.cmd` if needed.
 
@@ -77,4 +80,7 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 
 ## Next Work
 
-1. Tune budget limits and health-check classification after one or two reviewed months of pilot usage.
+1. Build V56 deterministic copilot core: ranked insights, decision cards, `/copiloto`, and stronger safe-to-spend answers.
+2. Add Telegram decision UX and read-only drill-downs for "onde cortar", "posso gastar", goals, agenda, and budget.
+3. Add weekly digest preview, then gated delivery with `COPILOT_DIGEST_ENABLED`; proactive flows must stay read-only.
+4. Add goals/recurring commitments schema only after the insight engine is stable and tested.
