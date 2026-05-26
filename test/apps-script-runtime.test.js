@@ -2661,6 +2661,54 @@ test('Apps Script card purchase accepts notebook when parser selects matching el
     assert.deepStrictEqual(invoices.map((invoice) => invoice.competencia), ['2026-04', '2026-05', '2026-06']);
 });
 
+test('Apps Script card purchase accepts explicit health and wellness aliases', () => {
+    for (const categoryText of ['bem estar', 'academia']) {
+        const { context, sheets } = createAppsScriptHarness({
+            tipo_evento: 'compra_cartao',
+            data: '2026-05-25',
+            competencia: '2026-05',
+            valor: '39.99',
+            descricao: 'Wellhub Gustavo',
+            id_categoria: 'OPEX_FARMACIA',
+            id_fonte: '',
+            pessoa: '',
+            escopo: '',
+            visibilidade: '',
+            id_cartao: '',
+            id_fatura: '',
+            id_divida: '',
+            id_ativo: '',
+            afeta_dre: false,
+            afeta_patrimonio: true,
+            afeta_caixa_familiar: true,
+            direcao_caixa_familiar: '',
+            status: '',
+            parcelas: 1,
+        });
+        sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => ({
+            id_categoria: 'OPEX_SAUDE_BEM_ESTAR',
+            nome: 'Saude e bem-estar',
+            grupo: 'Saude e bem-estar',
+            tipo_evento_padrao: 'compra_cartao',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: false,
+            visibilidade_padrao: 'detalhada',
+            ativo: true,
+        })[header] ?? ''));
+
+        const result = postPilotMessage(context, `Comprei 39,99 wellhub gustavo no cartao nubank gu categoria ${categoryText} 25/05`);
+
+        assert.strictEqual(result.ok, true, `${categoryText}: ${JSON.stringify(result.errors)}`);
+        const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+        assert.strictEqual(launch.id_categoria, 'OPEX_SAUDE_BEM_ESTAR');
+        assert.strictEqual(launch.id_cartao, 'CARD_NUBANK_GU');
+        assert.strictEqual(launch.valor, 39.99);
+    }
+});
+
 test('Apps Script card purchase overrides reimbursable client cost defaults from explicit text', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'compra_cartao',

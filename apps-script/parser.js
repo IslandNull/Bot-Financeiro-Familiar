@@ -1806,10 +1806,14 @@ function inferExplicitSpendingCategoryFromText_(rawText, referenceData) {
     var category = referenceData.categories[i];
     var eventType = stringValue_(category.tipo_evento_padrao);
     if (eventType !== 'despesa' && eventType !== 'compra_cartao') continue;
-    var name = normalizeAliasText_(category.nome);
-    if (!name) continue;
-    if (containsAliasPhrase_(normalizedText, 'categoria ' + name) || containsAliasPhrase_(normalizedText, name)) {
-      matches.push(category);
+    var phrases = categoryMatchPhrases_(category);
+    for (var phraseIndex = 0; phraseIndex < phrases.length; phraseIndex += 1) {
+      var phrase = normalizeAliasText_(phrases[phraseIndex]);
+      if (!phrase) continue;
+      if (containsAliasPhrase_(normalizedText, 'categoria ' + phrase)) {
+        matches.push(category);
+        break;
+      }
     }
   }
   if (!matches.length) return null;
@@ -1846,7 +1850,7 @@ function categoryMatchPhrases_(category) {
   var aliases = {
     OPEX_MERCADO_SEMANA: ['mercado', 'supermercado', 'feira', 'hortifruti'],
     OPEX_FARMACIA: ['farmacia', 'remedio', 'medicamento'],
-    OPEX_SAUDE_BEM_ESTAR: ['saude', 'consulta', 'medico', 'exame', 'remedio', 'medicamento'],
+    OPEX_SAUDE_BEM_ESTAR: ['saude', 'bem estar', 'bem-estar', 'academia', 'wellhub', 'consulta', 'medico', 'exame', 'remedio', 'medicamento'],
     OPEX_ELETRONICOS_E_EQUIPAMENTOS: ['eletronicos', 'equipamentos', 'notebook', 'computador', 'laptop', 'celular', 'tablet', 'monitor', 'teclado', 'mouse'],
     OPEX_DESENVOLVIMENTO_PROFISSIONAL: ['desenvolvimento profissional', 'curso', 'certificacao', 'livro', 'carreira'],
     OPEX_DESENVOLVIMENTO_PROFISSIONAL_DINHEIRO: ['desenvolvimento profissional', 'curso', 'certificacao', 'livro', 'carreira'],
