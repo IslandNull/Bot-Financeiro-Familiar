@@ -51,10 +51,21 @@ fs.readFileSync(envPath, 'utf8').split('\n').forEach(function(line) {
 
 const webappUrl = env.WEBAPP_URL;
 const secret = env.WEBHOOK_SECRET;
+const requestTimeoutMs = parsePositiveInteger(process.env.CLASP_RUN_TIMEOUT_MS, 120000, 'CLASP_RUN_TIMEOUT_MS');
 
 if (!webappUrl || !secret) {
   console.error('ERROR: .env must contain WEBAPP_URL and WEBHOOK_SECRET.');
   process.exit(1);
+}
+
+function parsePositiveInteger(value, fallback, label) {
+  if (value === undefined || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    console.error('ERROR: ' + label + ' must be a positive integer.');
+    process.exit(1);
+  }
+  return parsed;
 }
 
 const extraParams = process.argv.slice(3).reduce(function(params, item) {
@@ -76,7 +87,7 @@ function httpGet(targetUrl, redirectCount) {
   }
   return new Promise(function(resolve, reject) {
     const mod = targetUrl.startsWith('https') ? https : require('http');
-    var req = mod.get(targetUrl, { timeout: 120000 }, function(res) {
+    var req = mod.get(targetUrl, { timeout: requestTimeoutMs }, function(res) {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         resolve(httpGet(res.headers.location, redirectCount + 1));
         return;
@@ -86,7 +97,7 @@ function httpGet(targetUrl, redirectCount) {
       res.on('end', function() { resolve({ status: res.statusCode, body: body }); });
     });
     req.on('timeout', function() {
-      req.destroy(new Error('Request timed out.'));
+      req.destroy(new Error('Request timed out after ' + requestTimeoutMs + 'ms.'));
     });
     req.on('error', reject);
   });
