@@ -23,6 +23,9 @@ var HELP_TEXT = [
   '- como esta minha reserva?',
   '',
   '📌 Comandos',
+  '- /copiloto: orientacao deterministica do que fazer agora',
+  '- /onde_cortar: primeiro corte sugerido sem abrir detalhes privados',
+  '- /gasto_seguro: teto conservador para gasto novo agora',
   '- /resumo: visao do mes sem alterar a planilha',
   '- /orcamento: ver limites e consumos por categoria',
   '- /agenda: faturas e compromissos por data',
@@ -100,6 +103,12 @@ function doGet(e) {
   }
   if (action === 'summary') {
     return json_(exportPilotFamilySummaryV55(params.competencia));
+  }
+  if (action === 'cut_first') {
+    return json_(exportCutFirstV56(params.competencia));
+  }
+  if (action === 'safe_to_spend') {
+    return json_(exportSafeToSpendV56(params.competencia));
   }
   if (action === 'closing_draft') {
     return json_(writeDraftFamilyClosingV55(params.competencia));
@@ -207,6 +216,37 @@ function exportPilotFamilySummaryV55(competencia) {
     ok: true,
     responseText: result.responseText,
     summary: result.summary,
+    shouldApplyDomainMutation: false,
+  };
+}
+
+function exportCutFirstV56(competencia) {
+  var result = readCurrentPilotFamilySummary_(readConfig_(), competencia);
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    responseText: formatCutFirstDecisionAnswer_(result.summary),
+    summary: {
+      competencia: result.summary.competencia,
+      health_check: result.summary.health_check,
+    },
+    shouldApplyDomainMutation: false,
+  };
+}
+
+function exportSafeToSpendV56(competencia) {
+  var result = readCurrentPilotFamilySummary_(readConfig_(), competencia);
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    responseText: formatSafeToSpendAnswer_(result.summary),
+    summary: {
+      competencia: result.summary.competencia,
+      saldos_fontes_disponivel: result.summary.saldos_fontes_disponivel,
+      faturas_atuais: result.summary.faturas_atuais,
+      obrigacoes_60d: result.summary.obrigacoes_60d,
+      reserva_total: result.summary.reserva_total,
+    },
     shouldApplyDomainMutation: false,
   };
 }

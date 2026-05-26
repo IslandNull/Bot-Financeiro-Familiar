@@ -30,6 +30,10 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - Telegram inline UX revamp is deployed: webhook setup accepts `callback_query`, Apps Script returns `telegramActions`, Val Town proxy supports callback actions, Home/Help/read-only buttons, guided missing-field buttons, guided correction, and closing confirmations.
 - First deterministic family financial health layer exists in Apps Script reporting: savings rate, cost-of-life buckets, monthly saving goal, investment blockers, saving opportunities, and more actionable `/revisar_mes` guidance with private spending kept aggregate-only.
 - V56 product direction is documented in `docs/COPILOTO_FINANCEIRO_V56_PLAN.md`: Telegram-first financial copilot, deterministic insight engine, IA as explanation layer only, weekly digest plus high-signal alerts, and no automatic banking integration in v1.
+- V56 Phase 1 copilot core is deployed: deterministic `src/copilot-insights.js`, Apps Script `/copiloto`, and Telegram callback `act:copilot_today`.
+- Safe-to-spend answers now use V56 decision-card language and a conservative spendable amount that does not treat reserve below target as free spending.
+- `/onde_cortar`, Telegram callback `act:cut_first`, and remote preview `doGet?action=cut_first` expose the first deterministic saving opportunity without mutating Sheets or opening private line items.
+- `/gasto_seguro`, Telegram callback `act:safe_to_spend`, and remote preview `doGet?action=safe_to_spend` expose the same conservative safe-to-spend decision card without mutating Sheets.
 
 ### Unverified
 
@@ -54,7 +58,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>`.
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env`.
 
-Available actions: `snapshot`, `summary`, `closing_draft`, `closing_close`, `selftest`, and `sheet_audit`.
+Available actions: `snapshot`, `summary`, `cut_first`, `safe_to_spend`, `closing_draft`, `closing_close`, `selftest`, and `sheet_audit`.
 `scripts/smoke.js` defaults to quick `selftest` + `summary`; `--full` adds `sheet_audit`. `snapshot` is intentionally explicit.
 
 On Windows with PowerShell execution policy, use `npm.cmd` and `clasp.cmd` if needed.
@@ -80,7 +84,6 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 
 ## Next Work
 
-1. Build V56 deterministic copilot core: ranked insights, decision cards, `/copiloto`, and stronger safe-to-spend answers.
-2. Add Telegram decision UX and read-only drill-downs for "onde cortar", "posso gastar", goals, agenda, and budget.
-3. Add weekly digest preview, then gated delivery with `COPILOT_DIGEST_ENABLED`; proactive flows must stay read-only.
-4. Add goals/recurring commitments schema only after the insight engine is stable and tested.
+1. Add Telegram decision UX and read-only drill-downs for goals, agenda, and budget.
+2. Add weekly digest preview, then gated delivery with `COPILOT_DIGEST_ENABLED`; proactive flows must stay read-only.
+3. Add goals/recurring commitments schema only after the insight engine is stable and tested.
