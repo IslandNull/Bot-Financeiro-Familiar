@@ -37,6 +37,7 @@ Codebase navigation guide for V55/V56.
 | `domain.js` | Family closing, DRE, cash, reserve, destination calculations |
 | `card-cycle.js` | Invoice cycle assignment from card closing/due dates |
 | `invoice-ledger.js` | Invoice summary helper for open amounts from `Faturas_Resumo` rows |
+| `copilot-insights.js` | V56 deterministic insight ranking and Telegram decision-card formatter |
 | `parser-context.js` | Parser prompt context builder from seed data |
 | `parser-contract.js` | Strict JSON extraction and validation from model output |
 | `parser-runtime.js` | Parser execution with injected fetch |
@@ -116,6 +117,7 @@ Full headers in `SHEET_SCHEMA.md`.
 | Command | Mutation | Description |
 |---------|----------|-------------|
 | `/help`, `/start` | No | Bot info |
+| `/copiloto` | No | V56 deterministic decision cards with ranked insights, evidence, recommendation, avoid rule, and confidence |
 | `/resumo` | No | Short read-only executive summary: current liquidity, current invoices, attention point, top forecast categories, next step, and drill-down commands |
 | `/agenda`, `/faturas`, `/proximas_contas` | No | Dated read-only view of open invoices and registered obligations |
 | `/revisar_mes` | No | Month-review checklist before closing; current/future months remain non-closable |

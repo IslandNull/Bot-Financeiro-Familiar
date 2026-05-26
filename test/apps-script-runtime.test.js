@@ -167,6 +167,7 @@ test('Apps Script /start and /help return Home with inline keyboard', () => {
     assert.ok(start.reply_markup.inline_keyboard.length > 0);
     assert.ok(help.reply_markup.inline_keyboard.length > 0);
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:summary_current'));
+    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:copilot_today'));
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.text === 'Orçamento' && button.callback_data === 'act:budget_current'));
 });
 
@@ -200,19 +201,23 @@ test('Apps Script unauthorized callback fails closed without financial data', ()
 test('Apps Script read-only callbacks reuse summary agenda and review without mutation', () => {
     const { context } = createAppsScriptHarness({}, { failOnFetch: true });
     const summary = postTelegramCallback(context, 'act:summary_current');
+    const copilot = postTelegramCallback(context, 'act:copilot_today');
     const agenda = postTelegramCallback(context, 'act:agenda_current');
     const review = postTelegramCallback(context, 'act:review_month_current');
     const budget = postTelegramCallback(context, 'act:budget_current');
 
-    for (const result of [summary, agenda, review, budget]) {
+    for (const result of [summary, copilot, agenda, review, budget]) {
         assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
         assert.strictEqual(result.shouldApplyDomainMutation, false);
         assert.strictEqual(result.telegramActions[0].method, 'answerCallbackQuery');
         assert.strictEqual(result.telegramActions[1].method, 'editMessageText');
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'nav:home'));
+        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:copilot_today'));
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.text === 'Orçamento' && button.callback_data === 'act:budget_current'));
     }
     assert.match(summary.telegramActions[1].text, /Resumo/);
+    assert.match(copilot.telegramActions[1].text, /Copiloto financeiro/);
+    assert.match(copilot.telegramActions[1].text, /O que fazer agora/);
     assert.match(agenda.telegramActions[1].text, /Agenda|Faturas/);
     assert.match(review.telegramActions[1].text, /fechar|revis/i);
     assert.match(budget.telegramActions[1].text, /Or.amento|orcamento|budget/i);
@@ -591,6 +596,33 @@ test('Apps Script /resumo normalizes sheet date cells used as competencia', () =
     assert.doesNotMatch(result.responseText, /Caixa registrado/);
     assert.match(result.responseText, /Ainda nao vou sugerir investimento, reserva ou amortizacao/);
     assert.match(result.responseText, /Ainda falta saldo real das contas/);
+});
+
+test('Apps Script /copiloto is read-only and returns deterministic decision cards', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+    appendFakeInvoice(sheets, { valor_previsto: 1200, valor_pago: '', status: 'prevista' });
+    appendFakeDebt(sheets, { valor_parcela: 400 });
+
+    const result = postPilotMessage(context, '/copiloto');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Copiloto financeiro de abril/);
+    assert.match(result.responseText, /Status/);
+    assert.match(result.responseText, /Por que/);
+    assert.match(result.responseText, /O que fazer agora/);
+    assert.match(result.responseText, /Nao fazer/);
+    assert.match(result.responseText, /Confianca: alta/);
+    assert.doesNotMatch(result.responseText, /INSIGHT_|FONTE_|CARD_|FAT_|OPEX_/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
 });
 
 test('Apps Script /resumo labels uncovered obligations clearly when source balances are missing', () => {

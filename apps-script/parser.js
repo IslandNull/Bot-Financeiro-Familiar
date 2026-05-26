@@ -51,6 +51,10 @@ function handleTelegramUpdate_(update, config) {
     return finishConversationTurn_(chatId, text, buildPilotFamilySummaryResponse_(config), conversation, null);
   }
 
+  if (isCopilotCommand_(text)) {
+    return finishConversationTurn_(chatId, text, buildCopilotResponse_(config), conversation, null);
+  }
+
   if (isAgendaCommand_(text)) {
     return finishConversationTurn_(chatId, text, buildAgendaResponse_(config), conversation, null);
   }
@@ -395,6 +399,9 @@ function handleTelegramCallback_(update, config) {
   }
   if (data === TELEGRAM_CALLBACKS.summary) {
     return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, buildPilotFamilySummaryResponse_(config));
+  }
+  if (data === TELEGRAM_CALLBACKS.copilot) {
+    return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, buildCopilotResponse_(config));
   }
   if (data === TELEGRAM_CALLBACKS.agenda) {
     return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, buildAgendaResponse_(config));
@@ -1044,6 +1051,10 @@ function isHelpCommand_(text) {
 
 function isFamilySummaryCommand_(text) {
   return text === '/resumo' || text === '/resumo_familiar';
+}
+
+function isCopilotCommand_(text) {
+  return text === '/copiloto' || text === '/coach';
 }
 
 function isAgendaCommand_(text) {

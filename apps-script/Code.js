@@ -23,6 +23,7 @@ var HELP_TEXT = [
   '- como esta minha reserva?',
   '',
   '📌 Comandos',
+  '- /copiloto: orientacao deterministica do que fazer agora',
   '- /resumo: visao do mes sem alterar a planilha',
   '- /orcamento: ver limites e consumos por categoria',
   '- /agenda: faturas e compromissos por data',

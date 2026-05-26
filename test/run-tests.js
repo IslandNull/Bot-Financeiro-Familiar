@@ -13,6 +13,7 @@
     await require('./telegram-handler.test');
     await require('./telegram-webhook.test');
     await require('./pilot-evidence.test');
+    await require('./copilot-insights.test');
     await require('./sheet-audit.test');
     await require('./smoke-script.test');
     await require('./invoice-ledger.test');

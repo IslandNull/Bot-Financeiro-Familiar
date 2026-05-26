@@ -9,6 +9,16 @@ function buildPilotFamilySummaryResponse_(config) {
   };
 }
 
+function buildCopilotResponse_(config) {
+  var result = readCurrentPilotFamilySummary_(config, '');
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    responseText: formatCopilotDecisionCards_(result.summary),
+    shouldApplyDomainMutation: false,
+  };
+}
+
 function buildAgendaResponse_(config) {
   var result = readCurrentPilotFamilySummary_(config, '');
   if (!result.ok) return result;
@@ -1103,6 +1113,179 @@ function formatPilotFamilySummary_(summary) {
     '/revisar_mes',
   ]);
   return lines.join('\n');
+}
+
+function buildCopilotInsights_(summary, limit) {
+  var facts = summary || {};
+  var maxInsights = Math.max(1, Number(limit || 3));
+  var health = facts.health_check || {};
+  var insights = [];
+
+  if (numberFromSheetValue_(facts.saldos_fontes_count) === 0) {
+    insights.push(copilotInsight_({
+      id: 'INSIGHT_MISSING_SOURCE_BALANCES',
+      pillar: 'data_quality',
+      severity: 'critical',
+      confidence: 'high',
+      privacy_level: 'shared',
+      title: 'Saldo real ausente',
+      status: 'Falta saldo real das contas para decidir com seguranca.',
+      evidence: [
+        { label: 'Saldos informados', value: 0 },
+        { label: 'Faturas atuais', value: roundMoney_(facts.faturas_atuais) }
+      ],
+      recommendation: 'Atualizar os saldos das contas antes de decidir gasto, investimento ou amortizacao.',
+      avoid: 'Nao tratar reserva ou limite de cartao como dinheiro livre.',
+      action_key: 'update_balances',
+    }));
+  }
+
+  if (numberFromSheetValue_(facts.sobra_projetada_pos_pagamentos) < 0) {
+    insights.push(copilotInsight_({
+      id: 'INSIGHT_PROJECTED_CASHFLOW_NEGATIVE',
+      pillar: 'cash_flow',
+      severity: 'critical',
+      confidence: numberFromSheetValue_(facts.saldos_fontes_count) > 0 ? 'high' : 'medium',
+      privacy_level: 'shared',
+      title: 'Fluxo projetado negativo',
+      status: 'A projecao fica negativa depois da renda e pagamentos registrados.',
+      evidence: [
+        { label: 'Sobra projetada', value: roundMoney_(facts.sobra_projetada_pos_pagamentos) },
+        { label: 'Faturas atuais', value: roundMoney_(facts.faturas_atuais) },
+        { label: 'Obrigacoes do ciclo', value: roundMoney_(facts.obrigacoes_ciclo) }
+      ],
+      recommendation: 'Cobrir pagamentos registrados antes de assumir gasto novo.',
+      avoid: 'Nao parcelar compra nova enquanto a sobra projetada estiver negativa.',
+      action_key: 'safe_to_spend',
+    }));
+  }
+
+  var opportunities = Array.isArray(health.oportunidades_economia) ? health.oportunidades_economia : [];
+  if (opportunities.length > 0) {
+    var visible = opportunities.filter(function(item) {
+      return String(item.visibilidade || '').toLowerCase() !== 'privada';
+    });
+    var top = visible[0] || opportunities[0] || {};
+    var hasPrivate = opportunities.some(function(item) {
+      return String(item.visibilidade || '').toLowerCase() === 'privada';
+    });
+    insights.push(copilotInsight_({
+      id: 'INSIGHT_BUDGET_CUT_FIRST',
+      pillar: 'budget',
+      severity: 'warning',
+      confidence: 'medium',
+      privacy_level: hasPrivate ? 'aggregate_only' : 'shared',
+      title: 'Primeiro corte do mes',
+      status: 'Existe oportunidade de reduzir gasto controlavel sem abrir detalhes privados.',
+      evidence: [
+        { label: 'Categoria candidata', value: stringValue_(top.nome) || 'Gasto controlavel' },
+        { label: 'Gasto observado', value: roundMoney_(top.valor) },
+        { label: 'Potencial de economia', value: roundMoney_(top.potencial_economia || top.valor) }
+      ],
+      recommendation: 'Escolher esse primeiro corte antes de mexer em reserva, divida ou investimento.',
+      avoid: 'Nao abrir itens privados em conversa compartilhada; use apenas o agregado.',
+      action_key: 'cut_first',
+    }));
+  }
+
+  if (health.meta_guardar && health.meta_guardar.investimento_bloqueado) {
+    insights.push(copilotInsight_({
+      id: 'INSIGHT_INVESTMENT_BLOCKED_BY_RESERVE',
+      pillar: 'reserve',
+      severity: 'warning',
+      confidence: 'high',
+      privacy_level: 'shared',
+      title: 'Investimento bloqueado',
+      status: 'Reserva ou pagamentos ainda bloqueiam uma decisao de investimento.',
+      evidence: [
+        { label: 'Reserva atual', value: roundMoney_(facts.reserva_total) },
+        { label: 'Motivo', value: stringValue_(health.meta_guardar.motivo) || 'reserva_ou_pagamentos' }
+      ],
+      recommendation: 'Preservar liquidez e reforcar reserva antes de investir dinheiro novo.',
+      avoid: 'Nao investir valor que pode ser necessario para faturas ou obrigacoes.',
+      action_key: 'reserve_first',
+    }));
+  }
+
+  if (insights.length === 0) {
+    insights.push(copilotInsight_({
+      id: 'INSIGHT_FLOW_OK_REVIEW_BEFORE_BIG_SPEND',
+      pillar: 'cash_flow',
+      severity: 'positive',
+      confidence: numberFromSheetValue_(facts.saldos_fontes_count) > 0 ? 'high' : 'medium',
+      privacy_level: 'shared',
+      title: 'Fluxo sob controle',
+      status: 'O fluxo registrado cobre os pagamentos conhecidos.',
+      evidence: [
+        { label: 'Sobra projetada', value: roundMoney_(facts.sobra_projetada_pos_pagamentos) },
+        { label: 'Faturas atuais', value: roundMoney_(facts.faturas_atuais) }
+      ],
+      recommendation: 'Manter agenda e faturas revisadas antes de gasto grande.',
+      avoid: 'Nao assumir que sobra projetada e dinheiro livre sem conferir proximas parcelas.',
+      action_key: 'review_before_spend',
+    }));
+  }
+
+  var severityRank = { critical: 0, warning: 1, positive: 2, info: 3 };
+  return insights.sort(function(a, b) {
+    var severityDelta = (severityRank[a.severity] || 9) - (severityRank[b.severity] || 9);
+    if (severityDelta !== 0) return severityDelta;
+    return String(a.id).localeCompare(String(b.id));
+  }).slice(0, maxInsights);
+}
+
+function copilotInsight_(input) {
+  return {
+    id: input.id,
+    pillar: input.pillar,
+    severity: input.severity,
+    confidence: input.confidence || 'medium',
+    privacy_level: input.privacy_level || 'shared',
+    title: input.title,
+    status: input.status,
+    evidence: input.evidence || [],
+    recommendation: input.recommendation,
+    avoid: input.avoid,
+    action_key: input.action_key,
+  };
+}
+
+function formatCopilotDecisionCards_(summary) {
+  var insights = buildCopilotInsights_(summary, 3);
+  var lines = [
+    'Copiloto financeiro de ' + friendlyCompetencia_(summary && summary.competencia),
+    '',
+  ];
+  insights.forEach(function(item, index) {
+    if (index > 0) lines.push('');
+    lines.push('Status');
+    lines.push(item.status || item.title || 'Ponto de atencao financeiro.');
+    lines.push('');
+    lines.push('Por que');
+    (item.evidence || []).slice(0, 4).forEach(function(evidence) {
+      lines.push('- ' + evidence.label + ': ' + formatCopilotEvidenceValue_(evidence.value));
+    });
+    lines.push('');
+    lines.push('O que fazer agora');
+    lines.push(item.recommendation);
+    lines.push('');
+    lines.push('Nao fazer');
+    lines.push(item.avoid || 'Nao decidir com base em chute.');
+    lines.push('');
+    lines.push('Confianca: ' + copilotConfidenceLabel_(item.confidence));
+  });
+  return lines.join('\n');
+}
+
+function formatCopilotEvidenceValue_(value) {
+  if (typeof value === 'number') return formatMoney_(value);
+  return stringValue_(value);
+}
+
+function copilotConfidenceLabel_(confidence) {
+  if (confidence === 'high') return 'alta';
+  if (confidence === 'low') return 'baixa';
+  return 'media';
 }
 
 function buildPilotCashPositionLines_(summary) {
