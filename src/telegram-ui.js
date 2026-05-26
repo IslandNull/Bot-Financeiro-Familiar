@@ -13,6 +13,7 @@ const TELEGRAM_CALLBACKS = Object.freeze({
     reviewMonth: 'act:review_month_current',
     budget: 'act:budget_current',
     copilot: 'act:copilot_today',
+    cutFirst: 'act:cut_first',
     clearContext: 'act:clear_context',
     correction: 'flow:correction',
     closing: 'flow:closing',
@@ -61,6 +62,7 @@ function buildTelegramHomeView() {
         'O que voce quer fazer?',
     ].join('\n'), [
         telegramCallbackButton('Copiloto', TELEGRAM_CALLBACKS.copilot),
+        telegramCallbackButton('Onde cortar', TELEGRAM_CALLBACKS.cutFirst),
         telegramCallbackButton('Resumo', TELEGRAM_CALLBACKS.summary),
         telegramCallbackButton('Agenda', TELEGRAM_CALLBACKS.agenda),
         telegramCallbackButton('Orçamento', TELEGRAM_CALLBACKS.budget),

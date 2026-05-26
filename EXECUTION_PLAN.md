@@ -32,6 +32,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - V56 product direction is documented in `docs/COPILOTO_FINANCEIRO_V56_PLAN.md`: Telegram-first financial copilot, deterministic insight engine, IA as explanation layer only, weekly digest plus high-signal alerts, and no automatic banking integration in v1.
 - V56 Phase 1 copilot core is deployed: deterministic `src/copilot-insights.js`, Apps Script `/copiloto`, and Telegram callback `act:copilot_today`.
 - Safe-to-spend answers now use V56 decision-card language and a conservative spendable amount that does not treat reserve below target as free spending.
+- `/onde_cortar`, Telegram callback `act:cut_first`, and remote preview `doGet?action=cut_first` expose the first deterministic saving opportunity without mutating Sheets or opening private line items.
 
 ### Unverified
 
@@ -56,7 +57,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>`.
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env`.
 
-Available actions: `snapshot`, `summary`, `closing_draft`, `closing_close`, `selftest`, and `sheet_audit`.
+Available actions: `snapshot`, `summary`, `cut_first`, `closing_draft`, `closing_close`, `selftest`, and `sheet_audit`.
 `scripts/smoke.js` defaults to quick `selftest` + `summary`; `--full` adds `sheet_audit`. `snapshot` is intentionally explicit.
 
 On Windows with PowerShell execution policy, use `npm.cmd` and `clasp.cmd` if needed.
@@ -82,7 +83,7 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 
 ## Next Work
 
-1. Add Telegram decision UX and read-only drill-downs for "onde cortar", goals, agenda, and budget.
-2. Add a focused doGet/callback preview for safe-to-spend and "onde cortar" without mutating Sheets.
+1. Add Telegram decision UX and read-only drill-downs for goals, agenda, and budget.
+2. Add a focused doGet/callback preview for safe-to-spend without mutating Sheets.
 3. Add weekly digest preview, then gated delivery with `COPILOT_DIGEST_ENABLED`; proactive flows must stay read-only.
 4. Add goals/recurring commitments schema only after the insight engine is stable and tested.

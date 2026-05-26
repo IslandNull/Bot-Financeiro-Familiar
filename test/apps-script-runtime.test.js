@@ -168,6 +168,7 @@ test('Apps Script /start and /help return Home with inline keyboard', () => {
     assert.ok(help.reply_markup.inline_keyboard.length > 0);
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:summary_current'));
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:copilot_today'));
+    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:cut_first'));
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.text === 'Orçamento' && button.callback_data === 'act:budget_current'));
 });
 
@@ -202,22 +203,25 @@ test('Apps Script read-only callbacks reuse summary agenda and review without mu
     const { context } = createAppsScriptHarness({}, { failOnFetch: true });
     const summary = postTelegramCallback(context, 'act:summary_current');
     const copilot = postTelegramCallback(context, 'act:copilot_today');
+    const cutFirst = postTelegramCallback(context, 'act:cut_first');
     const agenda = postTelegramCallback(context, 'act:agenda_current');
     const review = postTelegramCallback(context, 'act:review_month_current');
     const budget = postTelegramCallback(context, 'act:budget_current');
 
-    for (const result of [summary, copilot, agenda, review, budget]) {
+    for (const result of [summary, copilot, cutFirst, agenda, review, budget]) {
         assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
         assert.strictEqual(result.shouldApplyDomainMutation, false);
         assert.strictEqual(result.telegramActions[0].method, 'answerCallbackQuery');
         assert.strictEqual(result.telegramActions[1].method, 'editMessageText');
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'nav:home'));
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:copilot_today'));
+        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:cut_first'));
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.text === 'Orçamento' && button.callback_data === 'act:budget_current'));
     }
     assert.match(summary.telegramActions[1].text, /Resumo/);
     assert.match(copilot.telegramActions[1].text, /Copiloto financeiro/);
     assert.match(copilot.telegramActions[1].text, /O que fazer agora/);
+    assert.match(cutFirst.telegramActions[1].text, /Onde cortar/);
     assert.match(agenda.telegramActions[1].text, /Agenda|Faturas/);
     assert.match(review.telegramActions[1].text, /fechar|revis/i);
     assert.match(budget.telegramActions[1].text, /Or.amento|orcamento|budget/i);
@@ -1427,6 +1431,91 @@ test('Apps Script monthly review recommends concrete savings opportunities and a
     assert.match(result.responseText, /Gastos pessoais privados: R\$ 180,00/);
     assert.match(result.responseText, /Nao fazer: investir antes de cobrir reserva e pagamentos registrados/i);
     assert.doesNotMatch(result.responseText, /item privado nao deve aparecer/);
+});
+
+test('Apps Script onde cortar command returns read-only decision card with private aggregate only', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeRecurringIncome(sheets, { valor_planejado: 6900, beneficio_restrito: false });
+    appendFakeLaunch(sheets, {
+        tipo_evento: 'receita',
+        valor: 6900,
+        id_categoria: 'REC_RECEITA_FAMILIAR',
+        afeta_dre: true,
+        afeta_caixa_familiar: true,
+    });
+    appendFakeLaunch(sheets, {
+        valor: 420,
+        id_categoria: 'OPEX_ALIMENTACAO_FORA',
+        tipo_evento: 'compra_cartao',
+        afeta_caixa_familiar: false,
+        descricao: 'restaurante casal',
+    });
+    appendFakeLaunch(sheets, {
+        valor: 180,
+        id_categoria: 'OPEX_ROUPAS_GUSTAVO',
+        tipo_evento: 'compra_cartao',
+        afeta_caixa_familiar: false,
+        escopo: 'Gustavo',
+        visibilidade: 'privada',
+        descricao: 'item privado nao deve aparecer',
+    });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+
+    const result = postPilotMessage(context, '/onde_cortar');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Onde cortar/);
+    assert.match(result.responseText, /Status/);
+    assert.match(result.responseText, /Por que/);
+    assert.match(result.responseText, /Alimentacao fora/);
+    assert.match(result.responseText, /Economia possivel: R\$ 120,00/);
+    assert.match(result.responseText, /Gastos pessoais privados: R\$ 180,00/);
+    assert.match(result.responseText, /O que fazer agora/);
+    assert.match(result.responseText, /Nao fazer/);
+    assert.match(result.responseText, /Confianca/);
+    assert.doesNotMatch(result.responseText, /item privado nao deve aparecer/);
+    assert.doesNotMatch(result.responseText, /OPEX_|FONTE_|CARD_|FAT_|INSIGHT_/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 4);
+});
+
+test('Apps Script doGet cut_first action previews onde cortar without mutation', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeRecurringIncome(sheets, { valor_planejado: 6900, beneficio_restrito: false });
+    appendFakeLaunch(sheets, {
+        tipo_evento: 'receita',
+        valor: 6900,
+        id_categoria: 'REC_RECEITA_FAMILIAR',
+        afeta_dre: true,
+        afeta_caixa_familiar: true,
+    });
+    appendFakeLaunch(sheets, {
+        valor: 420,
+        id_categoria: 'OPEX_ALIMENTACAO_FORA',
+        tipo_evento: 'compra_cartao',
+        afeta_caixa_familiar: false,
+    });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+
+    const result = runRemoteAction(context, 'cut_first');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Onde cortar/);
+    assert.match(result.responseText, /Alimentacao fora/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 3);
 });
 
 test('Apps Script safe question answers how much to save and blocks investment without real balances', () => {

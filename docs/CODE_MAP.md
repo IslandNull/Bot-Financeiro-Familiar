@@ -78,6 +78,8 @@ doGet(e)
        └─ sheet_audit → exportSheetAuditV55()
 ```
 
+Remote read-only previews now include `summary` and `cut_first`; mutation-oriented closing actions remain explicit.
+
 **Validation scripts:**
 - `npm run check`: local syntax and deterministic tests.
 - `npm run smoke`: quick remote post-deploy smoke; does not run local tests or snapshot.
@@ -118,6 +120,7 @@ Full headers in `SHEET_SCHEMA.md`.
 |---------|----------|-------------|
 | `/help`, `/start` | No | Bot info |
 | `/copiloto` | No | V56 deterministic decision cards with ranked insights, evidence, recommendation, avoid rule, and confidence |
+| `/onde_cortar` | No | V56 read-only decision card for the first deterministic saving opportunity with private detail aggregate-only |
 | `/resumo` | No | Short read-only executive summary: current liquidity, current invoices, attention point, top forecast categories, next step, and drill-down commands |
 | `/agenda`, `/faturas`, `/proximas_contas` | No | Dated read-only view of open invoices and registered obligations |
 | `/revisar_mes` | No | Month-review checklist before closing; current/future months remain non-closable |

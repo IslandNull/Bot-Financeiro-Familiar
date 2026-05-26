@@ -19,6 +19,16 @@ function buildCopilotResponse_(config) {
   };
 }
 
+function buildCutFirstResponse_(config) {
+  var result = readCurrentPilotFamilySummary_(config, '');
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    responseText: formatCutFirstDecisionAnswer_(result.summary),
+    shouldApplyDomainMutation: false,
+  };
+}
+
 function buildAgendaResponse_(config) {
   var result = readCurrentPilotFamilySummary_(config, '');
   if (!result.ok) return result;
@@ -1754,6 +1764,60 @@ function formatSafeToSpendAnswer_(summary) {
     '',
     'Confianca: ' + (safe.has_balances ? 'alta' : 'media'),
   ].join('\n');
+}
+
+function formatCutFirstDecisionAnswer_(summary) {
+  var health = summary.health_check || {};
+  var opportunities = health.oportunidades_economia || [];
+  var top = opportunities.length > 0 ? opportunities[0] : null;
+  var lines = [
+    'Onde cortar em ' + friendlyCompetencia_(summary.competencia),
+    '',
+    'Status',
+  ];
+  if (!top) {
+    lines.push('Nao encontrei categoria acima de limite ativo nos dados registrados.');
+    lines.push('');
+    lines.push('Por que');
+    lines.push('Sem limite ativo estourado, o corte exige revisao manual do orcamento.');
+    lines.push('');
+    lines.push('O que fazer agora');
+    lines.push('Revisar /orcamento e conferir se os limites ativos ainda representam a decisao da familia.');
+    lines.push('');
+    lines.push('Nao fazer');
+    lines.push('Nao cortar item essencial sem revisar vencimentos e faturas.');
+    lines.push('');
+    lines.push('Confianca: media');
+    return lines.join('\n');
+  }
+  lines.push('Primeiro corte sugerido: ' + top.categoria + '.');
+  lines.push('');
+  lines.push('Por que');
+  lines.push('Categoria: ' + top.categoria);
+  lines.push('Gasto atual: ' + formatMoney_(top.valor_atual));
+  lines.push('Referencia: ' + formatMoney_(top.referencia));
+  lines.push('Economia possivel: ' + formatMoney_(top.economia_potencial));
+  lines.push('Motivo: ' + top.motivo);
+  var privateItems = opportunities.filter(function(item) {
+    return item.categoria === 'Gastos pessoais privados';
+  });
+  if (privateItems.length > 0) {
+    lines.push('');
+    lines.push('Privacidade');
+    privateItems.slice(0, 2).forEach(function(item) {
+      lines.push('Gastos pessoais privados: ' + formatMoney_(item.valor_atual));
+    });
+    lines.push('Detalhes pessoais ficam fechados; decisao compartilhada usa apenas agregado.');
+  }
+  lines.push('');
+  lines.push('O que fazer agora');
+  lines.push(top.acao_sugerida + '.');
+  lines.push('');
+  lines.push('Nao fazer');
+  lines.push('Nao compensar esse corte assumindo nova parcela sem conferir o gasto seguro.');
+  lines.push('');
+  lines.push('Confianca: ' + (top.confianca || 'media'));
+  return lines.join('\n');
 }
 
 function buildSafeToSpendFacts_(summary) {

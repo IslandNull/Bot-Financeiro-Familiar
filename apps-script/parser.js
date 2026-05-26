@@ -55,6 +55,10 @@ function handleTelegramUpdate_(update, config) {
     return finishConversationTurn_(chatId, text, buildCopilotResponse_(config), conversation, null);
   }
 
+  if (isCutFirstCommand_(text)) {
+    return finishConversationTurn_(chatId, text, buildCutFirstResponse_(config), conversation, null);
+  }
+
   if (isAgendaCommand_(text)) {
     return finishConversationTurn_(chatId, text, buildAgendaResponse_(config), conversation, null);
   }
@@ -402,6 +406,9 @@ function handleTelegramCallback_(update, config) {
   }
   if (data === TELEGRAM_CALLBACKS.copilot) {
     return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, buildCopilotResponse_(config));
+  }
+  if (data === TELEGRAM_CALLBACKS.cutFirst) {
+    return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, buildCutFirstResponse_(config));
   }
   if (data === TELEGRAM_CALLBACKS.agenda) {
     return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, buildAgendaResponse_(config));
@@ -1055,6 +1062,10 @@ function isFamilySummaryCommand_(text) {
 
 function isCopilotCommand_(text) {
   return text === '/copiloto' || text === '/coach';
+}
+
+function isCutFirstCommand_(text) {
+  return text === '/onde_cortar' || text === '/cortar' || normalizeAliasText_(text) === 'onde cortar';
 }
 
 function isAgendaCommand_(text) {

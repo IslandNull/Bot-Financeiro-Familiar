@@ -24,6 +24,7 @@ var HELP_TEXT = [
   '',
   '📌 Comandos',
   '- /copiloto: orientacao deterministica do que fazer agora',
+  '- /onde_cortar: primeiro corte sugerido sem abrir detalhes privados',
   '- /resumo: visao do mes sem alterar a planilha',
   '- /orcamento: ver limites e consumos por categoria',
   '- /agenda: faturas e compromissos por data',
@@ -101,6 +102,9 @@ function doGet(e) {
   }
   if (action === 'summary') {
     return json_(exportPilotFamilySummaryV55(params.competencia));
+  }
+  if (action === 'cut_first') {
+    return json_(exportCutFirstV56(params.competencia));
   }
   if (action === 'closing_draft') {
     return json_(writeDraftFamilyClosingV55(params.competencia));
@@ -208,6 +212,20 @@ function exportPilotFamilySummaryV55(competencia) {
     ok: true,
     responseText: result.responseText,
     summary: result.summary,
+    shouldApplyDomainMutation: false,
+  };
+}
+
+function exportCutFirstV56(competencia) {
+  var result = readCurrentPilotFamilySummary_(readConfig_(), competencia);
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    responseText: formatCutFirstDecisionAnswer_(result.summary),
+    summary: {
+      competencia: result.summary.competencia,
+      health_check: result.summary.health_check,
+    },
     shouldApplyDomainMutation: false,
   };
 }

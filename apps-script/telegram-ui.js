@@ -10,6 +10,7 @@ var TELEGRAM_CALLBACKS = {
   reviewMonth: 'act:review_month_current',
   budget: 'act:budget_current',
   copilot: 'act:copilot_today',
+  cutFirst: 'act:cut_first',
   clearContext: 'act:clear_context',
   correction: 'flow:correction',
   closing: 'flow:closing',
@@ -55,6 +56,7 @@ function buildTelegramHomeView_() {
     'O que voce quer fazer?',
   ].join('\n'), [
     telegramCallbackButton_('Copiloto', TELEGRAM_CALLBACKS.copilot),
+    telegramCallbackButton_('Onde cortar', TELEGRAM_CALLBACKS.cutFirst),
     telegramCallbackButton_('Resumo', TELEGRAM_CALLBACKS.summary),
     telegramCallbackButton_('Agenda', TELEGRAM_CALLBACKS.agenda),
     telegramCallbackButton_('Orçamento', TELEGRAM_CALLBACKS.budget),
@@ -154,6 +156,7 @@ function buildTelegramPendingTextView_(title, hint) {
 function buildTelegramReadOnlyView_(text) {
   return telegramView_(text, [
     telegramCallbackButton_('Copiloto', TELEGRAM_CALLBACKS.copilot),
+    telegramCallbackButton_('Onde cortar', TELEGRAM_CALLBACKS.cutFirst),
     telegramCallbackButton_('Resumo', TELEGRAM_CALLBACKS.summary),
     telegramCallbackButton_('Agenda', TELEGRAM_CALLBACKS.agenda),
     telegramCallbackButton_('Orçamento', TELEGRAM_CALLBACKS.budget),
