@@ -35,6 +35,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - `/onde_cortar`, Telegram callback `act:cut_first`, and remote preview `doGet?action=cut_first` expose the first deterministic saving opportunity without mutating Sheets or opening private line items.
 - `/gasto_seguro`, Telegram callback `act:safe_to_spend`, and remote preview `doGet?action=safe_to_spend` expose the same conservative safe-to-spend decision card without mutating Sheets.
 - V56 weekly digest preview is available as `doGet?action=copilot_digest_preview` / `npm run digest:preview`; it returns structured digest payload plus Telegram-ready text and never sends Telegram messages.
+- Gated V56 weekly digest delivery is available as trigger-safe `runCopilotWeeklyDigestDeliveryV56` / `doGet?action=copilot_digest_send` / `npm run digest:send`; it sends only when `COPILOT_DIGEST_ENABLED=YES`.
 
 ### Unverified
 
@@ -59,7 +60,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>`.
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env`.
 
-Available actions: `snapshot`, `summary`, `cut_first`, `safe_to_spend`, `copilot_digest_preview`, `closing_draft`, `closing_close`, `selftest`, and `sheet_audit`.
+Available actions: `snapshot`, `summary`, `cut_first`, `safe_to_spend`, `copilot_digest_preview`, `copilot_digest_send`, `closing_draft`, `closing_close`, `selftest`, and `sheet_audit`.
 `scripts/smoke.js` defaults to quick `selftest` + `summary`; `--full` adds `sheet_audit`. `snapshot` is intentionally explicit.
 
 On Windows with PowerShell execution policy, use `npm.cmd` and `clasp.cmd` if needed.
@@ -78,13 +79,13 @@ Script Properties only; never commit values.
 
 Required keys: `WEBHOOK_SECRET`, `AUTHORIZED_USER_IDS`, `AUTHORIZED_CHAT_IDS`, `SPREADSHEET_ID`, `OPENAI_API_KEY`, `PILOT_FINANCIAL_MUTATION_ENABLED`.
 
-Optional keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`.
+Optional keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`, `COPILOT_DIGEST_ENABLED`.
 Val Town callback preflight answers clicks silently with `TELEGRAM_BOT_TOKEN`; editing the message to a loading state needs local trust via `AUTHORIZED_CHAT_IDS` or `AUTHORIZED_USER_IDS`.
 
 Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Properties. Use `/limpar_contexto` from Telegram to clear the current chat state.
 
 ## Next Work
 
-1. Add gated weekly digest delivery with `COPILOT_DIGEST_ENABLED`; proactive flows must stay read-only.
+1. Add weekly trigger setup guidance and owner pilot cadence for digest delivery.
 2. Add Telegram decision UX and read-only drill-downs for goals, agenda, and budget.
 3. Add goals/recurring commitments schema only after the insight engine is stable and tested.

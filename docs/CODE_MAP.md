@@ -75,13 +75,14 @@ doGet(e)
        ├─ cut_first → exportCutFirstV56()
        ├─ safe_to_spend → exportSafeToSpendV56()
        ├─ copilot_digest_preview → exportCopilotDigestPreviewV56()
+       ├─ copilot_digest_send → runCopilotWeeklyDigestDeliveryV56()
        ├─ closing_draft → writeDraftFamilyClosingV55()
        ├─ closing_close → closeReviewedFamilyClosingV55()
        ├─ selftest → runHelpSmokeSelfTest()
        └─ sheet_audit → exportSheetAuditV55()
 ```
 
-Remote read-only previews now include `summary`, `cut_first`, `safe_to_spend`, and `copilot_digest_preview`; mutation-oriented closing actions remain explicit.
+Remote read-only previews now include `summary`, `cut_first`, `safe_to_spend`, and `copilot_digest_preview`; `copilot_digest_send` is gated by `COPILOT_DIGEST_ENABLED=YES`; mutation-oriented closing actions remain explicit.
 
 **Validation scripts:**
 - `npm run check`: local syntax and deterministic tests.
@@ -90,6 +91,7 @@ Remote read-only previews now include `summary`, `cut_first`, `safe_to_spend`, a
 - `npm run verify`: local check plus quick remote smoke.
 - `npm run snapshot`: explicit redacted spreadsheet evidence refresh.
 - `npm run digest:preview`: remote weekly copilot digest preview; read-only, no Telegram send.
+- `npm run digest:send`: remote weekly copilot digest delivery; sends only when `COPILOT_DIGEST_ENABLED=YES`.
 
 **Runtime file split:**
 - `Code.js`: public Apps Script surface and remote action wrappers.
@@ -100,6 +102,7 @@ Remote read-only previews now include `summary`, `cut_first`, `safe_to_spend`, a
 
 **Key patterns:**
 - All config from `PropertiesService.getScriptProperties()` (never hardcoded secrets)
+- Proactive digest delivery uses `runCopilotWeeklyDigestDeliveryV56` and is disabled unless `COPILOT_DIGEST_ENABLED=YES`.
 - Per-chat conversation state is stored in Script Properties under `BFF_CONVERSATION_<chat_id>` with rolling context, one parser `pending_intent`, one button `pending_action`, and the last successful result reference.
 - Idempotency: write `Idempotency_Log` before financial rows, suppress completed duplicates
 - LockService for concurrent mutation protection
