@@ -37,7 +37,7 @@ Codebase navigation guide for V55/V56.
 | `domain.js` | Family closing, DRE, cash, reserve, destination calculations |
 | `card-cycle.js` | Invoice cycle assignment from card closing/due dates |
 | `invoice-ledger.js` | Invoice summary helper for open amounts from `Faturas_Resumo` rows |
-| `copilot-insights.js` | V56 deterministic insight ranking and Telegram decision-card formatter |
+| `copilot-insights.js` | V56 deterministic insight ranking, decision-card formatter and weekly digest preview payload |
 | `parser-context.js` | Parser prompt context builder from seed data |
 | `parser-contract.js` | Strict JSON extraction and validation from model output |
 | `parser-runtime.js` | Parser execution with injected fetch |
@@ -72,13 +72,16 @@ doGet(e)
   └─ ?action=<name>&secret=<WEBHOOK_SECRET>
        ├─ snapshot → exportSnapshotV55()
        ├─ summary → exportPilotFamilySummaryV55()
+       ├─ cut_first → exportCutFirstV56()
+       ├─ safe_to_spend → exportSafeToSpendV56()
+       ├─ copilot_digest_preview → exportCopilotDigestPreviewV56()
        ├─ closing_draft → writeDraftFamilyClosingV55()
        ├─ closing_close → closeReviewedFamilyClosingV55()
        ├─ selftest → runHelpSmokeSelfTest()
        └─ sheet_audit → exportSheetAuditV55()
 ```
 
-Remote read-only previews now include `summary`, `cut_first`, and `safe_to_spend`; mutation-oriented closing actions remain explicit.
+Remote read-only previews now include `summary`, `cut_first`, `safe_to_spend`, and `copilot_digest_preview`; mutation-oriented closing actions remain explicit.
 
 **Validation scripts:**
 - `npm run check`: local syntax and deterministic tests.
@@ -86,6 +89,7 @@ Remote read-only previews now include `summary`, `cut_first`, and `safe_to_spend
 - `npm run smoke:full`: heavier remote smoke/audit.
 - `npm run verify`: local check plus quick remote smoke.
 - `npm run snapshot`: explicit redacted spreadsheet evidence refresh.
+- `npm run digest:preview`: remote weekly copilot digest preview; read-only, no Telegram send.
 
 **Runtime file split:**
 - `Code.js`: public Apps Script surface and remote action wrappers.

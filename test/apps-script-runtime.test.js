@@ -1567,6 +1567,51 @@ test('Apps Script doGet safe_to_spend action previews gasto seguro without mutat
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
+test('Apps Script doGet copilot_digest_preview action returns weekly digest without mutation', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeRecurringIncome(sheets, { valor_planejado: 6900, beneficio_restrito: false });
+    appendFakeLaunch(sheets, {
+        tipo_evento: 'receita',
+        valor: 6900,
+        id_categoria: 'REC_RECEITA_FAMILIAR',
+        afeta_dre: true,
+        afeta_caixa_familiar: true,
+    });
+    appendFakeLaunch(sheets, {
+        valor: 420,
+        id_categoria: 'OPEX_ALIMENTACAO_FORA',
+        tipo_evento: 'compra_cartao',
+        descricao: 'item privado nao deve aparecer',
+        afeta_caixa_familiar: false,
+    });
+    appendFakeInvoice(sheets, { valor_previsto: 5000, status: 'prevista' });
+    appendFakeDebt(sheets, { valor_parcela: 4000 });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+
+    const result = runRemoteAction(context, 'copilot_digest_preview');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(result.digest.kind, 'copilot_weekly_digest_preview');
+    assert.strictEqual(result.digest.cadence, 'weekly');
+    assert.strictEqual(result.digest.should_send, false);
+    assert.strictEqual(result.digest.competencia, '2026-04');
+    assert.strictEqual(result.digest.sections.biggest_risk.action_key, 'safe_to_spend');
+    assert.match(result.responseText, /Digest semanal do copiloto/);
+    assert.match(result.responseText, /Maior risco/);
+    assert.match(result.responseText, /Onde cortar primeiro/);
+    assert.match(result.responseText, /Gasto seguro/);
+    assert.doesNotMatch(result.responseText, /item privado nao deve aparecer/);
+    assert.doesNotMatch(result.responseText, /OPEX_|FONTE_|CARD_|FAT_|INSIGHT_/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 3);
+});
+
 test('Apps Script safe question answers how much to save and blocks investment without real balances', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,

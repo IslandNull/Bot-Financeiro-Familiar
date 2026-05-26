@@ -1248,7 +1248,9 @@ function buildCopilotInsights_(summary, limit) {
 
   var severityRank = { critical: 0, warning: 1, positive: 2, info: 3 };
   return insights.sort(function(a, b) {
-    var severityDelta = (severityRank[a.severity] || 9) - (severityRank[b.severity] || 9);
+    var rankA = Object.prototype.hasOwnProperty.call(severityRank, a.severity) ? severityRank[a.severity] : 9;
+    var rankB = Object.prototype.hasOwnProperty.call(severityRank, b.severity) ? severityRank[b.severity] : 9;
+    var severityDelta = rankA - rankB;
     if (severityDelta !== 0) return severityDelta;
     return String(a.id).localeCompare(String(b.id));
   }).slice(0, maxInsights);
@@ -1295,6 +1297,184 @@ function formatCopilotDecisionCards_(summary) {
     lines.push('Confianca: ' + copilotConfidenceLabel_(item.confidence));
   });
   return lines.join('\n');
+}
+
+function buildCopilotWeeklyDigest_(summary) {
+  var facts = summary || {};
+  var insights = buildCopilotInsights_(facts, 3);
+  var biggestRisk = insights[0] || null;
+  var cutFirstInsight = null;
+  var reserveInsight = null;
+  var missingData = [];
+
+  insights.forEach(function(item) {
+    if (!cutFirstInsight && item.action_key === 'cut_first') cutFirstInsight = item;
+    if (!reserveInsight && item.pillar === 'reserve') reserveInsight = item;
+  });
+
+  if (numberFromSheetValue_(facts.saldos_fontes_count) === 0) {
+    missingData.push('Atualizar saldos reais das contas.');
+  }
+
+  return {
+    kind: 'copilot_weekly_digest_preview',
+    cadence: 'weekly',
+    should_send: false,
+    competencia: stringValue_(facts.competencia),
+    sections: {
+      what_changed: {
+        status: 'Preview sem historico de digest anterior; leitura feita com os dados atuais.',
+        evidence: [
+          { label: 'Competencia', value: stringValue_(facts.competencia) },
+          { label: 'Insights avaliados', value: insights.length }
+        ],
+      },
+      biggest_risk: digestInsight_(biggestRisk),
+      cut_first: buildCutFirstDigest_(cutFirstInsight),
+      safe_to_spend: buildSafeToSpendDigest_(facts),
+      reserve: reserveInsight
+        ? digestInsight_(reserveInsight)
+        : {
+          label: 'Reserva sem bloqueio critico no resumo atual.',
+          status: 'Nenhum bloqueio deterministico de reserva apareceu entre os principais insights.',
+          action_key: 'reserve_first',
+          evidence: [
+            { label: 'Reserva atual', value: roundMoney_(facts.reserva_total) }
+          ],
+          recommendation: 'Continuar revisando faturas, agenda e gasto seguro antes de dinheiro novo.',
+        },
+      data_missing: missingData,
+    },
+    top_insights: insights.map(digestInsight_),
+  };
+}
+
+function formatCopilotWeeklyDigest_(digest) {
+  var data = digest || {};
+  var sections = data.sections || {};
+  var changed = sections.what_changed || {};
+  var risk = sections.biggest_risk || {};
+  var cut = sections.cut_first || {};
+  var safe = sections.safe_to_spend || {};
+  var reserve = sections.reserve || {};
+  var missing = sections.data_missing || [];
+  var lines = [
+    'Digest semanal do copiloto - ' + friendlyCompetencia_(data.competencia),
+    '',
+    'O que mudou',
+    changed.status || 'Leitura feita com os dados atuais.',
+    '',
+    'Maior risco',
+    risk.status || 'Nenhum risco critico apareceu nos dados atuais.',
+  ];
+
+  if (risk.recommendation) lines.push('Acao: ' + risk.recommendation);
+
+  lines.push('');
+  lines.push('Onde cortar primeiro');
+  lines.push(cut.status || 'Nenhum corte prioritario apareceu agora.');
+  if (cut.label) lines.push('Categoria: ' + cut.label);
+  if (typeof cut.potential === 'number') lines.push('Economia possivel: ' + formatMoney_(cut.potential));
+
+  lines.push('');
+  lines.push('Gasto seguro');
+  lines.push(safe.status || 'Gasto seguro indisponivel.');
+  lines.push('Gasto seguro agora: ' + formatMoney_(safe.amount));
+
+  lines.push('');
+  lines.push('Reserva e decisao');
+  lines.push(reserve.status || 'Reserva sem alerta critico.');
+  if (reserve.recommendation) lines.push('Acao: ' + reserve.recommendation);
+
+  lines.push('');
+  lines.push('Dados antes da proxima decisao');
+  if (missing.length === 0) {
+    lines.push('- Nenhum bloqueio de dado critico no preview.');
+  } else {
+    missing.forEach(function(item) {
+      lines.push('- ' + item);
+    });
+  }
+
+  return lines.join('\n');
+}
+
+function buildSafeToSpendDigest_(summary) {
+  var safe = buildSafeToSpendFacts_(summary || {});
+  return {
+    status: safe.has_balances
+      ? (safe.safe_to_spend > 0 ? 'Existe folga conservadora para gasto novo.' : 'Nao ha gasto novo seguro pelos dados registrados.')
+      : 'Sem saldo real das contas, gasto seguro fica bloqueado.',
+    amount: safe.safe_to_spend,
+    action_key: 'safe_to_spend',
+    evidence: [
+      { label: 'Contas', value: safe.cash_available },
+      { label: 'Pagamentos registrados', value: safe.registered_payments },
+      { label: 'Reserva usavel', value: safe.reserve_usable }
+    ],
+  };
+}
+
+function digestInsight_(item) {
+  if (!item) {
+    return {
+      label: 'Sem insight principal.',
+      status: 'Nenhum insight deterministico disponivel.',
+      action_key: '',
+      evidence: [],
+      recommendation: '',
+      confidence: 'medium',
+      privacy_level: 'shared',
+    };
+  }
+  return {
+    label: item.title,
+    status: item.status,
+    action_key: item.action_key,
+    pillar: item.pillar,
+    severity: item.severity,
+    confidence: item.confidence,
+    privacy_level: item.privacy_level,
+    evidence: sanitizeCopilotEvidence_(item.evidence),
+    recommendation: item.recommendation,
+  };
+}
+
+function buildCutFirstDigest_(item) {
+  var evidence;
+  var candidate;
+  var potential;
+  if (!item) {
+    return {
+      label: '',
+      status: 'Nenhuma oportunidade de corte prioritario apareceu agora.',
+      action_key: 'cut_first',
+      potential: 0,
+      evidence: [],
+      recommendation: 'Manter revisao de categorias antes de gasto novo.',
+    };
+  }
+  evidence = sanitizeCopilotEvidence_(item.evidence);
+  candidate = evidence.filter(function(entry) { return entry.label === 'Categoria candidata'; })[0] || {};
+  potential = evidence.filter(function(entry) { return entry.label === 'Potencial de economia'; })[0] || {};
+  return {
+    label: stringValue_(candidate.value),
+    status: item.status,
+    action_key: item.action_key,
+    potential: roundMoney_(potential.value),
+    evidence: evidence,
+    recommendation: item.recommendation,
+    privacy_level: item.privacy_level,
+  };
+}
+
+function sanitizeCopilotEvidence_(evidence) {
+  return (evidence || []).slice(0, 4).map(function(item) {
+    return {
+      label: stringValue_(item.label),
+      value: typeof item.value === 'number' ? roundMoney_(item.value) : stringValue_(item.value),
+    };
+  });
 }
 
 function formatCopilotEvidenceValue_(value) {
