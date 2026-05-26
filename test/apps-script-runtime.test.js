@@ -1268,12 +1268,46 @@ test('Apps Script simulates whether a new installment purchase fits safely', () 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Simula..o conservadora/);
-    assert.match(result.responseText, /Compra simulada|Compra: R\$ 900,00 em 3x/);
-    assert.match(result.responseText, /Leitura/);
+    assert.match(result.responseText, /Status/);
+    assert.match(result.responseText, /Nao cabe com seguranca/);
+    assert.match(result.responseText, /Por que/);
     assert.match(result.responseText, /Compra: R\$ 900,00 em 3x/);
     assert.match(result.responseText, /Parcela estimada: R\$ 300,00/);
-    assert.match(result.responseText, /Folga depois da compra: R\$ 1100,00/);
-    assert.match(result.responseText, /Cabe nos dados registrados/);
+    assert.match(result.responseText, /Gasto seguro agora: R\$ 0,00/);
+    assert.match(result.responseText, /Folga depois da compra: R\$ -300,00/);
+    assert.match(result.responseText, /O que fazer agora/);
+    assert.match(result.responseText, /Nao fazer/);
+    assert.match(result.responseText, /Confianca: alta/);
+    assert.doesNotMatch(result.responseText, /FONTE_|CARD_|FAT_|OPEX_|INSIGHT_/);
+    assert.doesNotMatch(result.responseText, /Cabe nos dados registrados/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script answers how much can be spent now without requiring a purchase amount', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 2600 });
+    appendFakeInvoice(sheets, { valor_previsto: 900, status: 'prevista' });
+    appendFakeDebt(sheets, { valor_parcela: 400 });
+
+    const result = postPilotMessage(context, 'quanto posso gastar agora?');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Gasto seguro agora/);
+    assert.match(result.responseText, /Status/);
+    assert.match(result.responseText, /Por que/);
+    assert.match(result.responseText, /Dinheiro em contas: R\$ 2600,00/);
+    assert.match(result.responseText, /Gasto seguro agora: R\$ 900,00/);
+    assert.match(result.responseText, /O que fazer agora/);
+    assert.match(result.responseText, /Nao fazer/);
+    assert.doesNotMatch(result.responseText, /O que falta/);
+    assert.doesNotMatch(result.responseText, /FONTE_|CARD_|FAT_|OPEX_|INSIGHT_/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 

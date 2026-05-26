@@ -31,6 +31,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - First deterministic family financial health layer exists in Apps Script reporting: savings rate, cost-of-life buckets, monthly saving goal, investment blockers, saving opportunities, and more actionable `/revisar_mes` guidance with private spending kept aggregate-only.
 - V56 product direction is documented in `docs/COPILOTO_FINANCEIRO_V56_PLAN.md`: Telegram-first financial copilot, deterministic insight engine, IA as explanation layer only, weekly digest plus high-signal alerts, and no automatic banking integration in v1.
 - V56 Phase 1 copilot core is deployed: deterministic `src/copilot-insights.js`, Apps Script `/copiloto`, and Telegram callback `act:copilot_today`.
+- Safe-to-spend answers now use V56 decision-card language and a conservative spendable amount that does not treat reserve below target as free spending.
 
 ### Unverified
 
@@ -81,7 +82,7 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 
 ## Next Work
 
-1. Fold V56 decision-card language into stronger safe-to-spend answers and read-only drill-downs.
-2. Add Telegram decision UX and read-only drill-downs for "onde cortar", "posso gastar", goals, agenda, and budget.
+1. Add Telegram decision UX and read-only drill-downs for "onde cortar", goals, agenda, and budget.
+2. Add a focused doGet/callback preview for safe-to-spend and "onde cortar" without mutating Sheets.
 3. Add weekly digest preview, then gated delivery with `COPILOT_DIGEST_ENABLED`; proactive flows must stay read-only.
 4. Add goals/recurring commitments schema only after the insight engine is stable and tested.

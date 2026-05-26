@@ -1670,6 +1670,9 @@ function formatAgendaAnswer_(summary, event) {
 function formatCanSpendAnswer_(summary, text) {
   var simulation = parseSpendingSimulation_(text);
   if (!simulation.ok) {
+    if (isSafeToSpendAmountQuestion_(text)) {
+      return formatSafeToSpendAnswer_(summary);
+    }
     return [
       '🧭 Simulação conservadora',
       '',
@@ -1679,14 +1682,37 @@ function formatCanSpendAnswer_(summary, text) {
       'Exemplo: posso comprar notebook 900 em 3x?',
     ].join('\n');
   }
-  var liquidezTotal = roundMoney_(summary.saldos_fontes_disponivel + summary.reserva_total);
-  var currentObligations = roundMoney_(summary.faturas_atuais + summary.obrigacoes_60d);
+  var safe = buildSafeToSpendFacts_(summary);
   var installment = roundMoney_(simulation.valor / simulation.parcelas);
-  var afterPurchase = roundMoney_(liquidezTotal - currentObligations - installment);
-  var status = afterPurchase >= 0 ? 'Cabe nos dados registrados.' : 'Nao cabe com seguranca nos dados registrados.';
-  var caution = summary.saldos_fontes_count > 0
-    ? 'A conta usa saldos e reserva cadastrados; salario futuro ainda nao registrado fica fora.'
-    : 'Falta saldo real das contas, entao trate esta simulacao como incompleta.';
+  var afterPurchase = roundMoney_(safe.safe_to_spend - installment);
+  var status = afterPurchase >= 0 ? 'Cabe nos dados registrados, preservando pagamentos e reserva.' : 'Nao cabe com seguranca nos dados registrados.';
+  var caution = afterPurchase >= 0
+    ? 'Mesmo cabendo, confira a agenda antes de lancar.'
+    : 'Nao usar reserva abaixo da meta como dinheiro livre para consumo.';
+  var decisionPrefix = [
+    'Status',
+    status,
+    '',
+    'Por que',
+  ];
+  return ['Simulacao conservadora', ''].concat(decisionPrefix, [
+    'Compra: ' + formatMoney_(simulation.valor) + ' em ' + simulation.parcelas + 'x',
+    'Parcela estimada: ' + formatMoney_(installment),
+    'Gasto seguro agora: ' + formatMoney_(safe.safe_to_spend),
+    'Folga depois da compra: ' + formatMoney_(afterPurchase),
+    'Dinheiro em contas: ' + formatMoney_(safe.cash_available),
+    'Pagamentos registrados: ' + formatMoney_(safe.registered_payments),
+    '',
+    'O que fazer agora',
+    afterPurchase >= 0
+      ? 'Se for comprar, manter a parcela dentro dessa folga e conferir a agenda antes de lancar.'
+      : 'Nao assumir essa compra agora; primeiro cobrir faturas e compromissos registrados.',
+    '',
+    'Nao fazer',
+    caution,
+    '',
+    'Confianca: ' + (safe.has_balances ? 'alta' : 'media'),
+  ]).join('\n');
   return [
     '🧭 Simulação conservadora',
     '',
@@ -1699,6 +1725,62 @@ function formatCanSpendAnswer_(summary, text) {
     status,
     caution,
   ].join('\n');
+}
+
+function formatSafeToSpendAnswer_(summary) {
+  var safe = buildSafeToSpendFacts_(summary);
+  var status = safe.safe_to_spend > 0 ? 'Ha uma folga conservadora para gasto novo.' : 'Nao ha gasto novo seguro pelos dados registrados.';
+  return [
+    'Gasto seguro agora',
+    '',
+    'Status',
+    status,
+    '',
+    'Por que',
+    'Dinheiro em contas: ' + formatMoney_(safe.cash_available),
+    'Reserva usavel agora: ' + formatMoney_(safe.reserve_usable),
+    'Pagamentos registrados: ' + formatMoney_(safe.registered_payments),
+    'Gasto seguro agora: ' + formatMoney_(safe.safe_to_spend),
+    '',
+    'O que fazer agora',
+    safe.safe_to_spend > 0
+      ? 'Usar esse teto como limite antes de assumir gasto novo e conferir /agenda para vencimentos.'
+      : 'Atualizar saldos e separar dinheiro para faturas e compromissos antes de gastar.',
+    '',
+    'Nao fazer',
+    safe.reserve_usable > 0
+      ? 'Nao tratar essa folga como autorizacao para ignorar parcelas futuras.'
+      : 'Nao usar reserva abaixo da meta como dinheiro livre para consumo.',
+    '',
+    'Confianca: ' + (safe.has_balances ? 'alta' : 'media'),
+  ].join('\n');
+}
+
+function buildSafeToSpendFacts_(summary) {
+  var cashAvailable = roundMoney_(summary.saldos_fontes_disponivel);
+  var registeredPayments = roundMoney_(summary.faturas_atuais + summary.obrigacoes_60d);
+  var reserveTarget = 15000;
+  var reserveUsable = numberFromSheetValue_(summary.reserva_total) > reserveTarget
+    ? roundMoney_(numberFromSheetValue_(summary.reserva_total) - reserveTarget)
+    : 0;
+  var hasBalances = numberFromSheetValue_(summary.saldos_fontes_count) > 0;
+  var rawSafe = hasBalances ? roundMoney_(cashAvailable + reserveUsable - registeredPayments) : 0;
+  return {
+    cash_available: cashAvailable,
+    reserve_usable: reserveUsable,
+    registered_payments: registeredPayments,
+    safe_to_spend: Math.max(0, rawSafe),
+    has_balances: hasBalances,
+  };
+}
+
+function isSafeToSpendAmountQuestion_(text) {
+  var normalized = normalizeAliasText_(text);
+  return containsAliasPhrase_(normalized, 'quanto posso gastar') ||
+    containsAliasPhrase_(normalized, 'posso gastar agora') ||
+    containsAliasPhrase_(normalized, 'gasto seguro') ||
+    containsAliasPhrase_(normalized, 'dinheiro livre') ||
+    containsAliasPhrase_(normalized, 'tenho livre');
 }
 
 function parseSpendingSimulation_(text) {
