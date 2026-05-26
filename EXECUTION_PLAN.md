@@ -36,6 +36,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - `/gasto_seguro`, Telegram callback `act:safe_to_spend`, and remote preview `doGet?action=safe_to_spend` expose the same conservative safe-to-spend decision card without mutating Sheets.
 - V56 weekly digest preview is available as `doGet?action=copilot_digest_preview` / `npm run digest:preview`; it returns structured digest payload plus Telegram-ready text and never sends Telegram messages.
 - Gated V56 weekly digest delivery is available as trigger-safe `runCopilotWeeklyDigestDeliveryV56` / `doGet?action=copilot_digest_send` / `npm run digest:send`; it sends only when `COPILOT_DIGEST_ENABLED=YES`.
+- Weekly digest trigger setup/removal is explicit and idempotent through `npm run digest:trigger:setup` / `npm run digest:trigger:remove`; cadence is Monday 08:00 America/Sao_Paulo.
 
 ### Unverified
 
@@ -60,7 +61,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>`.
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env`.
 
-Available actions: `snapshot`, `summary`, `cut_first`, `safe_to_spend`, `copilot_digest_preview`, `copilot_digest_send`, `closing_draft`, `closing_close`, `selftest`, and `sheet_audit`.
+Available actions: `snapshot`, `summary`, `cut_first`, `safe_to_spend`, `copilot_digest_preview`, `copilot_digest_send`, `copilot_digest_trigger_setup`, `copilot_digest_trigger_remove`, `closing_draft`, `closing_close`, `selftest`, and `sheet_audit`.
 `scripts/smoke.js` defaults to quick `selftest` + `summary`; `--full` adds `sheet_audit`. `snapshot` is intentionally explicit.
 
 On Windows with PowerShell execution policy, use `npm.cmd` and `clasp.cmd` if needed.
@@ -86,6 +87,6 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 
 ## Next Work
 
-1. Add weekly trigger setup guidance and owner pilot cadence for digest delivery.
+1. Pilot weekly digest with `COPILOT_DIGEST_ENABLED` off until owner explicitly enables it.
 2. Add Telegram decision UX and read-only drill-downs for goals, agenda, and budget.
 3. Add goals/recurring commitments schema only after the insight engine is stable and tested.

@@ -1670,6 +1670,47 @@ test('Apps Script copilot digest delivery sends only when enabled without leakin
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
+test('Apps Script copilot digest trigger setup is idempotent and uses weekly cadence', () => {
+    const { context } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+    });
+
+    const first = context.setupCopilotWeeklyDigestTriggerV56();
+    const second = context.setupCopilotWeeklyDigestTriggerV56();
+
+    assert.strictEqual(first.ok, true);
+    assert.strictEqual(first.shouldApplyDomainMutation, false);
+    assert.strictEqual(first.created, true);
+    assert.strictEqual(first.function_name, 'runCopilotWeeklyDigestDeliveryV56');
+    assert.strictEqual(first.week_day, 'MONDAY');
+    assert.strictEqual(first.hour, 8);
+    assert.strictEqual(second.ok, true);
+    assert.strictEqual(second.created, false);
+    assert.strictEqual(second.existing_count, 1);
+    assert.strictEqual(context.__triggers.length, 1);
+    assert.deepStrictEqual(context.__triggers[0], {
+        handlerFunction: 'runCopilotWeeklyDigestDeliveryV56',
+        weekDay: 'MONDAY',
+        hour: 8,
+        everyWeeks: 1,
+    });
+});
+
+test('Apps Script copilot digest trigger removal deletes only digest triggers', () => {
+    const { context } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+    });
+    context.__triggers.push({ handlerFunction: 'otherScheduledFunction' });
+    context.setupCopilotWeeklyDigestTriggerV56();
+
+    const result = context.removeCopilotWeeklyDigestTriggerV56();
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(result.removed_count, 1);
+    assert.deepStrictEqual(context.__triggers, [{ handlerFunction: 'otherScheduledFunction' }]);
+});
+
 test('Apps Script safe question answers how much to save and blocks investment without real balances', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
