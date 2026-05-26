@@ -14,6 +14,7 @@ const TELEGRAM_CALLBACKS = Object.freeze({
     budget: 'act:budget_current',
     copilot: 'act:copilot_today',
     cutFirst: 'act:cut_first',
+    safeToSpend: 'act:safe_to_spend',
     clearContext: 'act:clear_context',
     correction: 'flow:correction',
     closing: 'flow:closing',
@@ -63,6 +64,7 @@ function buildTelegramHomeView() {
     ].join('\n'), [
         telegramCallbackButton('Copiloto', TELEGRAM_CALLBACKS.copilot),
         telegramCallbackButton('Onde cortar', TELEGRAM_CALLBACKS.cutFirst),
+        telegramCallbackButton('Gasto seguro', TELEGRAM_CALLBACKS.safeToSpend),
         telegramCallbackButton('Resumo', TELEGRAM_CALLBACKS.summary),
         telegramCallbackButton('Agenda', TELEGRAM_CALLBACKS.agenda),
         telegramCallbackButton('Orçamento', TELEGRAM_CALLBACKS.budget),

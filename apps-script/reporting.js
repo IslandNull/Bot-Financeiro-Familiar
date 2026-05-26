@@ -29,6 +29,16 @@ function buildCutFirstResponse_(config) {
   };
 }
 
+function buildSafeToSpendResponse_(config) {
+  var result = readCurrentPilotFamilySummary_(config, '');
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    responseText: formatSafeToSpendAnswer_(result.summary),
+    shouldApplyDomainMutation: false,
+  };
+}
+
 function buildAgendaResponse_(config) {
   var result = readCurrentPilotFamilySummary_(config, '');
   if (!result.ok) return result;

@@ -169,6 +169,7 @@ test('Apps Script /start and /help return Home with inline keyboard', () => {
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:summary_current'));
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:copilot_today'));
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:cut_first'));
+    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:safe_to_spend'));
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.text === 'Orçamento' && button.callback_data === 'act:budget_current'));
 });
 
@@ -204,11 +205,12 @@ test('Apps Script read-only callbacks reuse summary agenda and review without mu
     const summary = postTelegramCallback(context, 'act:summary_current');
     const copilot = postTelegramCallback(context, 'act:copilot_today');
     const cutFirst = postTelegramCallback(context, 'act:cut_first');
+    const safeToSpend = postTelegramCallback(context, 'act:safe_to_spend');
     const agenda = postTelegramCallback(context, 'act:agenda_current');
     const review = postTelegramCallback(context, 'act:review_month_current');
     const budget = postTelegramCallback(context, 'act:budget_current');
 
-    for (const result of [summary, copilot, cutFirst, agenda, review, budget]) {
+    for (const result of [summary, copilot, cutFirst, safeToSpend, agenda, review, budget]) {
         assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
         assert.strictEqual(result.shouldApplyDomainMutation, false);
         assert.strictEqual(result.telegramActions[0].method, 'answerCallbackQuery');
@@ -216,12 +218,14 @@ test('Apps Script read-only callbacks reuse summary agenda and review without mu
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'nav:home'));
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:copilot_today'));
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:cut_first'));
+        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:safe_to_spend'));
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.text === 'Orçamento' && button.callback_data === 'act:budget_current'));
     }
     assert.match(summary.telegramActions[1].text, /Resumo/);
     assert.match(copilot.telegramActions[1].text, /Copiloto financeiro/);
     assert.match(copilot.telegramActions[1].text, /O que fazer agora/);
     assert.match(cutFirst.telegramActions[1].text, /Onde cortar/);
+    assert.match(safeToSpend.telegramActions[1].text, /Gasto seguro agora/);
     assert.match(agenda.telegramActions[1].text, /Agenda|Faturas/);
     assert.match(review.telegramActions[1].text, /fechar|revis/i);
     assert.match(budget.telegramActions[1].text, /Or.amento|orcamento|budget/i);
@@ -1315,6 +1319,29 @@ test('Apps Script answers how much can be spent now without requiring a purchase
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
+test('Apps Script /gasto_seguro command previews safe-to-spend without mutation', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 2600 });
+    appendFakeInvoice(sheets, { valor_previsto: 900, status: 'prevista' });
+    appendFakeDebt(sheets, { valor_parcela: 400 });
+
+    const result = postPilotMessage(context, '/gasto_seguro');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Gasto seguro agora/);
+    assert.match(result.responseText, /Dinheiro em contas: R\$ 2600,00/);
+    assert.match(result.responseText, /Gasto seguro agora: R\$ 900,00/);
+    assert.doesNotMatch(result.responseText, /FONTE_|CARD_|FAT_|OPEX_|INSIGHT_/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
 test('Apps Script monthly review explains current month is not closable', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
@@ -1516,6 +1543,28 @@ test('Apps Script doGet cut_first action previews onde cortar without mutation',
     assert.match(result.responseText, /Onde cortar/);
     assert.match(result.responseText, /Alimentacao fora/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 3);
+});
+
+test('Apps Script doGet safe_to_spend action previews gasto seguro without mutation', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 2600 });
+    appendFakeInvoice(sheets, { valor_previsto: 900, status: 'prevista' });
+    appendFakeDebt(sheets, { valor_parcela: 400 });
+
+    const result = runRemoteAction(context, 'safe_to_spend');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Gasto seguro agora/);
+    assert.match(result.responseText, /Gasto seguro agora: R\$ 900,00/);
+    assert.strictEqual(result.summary.competencia, '2026-04');
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
 test('Apps Script safe question answers how much to save and blocks investment without real balances', () => {
