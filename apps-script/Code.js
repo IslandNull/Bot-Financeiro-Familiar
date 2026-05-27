@@ -116,12 +116,6 @@ function doGet(e) {
   if (action === 'copilot_digest_send') {
     return json_(runCopilotWeeklyDigestDeliveryV56(params.competencia));
   }
-  if (action === 'copilot_digest_trigger_setup') {
-    return json_(setupCopilotWeeklyDigestTriggerV56());
-  }
-  if (action === 'copilot_digest_trigger_remove') {
-    return json_(removeCopilotWeeklyDigestTriggerV56());
-  }
   if (action === 'closing_draft') {
     return json_(writeDraftFamilyClosingV55(params.competencia));
   }
@@ -352,63 +346,6 @@ function sendTelegramDigestMessage_(telegramBotToken, chatId, text) {
     ok: statusCode >= 200 && statusCode < 300 && parsed && parsed.ok === true,
     statusCode: statusCode,
   };
-}
-
-function setupCopilotWeeklyDigestTriggerV56() {
-  var functionName = 'runCopilotWeeklyDigestDeliveryV56';
-  var existing = findCopilotDigestTriggers_();
-  if (existing.length > 0) {
-    return {
-      ok: true,
-      action: 'copilot_digest_trigger_setup',
-      created: false,
-      existing_count: existing.length,
-      function_name: functionName,
-      week_day: 'MONDAY',
-      hour: 8,
-      shouldApplyDomainMutation: false,
-    };
-  }
-
-  ScriptApp.newTrigger(functionName)
-    .timeBased()
-    .onWeekDay(ScriptApp.WeekDay.MONDAY)
-    .atHour(8)
-    .everyWeeks(1)
-    .create();
-
-  return {
-    ok: true,
-    action: 'copilot_digest_trigger_setup',
-    created: true,
-    existing_count: 0,
-    function_name: functionName,
-    week_day: 'MONDAY',
-    hour: 8,
-    shouldApplyDomainMutation: false,
-  };
-}
-
-function removeCopilotWeeklyDigestTriggerV56() {
-  var triggers = findCopilotDigestTriggers_();
-  triggers.forEach(function(trigger) {
-    ScriptApp.deleteTrigger(trigger);
-  });
-  return {
-    ok: true,
-    action: 'copilot_digest_trigger_remove',
-    removed_count: triggers.length,
-    shouldApplyDomainMutation: false,
-  };
-}
-
-function findCopilotDigestTriggers_() {
-  return ScriptApp.getProjectTriggers().filter(function(trigger) {
-    if (typeof trigger.getHandlerFunction === 'function') {
-      return trigger.getHandlerFunction() === 'runCopilotWeeklyDigestDeliveryV56';
-    }
-    return trigger.handlerFunction === 'runCopilotWeeklyDigestDeliveryV56';
-  });
 }
 
 function writeDraftFamilyClosingV55(competencia) {

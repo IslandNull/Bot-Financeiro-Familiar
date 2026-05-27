@@ -110,11 +110,9 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
         ...(options.properties || {}),
     };
     const scriptProperties = { ...properties };
-    const triggers = [];
     const context = {
         console,
         __scriptProperties: scriptProperties,
-        __triggers: triggers,
         PropertiesService: {
             getScriptProperties() {
                 return {
@@ -180,45 +178,6 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
                         delete sheets[name];
                     },
                 };
-            },
-        },
-        ScriptApp: {
-            WeekDay: {
-                MONDAY: 'MONDAY',
-            },
-            getProjectTriggers() {
-                return triggers.slice();
-            },
-            deleteTrigger(trigger) {
-                const index = triggers.indexOf(trigger);
-                if (index >= 0) triggers.splice(index, 1);
-            },
-            newTrigger(handlerFunction) {
-                const trigger = {
-                    handlerFunction: String(handlerFunction || ''),
-                };
-                const builder = {
-                    timeBased() {
-                        return builder;
-                    },
-                    onWeekDay(day) {
-                        trigger.weekDay = day;
-                        return builder;
-                    },
-                    atHour(hour) {
-                        trigger.hour = hour;
-                        return builder;
-                    },
-                    everyWeeks(weeks) {
-                        trigger.everyWeeks = weeks;
-                        return builder;
-                    },
-                    create() {
-                        triggers.push(trigger);
-                        return trigger;
-                    },
-                };
-                return builder;
             },
         },
         LockService: {
