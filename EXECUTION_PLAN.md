@@ -39,7 +39,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 
 ### Unverified
 
-- Current Web App accessibility after deploy `@215`: `npm run smoke` returns Google Apps Script access denied HTML before reaching `doGet`.
+- Current Web App accessibility after deploy `@216`: `npm run smoke` returns Google Apps Script access denied HTML before reaching `doGet`.
 - Full production readiness beyond owner pilot usage.
 - UX readiness with Luana using real Telegram messages after Gustavo pilot of the new inline buttons.
 - Long-term budget limit tuning beyond the initial pilot limits.
