@@ -4287,6 +4287,43 @@ test('Apps Script generic launch writes receita with category and source default
     assert.strictEqual(launch.afeta_caixa_familiar, true);
 });
 
+test('Apps Script cash entry updates latest source balance snapshot for summary', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'receita',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '36',
+        descricao: 'reembolso pessoal mae',
+        id_categoria: 'REC_SALARIO',
+        id_fonte: 'FONTE_CONTA_NUBANK_GU',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+    appendFakeSourceBalance(sheets, {
+        id_fonte: 'FONTE_CONTA_NUBANK_GU',
+        data_referencia: '2026-04-29',
+        saldo_final: 290.28,
+        saldo_disponivel: 290.28,
+    });
+
+    const write = postPilotMessage(context, 'recebi pix reembolso pessoal minha mae 36 no nubank gustavo');
+    const summary = postPilotMessage(context, '/resumo', { updateId: 'update_2', messageId: 'message_2' });
+
+    assert.strictEqual(write.ok, true);
+    assert.strictEqual(sheets.Saldos_Fontes.rows.length, 3);
+    assert.match(summary.responseText, /Contas: R\$ 326,28/);
+});
+
 test('Apps Script generic launch writes aporte and debt payment with active references', () => {
     const aporte = createAppsScriptHarness({
         tipo_evento: 'aporte',

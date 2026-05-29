@@ -106,6 +106,36 @@ function appendInvoicePaymentReconciliation_(sheet, invoice, amount) {
   });
 }
 
+function cashDeltaForSourceBalance_(event) {
+  if (!event || event.afeta_caixa_familiar !== true || !event.id_fonte) return 0;
+  var amount = numberFromSheetValue_(event.valor);
+  if (event.tipo_evento === 'receita') return amount;
+  if (['despesa', 'pagamento_fatura', 'aporte', 'divida_pagamento'].indexOf(event.tipo_evento) !== -1) return -amount;
+  return 0;
+}
+
+function appendIncrementalSourceBalanceSnapshot_(sheet, event, referenceData, resultRef, now) {
+  var delta = cashDeltaForSourceBalance_(event);
+  if (!delta) return;
+  var source = referenceData && referenceData.sourcesById && referenceData.sourcesById[stringValue_(event.id_fonte)];
+  if (!source || source.ativo === false || source.tipo === 'cartao_credito' || source.tipo === 'beneficio') return;
+  var latest = latestSourceBalanceForEvent_(event, referenceData.sourceBalances || []);
+  if (!latest) return;
+  var previous = numberFromSheetValue_(latest.saldo_disponivel !== undefined ? latest.saldo_disponivel : latest.saldo_final);
+  var next = roundMoney_(previous + delta);
+  appendRow_(sheet, SHEETS.SALDOS_FONTES, {
+    id_snapshot: stableId_('SNAP', [resultRef, event.id_fonte, event.data, delta].join('|')),
+    competencia: event.competencia,
+    data_referencia: event.data,
+    id_fonte: event.id_fonte,
+    saldo_inicial: previous,
+    saldo_final: next,
+    saldo_disponivel: next,
+    observacao: 'automatico por lancamento ' + resultRef,
+    created_at: now,
+  });
+}
+
 function findFamilyClosingRow_(sheet, competencia) {
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return null;

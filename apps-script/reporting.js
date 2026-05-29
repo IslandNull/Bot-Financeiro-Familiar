@@ -3134,9 +3134,11 @@ function recordPilotExpense_(update, message, event, config, referenceData) {
     var request = mutationRequest_(update, message);
     var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
     var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+    var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
     idempotencySheetForFailure = idempotencySheet;
     verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
     verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+    verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
 
     var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
     if (existing && existing.status === 'completed') {
@@ -3197,6 +3199,7 @@ function recordPilotExpense_(update, message, event, config, referenceData) {
       parcelas: '',
       created_at: now,
     });
+    appendIncrementalSourceBalanceSnapshot_(sourceBalanceSheet, event, referenceData, resultRef, now);
     updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
     return { ok: true, responseText: recordedEventText_(event, 'anotei gasto da familia.', referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
   } catch (_err) {
@@ -3220,9 +3223,11 @@ function recordPilotGenericLaunch_(update, message, event, config, referenceData
     var request = mutationRequest_(update, message);
     var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
     var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+    var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
     idempotencySheetForFailure = idempotencySheet;
     verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
     verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+    verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
 
     var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
     if (existing && existing.status === 'completed') {
@@ -3283,6 +3288,7 @@ function recordPilotGenericLaunch_(update, message, event, config, referenceData
       parcelas: '',
       created_at: now,
     });
+    appendIncrementalSourceBalanceSnapshot_(sourceBalanceSheet, event, referenceData, resultRef, now);
     updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
     return { ok: true, responseText: recordedEventText_(event, actionLabelForGenericLaunch_(event), referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
   } catch (_err) {
@@ -3472,11 +3478,13 @@ function recordPilotInvoicePayment_(update, message, event, config, referenceDat
     var request = mutationRequest_(update, message);
     var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
     var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+    var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
     var invoiceResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
     var invoiceLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
     idempotencySheetForFailure = idempotencySheet;
     verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
     verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+    verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
     verifySheetHeaders_(invoiceResumoSheet, SHEETS.FATURAS_RESUMO);
     verifySheetHeaders_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS);
 
@@ -3551,6 +3559,7 @@ function recordPilotInvoicePayment_(update, message, event, config, referenceDat
     if (reconciliationAmount > 0) {
       appendInvoicePaymentReconciliation_(invoiceLinhasSheet, invoice, reconciliationAmount);
     }
+    appendIncrementalSourceBalanceSnapshot_(sourceBalanceSheet, event, referenceData, resultRef, now);
     updateInvoicePayments_(invoiceResumoSheet, invoice.payableRows, 'paga');
     updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
     return { ok: true, responseText: recordedEventText_(event, 'anotei pagamento da fatura.', referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
