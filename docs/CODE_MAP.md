@@ -120,6 +120,8 @@ Remote read-only previews now include `summary`, `cut_first`, `safe_to_spend`, a
 
 `Telegram_Send_Log` is retired from the live schema. Manual owner check on 2026-05-23 confirmed the real spreadsheet no longer has backup sheets or retired send-log sheets.
 
+Optional V56 contracts for `Metas_Financeiras` and `Compromissos_Recorrentes` live in `src/schema.js`, but they are not required by runtime audit until the real spreadsheet is migrated.
+
 Full headers in `SHEET_SCHEMA.md`.
 
 ## Telegram Commands

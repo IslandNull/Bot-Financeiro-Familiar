@@ -16,6 +16,11 @@ const SHEETS = {
     IDEMPOTENCY_LOG: 'Idempotency_Log',
 };
 
+const OPTIONAL_V56_SHEETS = {
+    METAS_FINANCEIRAS: 'Metas_Financeiras',
+    COMPROMISSOS_RECORRENTES: 'Compromissos_Recorrentes',
+};
+
 const HEADERS = {
     [SHEETS.CONFIG_CATEGORIAS]: [
         'id_categoria',
@@ -193,6 +198,37 @@ const HEADERS = {
     ],
 };
 
+const OPTIONAL_V56_HEADERS = {
+    [OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS]: [
+        'id_meta',
+        'nome',
+        'tipo',
+        'escopo',
+        'valor_alvo',
+        'valor_atual_manual',
+        'data_alvo',
+        'contribuicao_mensal_planejada',
+        'prioridade',
+        'visibilidade',
+        'ativo',
+        'observacao',
+    ],
+    [OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES]: [
+        'id_compromisso',
+        'nome',
+        'tipo',
+        'escopo',
+        'valor_estimado',
+        'dia_vencimento',
+        'id_categoria',
+        'id_fonte',
+        'prioridade',
+        'visibilidade',
+        'ativo',
+        'observacao',
+    ],
+};
+
 const ENUMS = {
     tipo_evento: [
         'despesa',
@@ -216,6 +252,10 @@ const ENUMS = {
 
 function getSheetNames() {
     return Object.values(SHEETS);
+}
+
+function getOptionalV56SheetNames() {
+    return Object.values(OPTIONAL_V56_SHEETS);
 }
 
 function getHeaders(sheetName) {
@@ -270,8 +310,11 @@ function validateSchema() {
 module.exports = {
     ENUMS,
     HEADERS,
+    OPTIONAL_V56_HEADERS,
+    OPTIONAL_V56_SHEETS,
     SHEETS,
     getHeaders,
+    getOptionalV56SheetNames,
     getSheetNames,
     validateSchema,
 };

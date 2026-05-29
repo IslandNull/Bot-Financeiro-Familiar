@@ -36,6 +36,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - `/gasto_seguro`, Telegram callback `act:safe_to_spend`, and remote preview `doGet?action=safe_to_spend` expose the same conservative safe-to-spend decision card without mutating Sheets.
 - `/agenda` and Telegram callback `act:agenda_current` expose next due invoice, 60-day payment evidence, suggested action, avoid rule, and confidence without mutating Sheets.
 - `/revisar_mes` and Telegram callback `act:review_month_current` expose closing decision, blockers, suggested action, avoid rule, confidence, and aggregate-only private review without mutating Sheets.
+- Optional V56 local contracts exist for future `Metas_Financeiras` and `Compromissos_Recorrentes`; they are not live required sheets until the real spreadsheet is explicitly migrated.
 - V56 weekly digest preview is available as `doGet?action=copilot_digest_preview` / `npm run digest:preview`; it returns structured digest payload plus Telegram-ready text and never sends Telegram messages.
 - Gated V56 weekly digest delivery is available as trigger-safe `runCopilotWeeklyDigestDeliveryV56` / `doGet?action=copilot_digest_send` / `npm run digest:send`; it sends only when `COPILOT_DIGEST_ENABLED=YES`.
 - Web App deployment `@219` is authorized and remote quick smoke passes for `selftest` and `summary`.
@@ -92,4 +93,4 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 
 1. Pilot weekly digest with `COPILOT_DIGEST_ENABLED` off until owner explicitly enables it.
 2. Continue Telegram decision UX with goal/commitment decisions.
-3. Add goals/recurring commitments schema only after the insight engine is stable and tested.
+3. Migrate real goals/recurring commitment sheets only after reviewing the optional V56 contracts and adding audit/runtime coverage.

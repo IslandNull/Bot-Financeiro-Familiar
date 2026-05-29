@@ -59,6 +59,18 @@ For the current redacted state of the real spreadsheet, use `docs/SPREADSHEET_SN
 
 `idempotency_key | source | external_update_id | external_message_id | chat_id | payload_hash | status | result_ref | created_at | updated_at | error_code | observacao`
 
+## Optional V56 Contracts
+
+These sheets are defined as optional local contracts only. They are not part of the live V55 required sheet list until the real spreadsheet is explicitly migrated and `sheet:audit` is updated.
+
+### Metas_Financeiras
+
+`id_meta | nome | tipo | escopo | valor_alvo | valor_atual_manual | data_alvo | contribuicao_mensal_planejada | prioridade | visibilidade | ativo | observacao`
+
+### Compromissos_Recorrentes
+
+`id_compromisso | nome | tipo | escopo | valor_estimado | dia_vencimento | id_categoria | id_fonte | prioridade | visibilidade | ativo | observacao`
+
 ## Formula Standard
 
 No live formula-injection workflow exists. If one is added later, use Apps Script `range.setFormula()`, English function names, and semicolon separators.
