@@ -29,6 +29,8 @@ var HELP_TEXT = [
   '- /resumo: visao do mes sem alterar a planilha',
   '- /orcamento: ver limites e consumos por categoria',
   '- /agenda: faturas e compromissos por data',
+  '- /metas: progresso de metas financeiras configuradas',
+  '- /compromissos: compromissos recorrentes configurados',
   '- /revisar_mes: checklist antes de fechamento',
   '- /limpar_contexto: apaga a conversa pendente deste chat',
   '- /ajuda: exemplos'
@@ -52,6 +54,10 @@ var SHEETS = {
   TRANSFERENCIAS_INTERNAS: 'Transferencias_Internas',
   IDEMPOTENCY_LOG: 'Idempotency_Log',
 };
+var OPTIONAL_V56_SHEETS = {
+  METAS_FINANCEIRAS: 'Metas_Financeiras',
+  COMPROMISSOS_RECORRENTES: 'Compromissos_Recorrentes',
+};
 var HEADERS = {
   Cartoes: ['id_cartao', 'id_fonte', 'nome', 'titular', 'fechamento_dia', 'vencimento_dia', 'limite', 'ativo'],
   Config_Categorias: ['id_categoria', 'nome', 'grupo', 'tipo_evento_padrao', 'classe_dre', 'escopo_padrao', 'afeta_dre_padrao', 'afeta_patrimonio_padrao', 'afeta_caixa_familiar_padrao', 'visibilidade_padrao', 'limite_mensal', 'acumula_sobra', 'ativo'],
@@ -66,6 +72,10 @@ var HEADERS = {
   Saldos_Fontes: ['id_snapshot', 'competencia', 'data_referencia', 'id_fonte', 'saldo_inicial', 'saldo_final', 'saldo_disponivel', 'observacao', 'created_at'],
   Transferencias_Internas: ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'],
   Idempotency_Log: ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'],
+};
+var OPTIONAL_V56_HEADERS = {
+  Metas_Financeiras: ['id_meta', 'nome', 'tipo', 'escopo', 'valor_alvo', 'valor_atual_manual', 'data_alvo', 'contribuicao_mensal_planejada', 'prioridade', 'visibilidade', 'ativo', 'observacao'],
+  Compromissos_Recorrentes: ['id_compromisso', 'nome', 'tipo', 'escopo', 'valor_estimado', 'dia_vencimento', 'id_categoria', 'id_fonte', 'prioridade', 'visibilidade', 'ativo', 'observacao'],
 };
 var PARSED_EVENT_FIELDS = ['tipo_evento', 'data', 'competencia', 'valor', 'descricao', 'id_categoria', 'id_fonte', 'pessoa', 'escopo', 'visibilidade', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'direcao_caixa_familiar', 'status', 'parcelas'];
 
@@ -109,6 +119,12 @@ function doGet(e) {
   }
   if (action === 'safe_to_spend') {
     return json_(exportSafeToSpendV56(params.competencia));
+  }
+  if (action === 'goals_preview') {
+    return json_(buildGoalsResponse_(config));
+  }
+  if (action === 'commitments_preview') {
+    return json_(buildCommitmentsResponse_(config));
   }
   if (action === 'copilot_digest_preview') {
     return json_(exportCopilotDigestPreviewV56(params.competencia));
@@ -681,7 +697,7 @@ function exportSheetAuditV55() {
   for (var i = 0; i < sheets.length; i += 1) {
     var name = sheets[i].getName();
     byName[name] = sheets[i];
-    if (expectedSheets.indexOf(name) === -1) {
+    if (expectedSheets.indexOf(name) === -1 && !OPTIONAL_V56_HEADERS[name]) {
       addSheetAuditFinding_(findings, 'EXTRA_SHEET', 'warning', name, '', 1, 'sheet is outside the live schema');
     }
   }
@@ -704,6 +720,7 @@ function exportSheetAuditV55() {
     var expectedName = expectedSheets[k];
     rows[expectedName] = byName[expectedName] ? readRowsAsObjects_(byName[expectedName], expectedName) : [];
   }
+  var optionalRows = readOptionalV56AuditRows_(findings, byName);
   var categories = indexBy_(rows[SHEETS.CONFIG_CATEGORIAS], 'id_categoria');
   var sources = indexBy_(rows[SHEETS.CONFIG_FONTES], 'id_fonte');
   var cards = indexBy_(rows[SHEETS.CARTOES], 'id_cartao');
@@ -720,11 +737,13 @@ function exportSheetAuditV55() {
   auditCardReferences_(findings, rows[SHEETS.CARTOES], sources);
   auditInvoiceReferences_(findings, rows[SHEETS.FATURAS_RESUMO], cards);
   auditDuplicateInvoices_(findings, rows[SHEETS.FATURAS_RESUMO]);
+  auditOptionalV56References_(findings, optionalRows[OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES], categories, sources);
 
+  var summary = summarizeSheetAuditFindings_(findings);
   return {
-    ok: true,
+    ok: summary.error === 0,
     shouldApplyDomainMutation: false,
-    summary: summarizeSheetAuditFindings_(findings),
+    summary: summary,
     findings: compactSheetAuditFindings_(findings),
   };
 }
@@ -764,6 +783,58 @@ function auditInvoiceReferences_(findings, invoices, cards) {
   (invoices || []).forEach(function(row) {
     checkSheetAuditReference_(findings, SHEETS.FATURAS_RESUMO, 'id_cartao', row.id_cartao, cards, true);
   });
+}
+
+function readOptionalV56AuditRows_(findings, sheetsByName) {
+  var result = {};
+  objectValues_(OPTIONAL_V56_SHEETS).forEach(function(sheetName) {
+    var sheet = sheetsByName[sheetName];
+    if (!sheet) {
+      result[sheetName] = [];
+      return;
+    }
+    var expected = OPTIONAL_V56_HEADERS[sheetName];
+    var actual = sheet.getLastRow() > 0 ? sheet.getRange(1, 1, 1, expected.length).getValues()[0].map(function(value) { return String(value || ''); }) : [];
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      addSheetAuditFinding_(findings, 'HEADER_MISMATCH', 'error', sheetName, '', 1, 'optional V56 headers differ from schema');
+      result[sheetName] = [];
+      return;
+    }
+    result[sheetName] = readOptionalV56RowsForAudit_(sheet, sheetName);
+  });
+  return result;
+}
+
+function readOptionalV56RowsForAudit_(sheet, sheetName) {
+  var headers = OPTIONAL_V56_HEADERS[sheetName];
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  return values.map(function(row) {
+    return headers.reduce(function(result, header, index) {
+      result[header] = normalizeSheetCell_(row[index]);
+      return result;
+    }, {});
+  });
+}
+
+function auditOptionalV56References_(findings, commitments, categories, sources) {
+  (commitments || []).forEach(function(row) {
+    checkOptionalSheetAuditReference_(findings, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'id_categoria', row.id_categoria, categories, false);
+    checkOptionalSheetAuditReference_(findings, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'id_fonte', row.id_fonte, sources, false);
+    var day = Number(row.dia_vencimento || 0);
+    if (day && (day < 1 || day > 31)) {
+      addSheetAuditFinding_(findings, 'INVALID_DUE_DAY', 'error', OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'dia_vencimento', 1, 'dia_vencimento must be 1..31');
+    }
+  });
+}
+
+function checkOptionalSheetAuditReference_(findings, sheetName, field, value, index, activeMatters) {
+  var before = findings.length;
+  checkSheetAuditReference_(findings, sheetName, field, value, index, activeMatters);
+  if (findings.length > before && findings[findings.length - 1].code === 'BROKEN_REFERENCE') {
+    findings[findings.length - 1].code = 'UNKNOWN_REFERENCE';
+  }
 }
 
 function checkSheetAuditReference_(findings, sheetName, field, value, index, activeMatters) {

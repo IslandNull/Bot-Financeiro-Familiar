@@ -2,7 +2,7 @@
 
 const assert = require('assert');
 const { auditSheetState, formatAuditReport } = require('../scripts/sheet-audit');
-const { HEADERS, SHEETS } = require('../src/schema');
+const { HEADERS, OPTIONAL_V56_HEADERS, OPTIONAL_V56_SHEETS, SHEETS } = require('../src/schema');
 
 function test(name, fn) {
     fn();
@@ -51,7 +51,7 @@ test('sheet audit reports structural and reference risks without private row dum
     const result = auditSheetState(state);
     const codes = result.findings.map((finding) => finding.code);
 
-    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.ok, false);
     assert.ok(codes.includes('EXTRA_SHEET'));
     assert.ok(codes.includes('HEADER_MISMATCH'));
     assert.ok(codes.includes('UNKNOWN_STATUS'));
@@ -91,4 +91,36 @@ test('sheet audit accepts multiple planned invoice lines for the same invoice cy
     const codes = result.findings.map((finding) => finding.code);
 
     assert.ok(!codes.includes('DUPLICATE_INVOICE_COMPETENCE'));
+});
+
+test('sheet audit accepts optional V56 sheets when present and audits recurring references', () => {
+    const emptySheets = Object.fromEntries(
+        Object.keys(HEADERS).map((sheetName) => [sheetName, sheet(HEADERS[sheetName], [])])
+    );
+    const state = {
+        sheets: {
+            ...emptySheets,
+            [SHEETS.CONFIG_CATEGORIAS]: sheet(HEADERS[SHEETS.CONFIG_CATEGORIAS], [
+                { id_categoria: 'OPEX_MORADIA', nome: 'Moradia', ativo: true },
+            ]),
+            [SHEETS.CONFIG_FONTES]: sheet(HEADERS[SHEETS.CONFIG_FONTES], [
+                { id_fonte: 'FONTE_CONTA', nome: 'Conta', ativo: true },
+            ]),
+            [OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS]: sheet(OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS], [
+                { id_meta: 'META_RESERVA', nome: 'Reserva', ativo: true },
+            ]),
+            [OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES]: sheet(OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES], [
+                { id_compromisso: 'COMP_ALUGUEL', nome: 'Aluguel', valor_estimado: 1500, dia_vencimento: 5, id_categoria: 'OPEX_MORADIA', id_fonte: 'FONTE_CONTA', ativo: true },
+            ]),
+        },
+    };
+
+    const accepted = auditSheetState(state);
+    assert.ok(!accepted.findings.some((finding) => finding.sheet === OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS && finding.severity === 'error'));
+    assert.ok(!accepted.findings.some((finding) => finding.sheet === OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES && finding.severity === 'error'));
+
+    state.sheets[OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES].rows[0].id_categoria = 'OPEX_AUSENTE';
+    const broken = auditSheetState(state);
+    assert.strictEqual(broken.ok, false);
+    assert.ok(broken.findings.some((finding) => finding.sheet === OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES && finding.code === 'UNKNOWN_REFERENCE'));
 });

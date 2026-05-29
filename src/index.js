@@ -18,4 +18,5 @@ module.exports = {
     ...require('./pilot-evidence'),
     ...require('./invoice-ledger'),
     ...require('./copilot-insights'),
+    ...require('./copilot-narrator'),
 };

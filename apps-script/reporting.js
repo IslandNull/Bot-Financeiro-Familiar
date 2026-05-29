@@ -14,7 +14,7 @@ function buildCopilotResponse_(config) {
   if (!result.ok) return result;
   return {
     ok: true,
-    responseText: formatCopilotDecisionCards_(result.summary),
+    responseText: formatCopilotDecisionCardsMaybeNarrated_(result.summary, config),
     shouldApplyDomainMutation: false,
   };
 }
@@ -57,6 +57,62 @@ function buildMonthlyReviewResponse_(config) {
     responseText: formatMonthlyReviewAnswer_(result.summary),
     shouldApplyDomainMutation: false,
   };
+}
+
+function buildGoalsResponse_(config) {
+  var rows = readOptionalV56SheetRows_(config, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS);
+  if (!rows.ok) return rows;
+  return {
+    ok: true,
+    responseText: formatGoalsAnswer_(rows.rows),
+    shouldApplyDomainMutation: false,
+  };
+}
+
+function buildCommitmentsResponse_(config) {
+  var rows = readOptionalV56SheetRows_(config, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES);
+  if (!rows.ok) return rows;
+  return {
+    ok: true,
+    responseText: formatCommitmentsAnswer_(rows.rows),
+    shouldApplyDomainMutation: false,
+  };
+}
+
+function readOptionalV56SheetRows_(config, sheetName) {
+  var runtimeCheck = verifyReportingRuntimeConfig_(config);
+  if (!runtimeCheck.ok) return runtimeCheck;
+  try {
+    var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+    var sheet = spreadsheet.getSheetByName(sheetName);
+    if (!sheet) return { ok: true, rows: [] };
+    verifyOptionalV56SheetHeaders_(sheet, sheetName);
+    return { ok: true, rows: readOptionalV56RowsAsObjects_(sheet, sheetName) };
+  } catch (_err) {
+    return fail_('REPORT_READ_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+  }
+}
+
+function verifyOptionalV56SheetHeaders_(sheet, sheetName) {
+  var expected = OPTIONAL_V56_HEADERS[sheetName];
+  if (!expected) throw new Error('Unknown optional V56 sheet: ' + sheetName);
+  var actual = sheet.getRange(1, 1, 1, expected.length).getValues()[0];
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error('Header mismatch: ' + sheetName);
+  }
+}
+
+function readOptionalV56RowsAsObjects_(sheet, sheetName) {
+  var headers = OPTIONAL_V56_HEADERS[sheetName];
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  return values.map(function(row) {
+    return headers.reduce(function(result, header, index) {
+      result[header] = normalizeSheetCell_(row[index]);
+      return result;
+    }, {});
+  });
 }
 
 function buildBudgetReportResponse_(config, requestedCompetencia) {
@@ -1373,6 +1429,136 @@ function formatCopilotDecisionCards_(summary) {
   return lines.join('\n');
 }
 
+function formatCopilotDecisionCardsMaybeNarrated_(summary, config) {
+  var deterministicText = formatCopilotDecisionCards_(summary);
+  if (!config || config.copilotNarratorEnabled !== true) return deterministicText;
+  if (!config.openAiApiKey || !config.openAiModel) return deterministicText;
+
+  var candidateText = fetchCopilotNarrationText_(summary, deterministicText, config);
+  var safe = safeCopilotNarrationText_(summary, deterministicText, candidateText);
+  return safe.text;
+}
+
+function fetchCopilotNarrationText_(summary, deterministicText, config) {
+  try {
+    var response = UrlFetchApp.fetch(OPENAI_RESPONSES_URL, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + config.openAiApiKey },
+      payload: JSON.stringify(openAiCopilotNarratorPayload_(summary, deterministicText, config)),
+      muteHttpExceptions: true,
+    });
+    if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) return '';
+    var parsedResponse = parseJsonSafe_(response.getContentText());
+    var outputText = extractOpenAIOutputText_(parsedResponse);
+    var parsedOutput = parseJsonSafe_(outputText);
+    return parsedOutput && parsedOutput.text ? String(parsedOutput.text) : '';
+  } catch (_err) {
+    return '';
+  }
+}
+
+function openAiCopilotNarratorPayload_(summary, deterministicText, config) {
+  return {
+    model: config.openAiModel,
+    input: [
+      'You are an optional Telegram phrasing layer for a deterministic family finance copilot.',
+      'Use only the provided facts, evidence, recommendation, and avoid rule.',
+      'Do not add numbers, financial rules, private line items, internal ids, or advice outside the payload.',
+      'Return concise Brazilian Portuguese text.',
+      '',
+      JSON.stringify({
+        facts: {
+          competencia: stringValue_(summary && summary.competencia),
+          insights: buildCopilotInsights_(summary, 3),
+        },
+        deterministic_text: String(deterministicText || ''),
+      }),
+    ].join('\n'),
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'copilot_narration',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['text'],
+          properties: {
+            text: { type: 'string' },
+          },
+        },
+      },
+    },
+  };
+}
+
+function safeCopilotNarrationText_(summary, deterministicText, candidateText) {
+  var text = String(candidateText || '').trim();
+  var validation = validateCopilotNarrationText_(summary, deterministicText, text);
+  return {
+    ok: true,
+    usedFallback: !validation.ok,
+    validation: validation,
+    text: validation.ok ? text : deterministicText,
+  };
+}
+
+function validateCopilotNarrationText_(summary, deterministicText, candidateText) {
+  var text = String(candidateText || '').trim();
+  if (!text) return { ok: false, code: 'EMPTY_NARRATION' };
+  if (text.length > 1800) return { ok: false, code: 'NARRATION_TOO_LONG' };
+  if (/\b(?:INSIGHT|OPEX|CAPEX|REC|FONTE|CARD|FAT|LAN|DIV|ATIVO|META|COMP)_[A-Z0-9_]+\b/.test(text)) {
+    return { ok: false, code: 'INTERNAL_ID_LEAK' };
+  }
+
+  var facts = {
+    competencia: stringValue_(summary && summary.competencia),
+    insights: buildCopilotInsights_(summary, 3),
+  };
+  var allowed = buildCopilotNarratorAllowedTokens_(JSON.stringify(facts) + '\n' + String(deterministicText || ''));
+  var tokens = extractCopilotNarratorFinancialTokens_(text);
+  for (var i = 0; i < tokens.length; i += 1) {
+    var normalized = normalizeCopilotNarratorToken_(tokens[i]);
+    if (allowed.raw[normalized]) continue;
+    var number = copilotNarratorTokenNumber_(tokens[i]);
+    if (number !== null && allowed.numeric[number]) continue;
+    return { ok: false, code: 'INVENTED_FINANCIAL_TOKEN', token: tokens[i] };
+  }
+  return { ok: true };
+}
+
+function buildCopilotNarratorAllowedTokens_(text) {
+  var raw = {};
+  var numeric = {};
+  var tokens = extractCopilotNarratorFinancialTokens_(text);
+  for (var i = 0; i < tokens.length; i += 1) {
+    raw[normalizeCopilotNarratorToken_(tokens[i])] = true;
+    var number = copilotNarratorTokenNumber_(tokens[i]);
+    if (number !== null) numeric[number] = true;
+  }
+  return { raw: raw, numeric: numeric };
+}
+
+function extractCopilotNarratorFinancialTokens_(text) {
+  return String(text || '').match(/R\$\s*-?\d+(?:[\.\s]\d{3})*(?:,\d{1,2})?|R\$\s*-?\d+(?:\.\d{1,2})?|-?\d+(?:[.,]\d+)?%|\b\d{4}-\d{2}(?:-\d{2})?\b|\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b|\b-?\d+(?:[.,]\d+)?\b/g) || [];
+}
+
+function normalizeCopilotNarratorToken_(token) {
+  var value = String(token || '').trim().toLowerCase();
+  value = value.replace(/^r\$\s*/, '').replace(/%$/, '').replace(/\s+/g, '');
+  if (value.indexOf(',') !== -1) value = value.replace(/\./g, '').replace(',', '.');
+  return value;
+}
+
+function copilotNarratorTokenNumber_(token) {
+  var normalized = normalizeCopilotNarratorToken_(token);
+  if (/^\d{4}-\d{2}(?:-\d{2})?$/.test(normalized)) return null;
+  if (/^\d{1,2}\/\d{1,2}(?:\/\d{2,4})?$/.test(normalized)) return null;
+  var parsed = Number(normalized);
+  return isFinite(parsed) ? parsed.toFixed(2) : null;
+}
+
 function buildCopilotWeeklyDigest_(summary) {
   var facts = summary || {};
   var insights = buildCopilotInsights_(facts, 3);
@@ -2311,6 +2497,147 @@ function buildMonthlyReviewDecision_(summary, opportunities) {
     avoid: 'Nao fechar mes atual nem investir dinheiro novo antes de cobrir faturas, obrigacoes e reserva.',
     confidence: numberFromSheetValue_(summary.saldos_fontes_count) > 0 ? 'alta' : 'media',
   };
+}
+
+function filterActiveOptionalRows_(rows) {
+  return (rows || []).filter(function(row) {
+    return row.ativo !== false;
+  });
+}
+
+function priorityRank_(value) {
+  var text = normalizeAliasText_(value);
+  if (text === 'alta' || text === 'critica') return 1;
+  if (text === 'media') return 2;
+  if (text === 'baixa') return 3;
+  return 4;
+}
+
+function formatGoalsAnswer_(rows) {
+  var activeGoals = filterActiveOptionalRows_(rows);
+  if (activeGoals.length === 0) {
+    return [
+      'Metas ainda nao configuradas',
+      '',
+      'Status',
+      'Nenhuma meta financeira ativa foi encontrada.',
+      '',
+      'Acao sugerida',
+      'Criar metas revisadas antes de automatizar recomendacoes sobre objetivos.',
+      '',
+      'Nao fazer',
+      'Nao inventar meta, prazo ou valor sem registro na planilha.',
+      '',
+      'Confianca: alta',
+    ].join('\n');
+  }
+  var visibleGoals = activeGoals.filter(function(row) { return row.visibilidade !== 'privada'; });
+  var privateCount = activeGoals.length - visibleGoals.length;
+  var totalTarget = activeGoals.reduce(function(sum, row) { return roundMoney_(sum + numberFromSheetValue_(row.valor_alvo)); }, 0);
+  var totalCurrent = activeGoals.reduce(function(sum, row) { return roundMoney_(sum + numberFromSheetValue_(row.valor_atual_manual)); }, 0);
+  var next = visibleGoals.slice().sort(function(a, b) {
+    var pa = priorityRank_(a.prioridade);
+    var pb = priorityRank_(b.prioridade);
+    if (pa !== pb) return pa - pb;
+    return stringValue_(a.data_alvo) < stringValue_(b.data_alvo) ? -1 : 1;
+  })[0] || null;
+  var lines = [
+    'Metas financeiras',
+    '',
+    'Status',
+    next ? 'Meta prioritaria: ' + stringValue_(next.nome) + '.' : 'Metas ativas existem, mas estao privadas.',
+    '',
+    'Evidencia',
+    'Total registrado: ' + formatMoney_(totalCurrent) + ' / ' + formatMoney_(totalTarget),
+  ];
+  visibleGoals.slice(0, 5).forEach(function(goal) {
+    var target = numberFromSheetValue_(goal.valor_alvo);
+    var current = numberFromSheetValue_(goal.valor_atual_manual);
+    var percent = target > 0 ? Math.round((current / target) * 100) : 0;
+    var missing = roundMoney_(Math.max(0, target - current));
+    lines.push('');
+    lines.push(stringValue_(goal.nome));
+    lines.push('Progresso: ' + formatMoney_(current) + ' / ' + formatMoney_(target) + ' (' + percent + '%)');
+    lines.push('Falta: ' + formatMoney_(missing));
+    if (goal.data_alvo) lines.push('Data alvo: ' + formatShortDate_(goal.data_alvo));
+    lines.push('Aporte mensal planejado: ' + formatMoney_(goal.contribuicao_mensal_planejada));
+  });
+  lines.push('');
+  lines.push('Acao sugerida');
+  lines.push(next
+    ? 'Proteger o aporte de ' + formatMoney_(next.contribuicao_mensal_planejada) + ' para ' + stringValue_(next.nome) + ' depois de reservar faturas e compromissos.'
+    : 'Revisar metas privadas individualmente antes de expor decisao compartilhada.');
+  lines.push('');
+  lines.push('Nao fazer');
+  lines.push('Nao usar reserva abaixo da meta para acelerar objetivo novo.');
+  lines.push('');
+  lines.push('Privacidade');
+  lines.push(privateCount > 0
+    ? privateCount + (privateCount === 1 ? ' meta privada ficou apenas agregada.' : ' metas privadas ficaram apenas agregadas.')
+    : 'Sem metas privadas ativas neste resumo.');
+  lines.push('');
+  lines.push('Confianca: alta');
+  return lines.join('\n');
+}
+
+function formatCommitmentsAnswer_(rows) {
+  var activeCommitments = filterActiveOptionalRows_(rows);
+  if (activeCommitments.length === 0) {
+    return [
+      'Compromissos ainda nao configurados',
+      '',
+      'Status',
+      'Nenhum compromisso recorrente ativo foi encontrado.',
+      '',
+      'Acao sugerida',
+      'Cadastrar compromissos fixos antes de depender deles em recomendacoes.',
+      '',
+      'Nao fazer',
+      'Nao assumir que uma conta recorrente existe se ela nao esta registrada.',
+      '',
+      'Confianca: alta',
+    ].join('\n');
+  }
+  var visible = activeCommitments.filter(function(row) { return row.visibilidade !== 'privada'; }).sort(function(a, b) {
+    var da = Number(a.dia_vencimento || 99);
+    var db = Number(b.dia_vencimento || 99);
+    if (da !== db) return da - db;
+    return stringValue_(a.nome) < stringValue_(b.nome) ? -1 : 1;
+  });
+  var privateCount = activeCommitments.length - visible.length;
+  var visibleTotal = visible.reduce(function(sum, row) { return roundMoney_(sum + numberFromSheetValue_(row.valor_estimado)); }, 0);
+  var allTotal = activeCommitments.reduce(function(sum, row) { return roundMoney_(sum + numberFromSheetValue_(row.valor_estimado)); }, 0);
+  var next = visible[0] || null;
+  var lines = [
+    'Compromissos recorrentes',
+    '',
+    'Status',
+    next ? 'Proximo compromisso visivel: ' + stringValue_(next.nome) + '.' : 'Compromissos ativos existem, mas estao privados.',
+    '',
+    'Evidencia',
+    'Total mensal visivel: ' + formatMoney_(visibleTotal),
+    'Total mensal registrado: ' + formatMoney_(allTotal),
+  ];
+  visible.slice(0, 8).forEach(function(item) {
+    var day = Number(item.dia_vencimento || 0);
+    lines.push('Dia ' + ('0' + day).slice(-2) + ': ' + formatMoney_(item.valor_estimado) + ' - ' + stringValue_(item.nome));
+  });
+  lines.push('');
+  lines.push('Acao sugerida');
+  lines.push(next
+    ? 'Separar dinheiro antes do dia ' + ('0' + Number(next.dia_vencimento || 0)).slice(-2) + ' e conferir /agenda antes de gasto novo.'
+    : 'Revisar compromissos privados individualmente antes de expor decisao compartilhada.');
+  lines.push('');
+  lines.push('Nao fazer');
+  lines.push('Nao tratar compromisso recorrente como gasto opcional se ele protege obrigacoes da familia.');
+  lines.push('');
+  lines.push('Privacidade');
+  lines.push(privateCount > 0
+    ? privateCount + (privateCount === 1 ? ' compromisso privado ficou apenas agregado.' : ' compromissos privados ficaram apenas agregados.')
+    : 'Sem compromissos privados ativos neste resumo.');
+  lines.push('');
+  lines.push('Confianca: alta');
+  return lines.join('\n');
 }
 
 function shortCardName_(value) {

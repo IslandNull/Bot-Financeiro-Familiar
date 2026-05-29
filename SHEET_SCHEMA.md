@@ -61,7 +61,7 @@ For the current redacted state of the real spreadsheet, use `docs/SPREADSHEET_SN
 
 ## Optional V56 Contracts
 
-These sheets are defined as optional local contracts only. They are not part of the live V55 required sheet list until the real spreadsheet is explicitly migrated and `sheet:audit` is updated.
+These sheets are optional V56 contracts. Runtime read-only views and `sheet:audit` coverage are available when the sheets exist, but they are not part of the required live sheet list until the real spreadsheet is explicitly migrated.
 
 ### Metas_Financeiras
 

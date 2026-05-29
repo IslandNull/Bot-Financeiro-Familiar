@@ -233,6 +233,7 @@ Acceptance:
 - Add reviewed schema for goals and recurring commitments.
 - Add `sheet:audit` coverage.
 - Add Telegram read-only views for goal progress and upcoming recurring pressure.
+- Status 2026-05-29: delivered as optional read-only runtime in deployment `@220`; real sheets remain opt-in until reviewed migration.
 
 Acceptance:
 - Snapshot and audit pass after schema update.
@@ -242,6 +243,7 @@ Acceptance:
 
 - Add optional LLM phrasing around deterministic insight payloads.
 - Add strict validation and fallback.
+- Status 2026-05-29: delivered behind `COPILOT_NARRATOR_ENABLED=YES`; default remains deterministic fallback.
 
 Acceptance:
 - Tests prove no new numbers can enter the response from the model.

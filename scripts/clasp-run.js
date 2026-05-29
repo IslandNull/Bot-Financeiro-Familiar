@@ -17,7 +17,7 @@ const https = require('https');
 
 const action = process.argv[2];
 if (!action) {
-  console.error('Usage: node scripts/clasp-run.js <snapshot|summary|cut_first|safe_to_spend|copilot_digest_preview|copilot_digest_send|closing_draft|closing_close|selftest|sheet_audit>');
+  console.error('Usage: node scripts/clasp-run.js <snapshot|summary|cut_first|safe_to_spend|goals_preview|commitments_preview|copilot_digest_preview|copilot_digest_send|closing_draft|closing_close|selftest|sheet_audit>');
   process.exit(1);
 }
 

@@ -3,7 +3,14 @@
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
-const { ENUMS, HEADERS, SHEETS, getSheetNames } = require('../src/schema');
+const {
+  ENUMS,
+  HEADERS,
+  OPTIONAL_V56_HEADERS,
+  OPTIONAL_V56_SHEETS,
+  SHEETS,
+  getSheetNames,
+} = require('../src/schema');
 
 function auditSheetState(state) {
   const sheets = (state && state.sheets) || {};
@@ -11,7 +18,7 @@ function auditSheetState(state) {
   const expectedSheets = getSheetNames();
 
   Object.keys(sheets).forEach((sheetName) => {
-    if (!expectedSheets.includes(sheetName)) {
+    if (!expectedSheets.includes(sheetName) && !OPTIONAL_V56_HEADERS[sheetName]) {
       add(findings, 'EXTRA_SHEET', 'warning', sheetName, '', 1, 'sheet is outside the live schema');
     }
   });
@@ -30,6 +37,7 @@ function auditSheetState(state) {
   });
 
   const rows = rowsBySheet(sheets);
+  const optionalRows = readOptionalV56Rows(findings, sheets);
   const categories = indexBy(rows[SHEETS.CONFIG_CATEGORIAS], 'id_categoria');
   const sources = indexBy(rows[SHEETS.CONFIG_FONTES], 'id_fonte');
   const cards = indexBy(rows[SHEETS.CARTOES], 'id_cartao');
@@ -41,8 +49,10 @@ function auditSheetState(state) {
   auditCardReferences(findings, rows[SHEETS.CARTOES], sources);
   auditInvoiceReferences(findings, rows[SHEETS.FATURAS_RESUMO], cards);
   auditObligations(findings, rows[SHEETS.DIVIDAS]);
+  auditOptionalV56References(findings, optionalRows[OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES], { categories, sources });
 
-  return { ok: true, findings: compactFindings(findings), summary: summarizeFindings(findings) };
+  const summary = summarizeFindings(findings);
+  return { ok: summary.error === 0, findings: compactFindings(findings), summary };
 }
 
 function rowsBySheet(sheets) {
@@ -89,6 +99,44 @@ function auditInvoiceReferences(findings, invoices, cards) {
   (invoices || []).forEach((row) => {
     checkReference(findings, SHEETS.FATURAS_RESUMO, 'id_cartao', row.id_cartao, cards, true);
   });
+}
+
+function readOptionalV56Rows(findings, sheets) {
+  return Object.values(OPTIONAL_V56_SHEETS).reduce((result, sheetName) => {
+    const sheet = sheets[sheetName];
+    if (!sheet) {
+      result[sheetName] = [];
+      return result;
+    }
+    const expected = OPTIONAL_V56_HEADERS[sheetName];
+    const headers = sheet.headers || [];
+    if (JSON.stringify(headers) !== JSON.stringify(expected)) {
+      add(findings, 'HEADER_MISMATCH', 'error', sheetName, '', 1, 'optional V56 headers differ from schema');
+      result[sheetName] = [];
+      return result;
+    }
+    result[sheetName] = Array.isArray(sheet.rows) ? sheet.rows : [];
+    return result;
+  }, {});
+}
+
+function auditOptionalV56References(findings, commitments, refs) {
+  (commitments || []).forEach((row) => {
+    checkOptionalReference(findings, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'id_categoria', row.id_categoria, refs.categories);
+    checkOptionalReference(findings, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'id_fonte', row.id_fonte, refs.sources);
+    const day = Number(row.dia_vencimento || 0);
+    if (day && (day < 1 || day > 31)) {
+      add(findings, 'INVALID_DUE_DAY', 'error', OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'dia_vencimento', 1, 'dia_vencimento must be 1..31');
+    }
+  });
+}
+
+function checkOptionalReference(findings, sheetName, field, value, index) {
+  const before = findings.length;
+  checkReference(findings, sheetName, field, value, index, false);
+  if (findings.length > before && findings[findings.length - 1].code === 'BROKEN_REFERENCE') {
+    findings[findings.length - 1].code = 'UNKNOWN_REFERENCE';
+  }
 }
 
 function checkReference(findings, sheetName, field, value, index, activeMatters) {

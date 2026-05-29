@@ -33,6 +33,8 @@ test('Telegram UI home exposes inline navigation without mutating', () => {
     assert.ok(flattenButtons(view).some((button) => button.callback_data === TELEGRAM_CALLBACKS.cutFirst));
     assert.ok(flattenButtons(view).some((button) => button.callback_data === TELEGRAM_CALLBACKS.safeToSpend));
     assert.ok(flattenButtons(view).some((button) => button.text === 'Orçamento' && button.callback_data === TELEGRAM_CALLBACKS.budget));
+    assert.ok(flattenButtons(view).some((button) => button.callback_data === TELEGRAM_CALLBACKS.goals));
+    assert.ok(flattenButtons(view).some((button) => button.callback_data === TELEGRAM_CALLBACKS.commitments));
     assert.ok(flattenButtons(view).some((button) => button.callback_data === TELEGRAM_CALLBACKS.launch));
 });
 

@@ -16,6 +16,7 @@ function readConfig_() {
     openAiModel: props.getProperty('OPENAI_MODEL') || DEFAULT_OPENAI_MODEL,
     telegramBotToken: props.getProperty('TELEGRAM_BOT_TOKEN') || '',
     copilotDigestEnabled: props.getProperty('COPILOT_DIGEST_ENABLED') === 'YES',
+    copilotNarratorEnabled: props.getProperty('COPILOT_NARRATOR_ENABLED') === 'YES',
     essentialCostOfLife: essentialCostOfLife,
     reserveMonths: reserveMonths,
   };

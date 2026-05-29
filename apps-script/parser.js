@@ -77,6 +77,14 @@ function handleTelegramUpdate_(update, config) {
     return finishConversationTurn_(chatId, text, buildBudgetReportResponse_(config, requestedComp), conversation, null);
   }
 
+  if (isGoalsCommand_(text)) {
+    return finishConversationTurn_(chatId, text, buildGoalsResponse_(config), conversation, null);
+  }
+
+  if (isCommitmentsCommand_(text)) {
+    return finishConversationTurn_(chatId, text, buildCommitmentsResponse_(config), conversation, null);
+  }
+
   if (conversation.pending_action) {
     var pendingActionResult = handlePendingTelegramActionMessage_(update, message, text, config, conversation);
     if (pendingActionResult.handled) return pendingActionResult.result;
@@ -425,6 +433,12 @@ function handleTelegramCallback_(update, config) {
   }
   if (data === TELEGRAM_CALLBACKS.budget) {
     return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, buildBudgetReportResponse_(config, ''));
+  }
+  if (data === TELEGRAM_CALLBACKS.goals) {
+    return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, buildGoalsResponse_(config));
+  }
+  if (data === TELEGRAM_CALLBACKS.commitments) {
+    return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, buildCommitmentsResponse_(config));
   }
   if (data.indexOf('flow:') === 0) {
     return handleTelegramFlowCallback_(update, config, state, data, chatId, messageId);
@@ -1090,6 +1104,16 @@ function isMonthlyReviewCommand_(text) {
 function isBudgetCommand_(text) {
   var normalized = text.split(' ')[0].trim().toLowerCase();
   return normalized === '/orcamento' || normalized === '/orcamentos' || normalized === '/limites';
+}
+
+function isGoalsCommand_(text) {
+  var normalized = text.split(' ')[0].trim().toLowerCase();
+  return normalized === '/metas' || normalized === '/objetivos';
+}
+
+function isCommitmentsCommand_(text) {
+  var normalized = text.split(' ')[0].trim().toLowerCase();
+  return normalized === '/compromissos' || normalized === '/contas_fixas' || normalized === '/contasfixas';
 }
 
 function isSafeFinanceQuestion_(text) {

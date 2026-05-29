@@ -2,7 +2,7 @@
 
 Operational authority for Bot Financeiro Familiar V55/V56.
 
-### Current State (2026-05-26)
+### Current State (2026-05-29)
 
 ### Verified
 
@@ -36,11 +36,11 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - `/gasto_seguro`, Telegram callback `act:safe_to_spend`, and remote preview `doGet?action=safe_to_spend` expose the same conservative safe-to-spend decision card without mutating Sheets.
 - `/agenda` and Telegram callback `act:agenda_current` expose next due invoice, 60-day payment evidence, suggested action, avoid rule, and confidence without mutating Sheets.
 - `/revisar_mes` and Telegram callback `act:review_month_current` expose closing decision, blockers, suggested action, avoid rule, confidence, and aggregate-only private review without mutating Sheets.
-- Optional V56 local contracts exist for future `Metas_Financeiras` and `Compromissos_Recorrentes`; they are not live required sheets until the real spreadsheet is explicitly migrated.
+- V56 goals/commitments are deployed as optional read-only contracts: `/metas`, `/compromissos`, callbacks, `goals_preview`, `commitments_preview`, and `sheet_audit` coverage work when `Metas_Financeiras` / `Compromissos_Recorrentes` exist; the real sheets are still not required until explicitly migrated.
 - V56 weekly digest preview is available as `doGet?action=copilot_digest_preview` / `npm run digest:preview`; it returns structured digest payload plus Telegram-ready text and never sends Telegram messages.
 - Gated V56 weekly digest delivery is available as trigger-safe `runCopilotWeeklyDigestDeliveryV56` / `doGet?action=copilot_digest_send` / `npm run digest:send`; it sends only when `COPILOT_DIGEST_ENABLED=YES`.
-- Web App deployment `@219` is authorized and remote quick smoke passes for `selftest` and `summary`.
-- Quick remote smoke drains Apps Script redirect responses and runs in about 11s locally for `selftest` + `summary`.
+- Optional IA narrator is deployed behind `COPILOT_NARRATOR_ENABLED=YES`; it uses OpenAI structured output only over deterministic insight payloads, rejects invented numbers/internal IDs, and falls back to deterministic text.
+- Web App deployment `@220` is authorized; remote quick smoke passes for `selftest` + `summary`, and full smoke passes with `sheet_audit` returning 0 errors and 1 known inactive-reference warning.
 
 ### Unverified
 
@@ -84,13 +84,13 @@ Script Properties only; never commit values.
 
 Required keys: `WEBHOOK_SECRET`, `AUTHORIZED_USER_IDS`, `AUTHORIZED_CHAT_IDS`, `SPREADSHEET_ID`, `OPENAI_API_KEY`, `PILOT_FINANCIAL_MUTATION_ENABLED`.
 
-Optional keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`, `COPILOT_DIGEST_ENABLED`.
+Optional keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`, `COPILOT_DIGEST_ENABLED`, `COPILOT_NARRATOR_ENABLED`.
 Val Town callback preflight answers clicks silently with `TELEGRAM_BOT_TOKEN`; editing the message to a loading state needs local trust via `AUTHORIZED_CHAT_IDS` or `AUTHORIZED_USER_IDS`.
 
 Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Properties. Use `/limpar_contexto` from Telegram to clear the current chat state.
 
 ## Next Work
 
-1. Pilot weekly digest with `COPILOT_DIGEST_ENABLED` off until owner explicitly enables it.
-2. Continue Telegram decision UX with goal/commitment decisions.
-3. Migrate real goals/recurring commitment sheets only after reviewing the optional V56 contracts and adding audit/runtime coverage.
+1. Review the one remote `sheet_audit` inactive-category warning and decide whether it is expected legacy data or needs an adjustment.
+2. Migrate real goals/recurring commitment sheets only after owner review of the optional contracts.
+3. Keep digest/narrator gated off until pilot review explicitly enables them.

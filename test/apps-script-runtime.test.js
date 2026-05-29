@@ -34,6 +34,8 @@ const {
     appendFakeAsset,
     appendFakeDebt,
     appendFakeClosing,
+    appendFakeGoal,
+    appendFakeCommitment,
     lancamentosHeaders,
     configCategoriasHeaders,
     configFontesHeaders,
@@ -47,6 +49,8 @@ const {
     fechamentoFamiliarHeaders,
     transferenciasHeaders,
     idempotencyHeaders,
+    metasFinanceirasHeaders,
+    compromissosRecorrentesHeaders,
 } = require('./support/harness');
 
 function appendFakeCategory(sheets, overrides = {}) {
@@ -170,6 +174,8 @@ test('Apps Script /start and /help return Home with inline keyboard', () => {
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:copilot_today'));
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:cut_first'));
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:safe_to_spend'));
+    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:goals_current'));
+    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:commitments_current'));
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.text === 'Orçamento' && button.callback_data === 'act:budget_current'));
 });
 
@@ -209,8 +215,10 @@ test('Apps Script read-only callbacks reuse summary agenda and review without mu
     const agenda = postTelegramCallback(context, 'act:agenda_current');
     const review = postTelegramCallback(context, 'act:review_month_current');
     const budget = postTelegramCallback(context, 'act:budget_current');
+    const goals = postTelegramCallback(context, 'act:goals_current');
+    const commitments = postTelegramCallback(context, 'act:commitments_current');
 
-    for (const result of [summary, copilot, cutFirst, safeToSpend, agenda, review, budget]) {
+    for (const result of [summary, copilot, cutFirst, safeToSpend, agenda, review, budget, goals, commitments]) {
         assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
         assert.strictEqual(result.shouldApplyDomainMutation, false);
         assert.strictEqual(result.telegramActions[0].method, 'answerCallbackQuery');
@@ -219,6 +227,8 @@ test('Apps Script read-only callbacks reuse summary agenda and review without mu
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:copilot_today'));
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:cut_first'));
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:safe_to_spend'));
+        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:goals_current'));
+        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:commitments_current'));
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.text === 'Orçamento' && button.callback_data === 'act:budget_current'));
     }
     assert.match(summary.telegramActions[1].text, /Resumo/);
@@ -229,6 +239,8 @@ test('Apps Script read-only callbacks reuse summary agenda and review without mu
     assert.match(agenda.telegramActions[1].text, /Agenda|Faturas/);
     assert.match(review.telegramActions[1].text, /fechar|revis/i);
     assert.match(budget.telegramActions[1].text, /Or.amento|orcamento|budget/i);
+    assert.match(goals.telegramActions[1].text, /Metas financeiras|Metas ainda nao configuradas/i);
+    assert.match(commitments.telegramActions[1].text, /Compromissos recorrentes|Compromissos ainda nao configurados/i);
 });
 
 test('Apps Script launch and clear-context callbacks do not write financial rows', () => {
@@ -634,6 +646,87 @@ test('Apps Script /copiloto is read-only and returns deterministic decision card
     assert.doesNotMatch(result.responseText, /INSIGHT_|FONTE_|CARD_|FAT_|OPEX_/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+});
+
+test('Apps Script optional IA narrator uses structured output and accepts only deterministic numbers', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            COPILOT_NARRATOR_ENABLED: 'YES',
+        },
+    });
+    const calls = [];
+    context.UrlFetchApp.fetch = function(url, options) {
+        calls.push({ url, options });
+        const payload = JSON.parse(options.payload);
+        assert.strictEqual(payload.text.format.type, 'json_schema');
+        assert.strictEqual(payload.text.format.strict, true);
+        return {
+            getResponseCode() {
+                return 200;
+            },
+            getContentText() {
+                return JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                text: 'Copiloto narrado: faturas atuais em R$ 1200,00. Acao: cobrir pagamentos registrados antes de gasto novo.',
+                            }),
+                        }],
+                    }],
+                });
+            },
+        };
+    };
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+    appendFakeInvoice(sheets, { valor_previsto: 1200, valor_pago: '', status: 'prevista' });
+    appendFakeDebt(sheets, { valor_parcela: 400 });
+
+    const result = postPilotMessage(context, '/copiloto');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(calls.length, 1);
+    assert.match(result.responseText, /Copiloto narrado/);
+    assert.doesNotMatch(result.responseText, /INSIGHT_|FONTE_|CARD_|FAT_|OPEX_/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script optional IA narrator falls back when the model invents money or ids', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            COPILOT_NARRATOR_ENABLED: 'YES',
+        },
+    });
+    context.UrlFetchApp.fetch = function() {
+        return {
+            getResponseCode() {
+                return 200;
+            },
+            getContentText() {
+                return JSON.stringify({
+                    output: [{
+                        content: [{
+                            text: JSON.stringify({
+                                text: 'Invista R$ 999,00 e corte OPEX_DELIVERY_FAMILIAR.',
+                            }),
+                        }],
+                    }],
+                });
+            },
+        };
+    };
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+    appendFakeInvoice(sheets, { valor_previsto: 1200, valor_pago: '', status: 'prevista' });
+    appendFakeDebt(sheets, { valor_parcela: 400 });
+
+    const result = postPilotMessage(context, '/copiloto');
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.match(result.responseText, /Copiloto financeiro de abril/);
+    assert.doesNotMatch(result.responseText, /999,00|OPEX_DELIVERY_FAMILIAR/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
 test('Apps Script /resumo labels uncovered obligations clearly when source balances are missing', () => {
@@ -1387,6 +1480,120 @@ test('Apps Script /gasto_seguro command previews safe-to-spend without mutation'
     assert.match(result.responseText, /Gasto seguro agora: R\$ 900,00/);
     assert.doesNotMatch(result.responseText, /FONTE_|CARD_|FAT_|OPEX_|INSIGHT_/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script goals command reads optional V56 goals without mutating sheets', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeGoal(sheets, {
+        nome: 'Reserva emergencial',
+        valor_alvo: 15000,
+        valor_atual_manual: 6000,
+        data_alvo: '2026-12-31',
+        contribuicao_mensal_planejada: 1000,
+        prioridade: 'alta',
+        visibilidade: 'detalhada',
+    });
+    appendFakeGoal(sheets, {
+        id_meta: 'META_PRIVADA',
+        nome: 'Objetivo privado',
+        escopo: 'Gustavo',
+        valor_alvo: 5000,
+        valor_atual_manual: 1500,
+        data_alvo: '2026-11-30',
+        contribuicao_mensal_planejada: 500,
+        prioridade: 'media',
+        visibilidade: 'privada',
+    });
+
+    const beforeRows = JSON.stringify(sheets);
+    const result = postPilotMessage(context, '/metas');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Metas financeiras/);
+    assert.match(result.responseText, /Reserva emergencial/);
+    assert.match(result.responseText, /Progresso: R\$ 6000,00 \/ R\$ 15000,00 \(40%\)/);
+    assert.match(result.responseText, /Falta: R\$ 9000,00/);
+    assert.match(result.responseText, /Aporte mensal planejado: R\$ 1000,00/);
+    assert.match(result.responseText, /Confianca: alta/);
+    assert.match(result.responseText, /Privacidade/);
+    assert.match(result.responseText, /1 meta privada ficou apenas agregada/i);
+    assert.doesNotMatch(result.responseText, /Objetivo privado/);
+    assert.strictEqual(JSON.stringify(sheets), beforeRows);
+});
+
+test('Apps Script commitments command reads optional recurring commitments without mutating sheets', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeCommitment(sheets, {
+        nome: 'Condominio',
+        valor_estimado: 700,
+        dia_vencimento: 5,
+        prioridade: 'alta',
+        visibilidade: 'detalhada',
+    });
+    appendFakeCommitment(sheets, {
+        id_compromisso: 'COMP_PRIV',
+        nome: 'Assinatura privada',
+        valor_estimado: 80,
+        dia_vencimento: 3,
+        escopo: 'Luana',
+        prioridade: 'baixa',
+        visibilidade: 'privada',
+    });
+
+    const beforeRows = JSON.stringify(sheets);
+    const result = postTelegramCallback(context, 'act:commitments_current');
+    const text = result.telegramActions[1].text;
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(text, /Compromissos recorrentes/);
+    assert.match(text, /Condominio/);
+    assert.match(text, /Dia 05: R\$ 700,00/);
+    assert.match(text, /Total mensal visivel: R\$ 700,00/);
+    assert.match(text, /A..o sugerida/);
+    assert.match(text, /separar dinheiro antes do dia 05/i);
+    assert.match(text, /Privacidade/);
+    assert.match(text, /1 compromisso privado ficou apenas agregado/i);
+    assert.doesNotMatch(text, /Assinatura privada/);
+    assert.strictEqual(JSON.stringify(sheets), beforeRows);
+});
+
+test('Apps Script optional V56 sheets are audited only when present', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    const noOptional = runRemoteAction(context, 'sheet_audit');
+    assert.strictEqual(noOptional.ok, true);
+    assert.ok(!JSON.stringify(noOptional.findings).includes('Metas_Financeiras'));
+
+    appendFakeGoal(sheets);
+    appendFakeCommitment(sheets, { id_categoria: 'OPEX_MERCADO_SEMANA', id_fonte: 'FONTE_CONTA_FAMILIA' });
+    const withOptional = runRemoteAction(context, 'sheet_audit');
+    assert.strictEqual(withOptional.ok, true);
+    assert.ok(!withOptional.findings.some((finding) => finding.sheet === 'Metas_Financeiras' && finding.severity === 'error'));
+    assert.ok(!withOptional.findings.some((finding) => finding.sheet === 'Compromissos_Recorrentes' && finding.severity === 'error'));
+
+    sheets.Compromissos_Recorrentes.rows[1][compromissosRecorrentesHeaders.indexOf('id_categoria')] = 'OPEX_INEXISTENTE';
+    const broken = runRemoteAction(context, 'sheet_audit');
+    assert.strictEqual(broken.ok, false);
+    assert.ok(broken.findings.some((finding) => finding.sheet === 'Compromissos_Recorrentes' && finding.code === 'UNKNOWN_REFERENCE'));
 });
 
 test('Apps Script monthly review explains current month is not closable', () => {

@@ -20,6 +20,8 @@ const dividasHeaders = ['id_divida', 'nome', 'credor', 'tipo', 'escopo', 'saldo_
 const fechamentoFamiliarHeaders = ['competencia', 'status', 'receitas_dre', 'despesas_dre', 'resultado_dre', 'caixa_entradas', 'caixa_saidas', 'sobra_caixa', 'faturas_60d', 'obrigacoes_60d', 'reserva_total', 'patrimonio_liquido', 'margem_pos_obrigacoes', 'capacidade_aporte_segura', 'parcela_maxima_segura', 'pode_avaliar_amortizacao', 'motivo_bloqueio_amortizacao', 'destino_reserva', 'destino_obrigacoes', 'destino_investimentos', 'destino_amortizacao', 'destino_sugerido', 'observacao', 'created_at', 'closed_at'];
 const transferenciasHeaders = ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'];
 const idempotencyHeaders = ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'];
+const metasFinanceirasHeaders = ['id_meta', 'nome', 'tipo', 'escopo', 'valor_alvo', 'valor_atual_manual', 'data_alvo', 'contribuicao_mensal_planejada', 'prioridade', 'visibilidade', 'ativo', 'observacao'];
+const compromissosRecorrentesHeaders = ['id_compromisso', 'nome', 'tipo', 'escopo', 'valor_estimado', 'dia_vencimento', 'id_categoria', 'id_fonte', 'prioridade', 'visibilidade', 'ativo', 'observacao'];
 
 function createFakeSheet(headers) {
     const rows = [headers.slice()];
@@ -744,6 +746,54 @@ function appendFakeClosing(sheets, overrides = {}) {
     sheets.Fechamento_Familiar.appendRow(fechamentoFamiliarHeaders.map((header) => closing[header] === undefined ? '' : closing[header]));
 }
 
+function ensureOptionalSheet(sheets, name, headers) {
+    if (!sheets[name]) {
+        sheets[name] = createFakeSheet(headers);
+        sheets[name].getName = () => name;
+    }
+    return sheets[name];
+}
+
+function appendFakeGoal(sheets, overrides = {}) {
+    const sheet = ensureOptionalSheet(sheets, 'Metas_Financeiras', metasFinanceirasHeaders);
+    const goal = {
+        id_meta: 'META_RESERVA',
+        nome: 'Reserva emergencial',
+        tipo: 'reserva_emergencial',
+        escopo: 'Familiar',
+        valor_alvo: 15000,
+        valor_atual_manual: 6000,
+        data_alvo: '2026-12-31',
+        contribuicao_mensal_planejada: 1000,
+        prioridade: 'alta',
+        visibilidade: 'detalhada',
+        ativo: true,
+        observacao: '',
+        ...overrides,
+    };
+    sheet.appendRow(metasFinanceirasHeaders.map((header) => goal[header] === undefined ? '' : goal[header]));
+}
+
+function appendFakeCommitment(sheets, overrides = {}) {
+    const sheet = ensureOptionalSheet(sheets, 'Compromissos_Recorrentes', compromissosRecorrentesHeaders);
+    const commitment = {
+        id_compromisso: 'COMP_ESCOLA',
+        nome: 'Escola',
+        tipo: 'conta_fixa',
+        escopo: 'Familiar',
+        valor_estimado: 1200,
+        dia_vencimento: 10,
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        prioridade: 'alta',
+        visibilidade: 'detalhada',
+        ativo: true,
+        observacao: '',
+        ...overrides,
+    };
+    sheet.appendRow(compromissosRecorrentesHeaders.map((header) => commitment[header] === undefined ? '' : commitment[header]));
+}
+
 module.exports = {
     createFakeSheet,
     createAppsScriptHarness,
@@ -759,6 +809,8 @@ module.exports = {
     appendFakeAsset,
     appendFakeDebt,
     appendFakeClosing,
+    appendFakeGoal,
+    appendFakeCommitment,
     lancamentosHeaders,
     configCategoriasHeaders,
     configFontesHeaders,
@@ -773,4 +825,6 @@ module.exports = {
     fechamentoFamiliarHeaders,
     transferenciasHeaders,
     idempotencyHeaders,
+    metasFinanceirasHeaders,
+    compromissosRecorrentesHeaders,
 };
