@@ -1567,6 +1567,109 @@ test('Apps Script doGet safe_to_spend action previews gasto seguro without mutat
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
+test('Apps Script doGet copilot_digest_preview action returns weekly digest without mutation', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeRecurringIncome(sheets, { valor_planejado: 6900, beneficio_restrito: false });
+    appendFakeLaunch(sheets, {
+        tipo_evento: 'receita',
+        valor: 6900,
+        id_categoria: 'REC_RECEITA_FAMILIAR',
+        afeta_dre: true,
+        afeta_caixa_familiar: true,
+    });
+    appendFakeLaunch(sheets, {
+        valor: 420,
+        id_categoria: 'OPEX_ALIMENTACAO_FORA',
+        tipo_evento: 'compra_cartao',
+        descricao: 'item privado nao deve aparecer',
+        afeta_caixa_familiar: false,
+    });
+    appendFakeInvoice(sheets, { valor_previsto: 5000, status: 'prevista' });
+    appendFakeDebt(sheets, { valor_parcela: 4000 });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+
+    const result = runRemoteAction(context, 'copilot_digest_preview');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(result.digest.kind, 'copilot_weekly_digest_preview');
+    assert.strictEqual(result.digest.cadence, 'weekly');
+    assert.strictEqual(result.digest.should_send, false);
+    assert.strictEqual(result.digest.competencia, '2026-04');
+    assert.strictEqual(result.digest.sections.biggest_risk.action_key, 'safe_to_spend');
+    assert.match(result.responseText, /Digest semanal do copiloto/);
+    assert.match(result.responseText, /Maior risco/);
+    assert.match(result.responseText, /Onde cortar primeiro/);
+    assert.match(result.responseText, /Gasto seguro/);
+    assert.doesNotMatch(result.responseText, /item privado nao deve aparecer/);
+    assert.doesNotMatch(result.responseText, /OPEX_|FONTE_|CARD_|FAT_|INSIGHT_/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 3);
+});
+
+test('Apps Script copilot digest delivery is disabled by default and does not call Telegram', () => {
+    const { context } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            COPILOT_DIGEST_ENABLED: '',
+            TELEGRAM_BOT_TOKEN: '123456:test_token',
+        },
+    });
+
+    const result = context.runCopilotWeeklyDigestDeliveryV56();
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(result.enabled, false);
+    assert.strictEqual(result.sent_count, 0);
+    assert.strictEqual(result.skipped_reason, 'COPILOT_DIGEST_DISABLED');
+});
+
+test('Apps Script copilot digest delivery sends only when enabled without leaking secrets', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        properties: {
+            COPILOT_DIGEST_ENABLED: 'YES',
+            TELEGRAM_BOT_TOKEN: '123456:test_token',
+            AUTHORIZED_CHAT_IDS: 'chat_1,chat_2',
+        },
+    });
+    const calls = [];
+    context.UrlFetchApp.fetch = function(url, options) {
+        calls.push({ url, options });
+        return {
+            getResponseCode() {
+                return 200;
+            },
+            getContentText() {
+                return JSON.stringify({ ok: true, result: { message_id: 123 } });
+            },
+        };
+    };
+    appendFakeRecurringIncome(sheets, { valor_planejado: 6900, beneficio_restrito: false });
+    appendFakeInvoice(sheets, { valor_previsto: 900, status: 'prevista' });
+    appendFakeDebt(sheets, { valor_parcela: 400 });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+
+    const result = context.runCopilotWeeklyDigestDeliveryV56();
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(result.enabled, true);
+    assert.strictEqual(result.sent_count, 2);
+    assert.strictEqual(calls.length, 2);
+    assert.ok(calls.every((call) => call.url.includes('/sendMessage')));
+    const payloads = calls.map((call) => JSON.parse(call.options.payload));
+    assert.deepStrictEqual(payloads.map((payload) => payload.chat_id), ['chat_1', 'chat_2']);
+    assert.ok(payloads.every((payload) => /Digest semanal do copiloto/.test(payload.text)));
+    assert.doesNotMatch(JSON.stringify(result), /123456:test_token|chat_1|chat_2/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
 test('Apps Script safe question answers how much to save and blocks investment without real balances', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
@@ -4545,6 +4648,7 @@ test('Apps Script manifest declares runtime service scopes explicitly', () => {
     assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.external_request'));
     assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.storage'));
     assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/spreadsheets'));
+    assert.ok(!manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.scriptapp'));
 });
 
 test('Apps Script parser prompt formats conversation history context', () => {

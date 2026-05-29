@@ -3,7 +3,9 @@
 const assert = require('assert');
 const {
     buildCopilotInsights,
+    buildCopilotWeeklyDigest,
     formatCopilotDecisionCards,
+    formatCopilotWeeklyDigest,
 } = require('../src');
 
 function test(name, fn) {
@@ -98,6 +100,53 @@ test('copilot formatter emits Telegram decision cards without internal ids', () 
     assert.match(text, /Confianca: alta/);
     assert.doesNotMatch(text, /INSIGHT_/);
     assert.doesNotMatch(text, /FONTE_|CARD_|FAT_|OPEX_/);
+});
+
+test('copilot weekly digest preview summarizes next action without private details', () => {
+    const summary = baseSummary({
+        sobra_projetada_pos_pagamentos: -320.15,
+        faturas_atuais: 2100,
+        obrigacoes_60d: 650,
+        health_check: {
+            meta_guardar: {
+                investimento_bloqueado: true,
+                motivo: 'reserva_abaixo_da_meta',
+            },
+            oportunidades_economia: [
+                {
+                    nome: 'Alimentacao fora',
+                    valor: 840,
+                    potencial_economia: 210,
+                    visibilidade: 'detalhada',
+                },
+                {
+                    nome: 'Gastos pessoais privados',
+                    valor: 380,
+                    potencial_economia: 80,
+                    visibilidade: 'privada',
+                    descricao: 'item privado nao deve aparecer',
+                },
+            ],
+        },
+    });
+
+    const digest = buildCopilotWeeklyDigest(summary);
+    const text = formatCopilotWeeklyDigest(digest);
+
+    assert.strictEqual(digest.kind, 'copilot_weekly_digest_preview');
+    assert.strictEqual(digest.cadence, 'weekly');
+    assert.strictEqual(digest.should_send, false);
+    assert.strictEqual(digest.competencia, '2026-05');
+    assert.strictEqual(digest.sections.biggest_risk.action_key, 'safe_to_spend');
+    assert.strictEqual(digest.sections.cut_first.label, 'Alimentacao fora');
+    assert.strictEqual(digest.sections.safe_to_spend.amount, 0);
+    assert.match(digest.sections.reserve.status, /bloque/i);
+    assert.match(text, /Digest semanal do copiloto/);
+    assert.match(text, /Maior risco/);
+    assert.match(text, /Onde cortar primeiro/);
+    assert.match(text, /Gasto seguro/);
+    assert.doesNotMatch(text, /item privado nao deve aparecer/);
+    assert.doesNotMatch(text, /OPEX_|FONTE_|CARD_|FAT_|INSIGHT_/);
 });
 
 module.exports = Promise.resolve();

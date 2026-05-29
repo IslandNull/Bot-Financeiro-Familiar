@@ -110,6 +110,12 @@ function doGet(e) {
   if (action === 'safe_to_spend') {
     return json_(exportSafeToSpendV56(params.competencia));
   }
+  if (action === 'copilot_digest_preview') {
+    return json_(exportCopilotDigestPreviewV56(params.competencia));
+  }
+  if (action === 'copilot_digest_send') {
+    return json_(runCopilotWeeklyDigestDeliveryV56(params.competencia));
+  }
   if (action === 'closing_draft') {
     return json_(writeDraftFamilyClosingV55(params.competencia));
   }
@@ -248,6 +254,97 @@ function exportSafeToSpendV56(competencia) {
       reserva_total: result.summary.reserva_total,
     },
     shouldApplyDomainMutation: false,
+  };
+}
+
+function exportCopilotDigestPreviewV56(competencia) {
+  var result = readCurrentPilotFamilySummary_(readConfig_(), competencia);
+  if (!result.ok) return result;
+  var digest = buildCopilotWeeklyDigest_(result.summary);
+  return {
+    ok: true,
+    responseText: formatCopilotWeeklyDigest_(digest),
+    digest: digest,
+    summary: {
+      competencia: result.summary.competencia,
+      saldos_fontes_disponivel: result.summary.saldos_fontes_disponivel,
+      faturas_atuais: result.summary.faturas_atuais,
+      obrigacoes_60d: result.summary.obrigacoes_60d,
+      reserva_total: result.summary.reserva_total,
+    },
+    shouldApplyDomainMutation: false,
+  };
+}
+
+function runCopilotWeeklyDigestDeliveryV56(competencia) {
+  var config = readConfig_();
+  var summaryResult;
+  var digest;
+  var chatIds;
+  var sentCount = 0;
+  var failedCount = 0;
+
+  if (!config.copilotDigestEnabled) {
+    return {
+      ok: true,
+      action: 'copilot_digest_delivery',
+      enabled: false,
+      sent_count: 0,
+      failed_count: 0,
+      skipped_reason: 'COPILOT_DIGEST_DISABLED',
+      shouldApplyDomainMutation: false,
+    };
+  }
+  if (!config.telegramBotToken) {
+    return fail_('MISSING_TELEGRAM_BOT_TOKEN', 'telegramBotToken', GENERIC_REQUEST_FAILURE);
+  }
+
+  chatIds = config.authorizedChatIds || [];
+  if (chatIds.length === 0) {
+    return fail_('MISSING_AUTHORIZED_CHAT_IDS', 'authorizedChatIds', GENERIC_REQUEST_FAILURE);
+  }
+
+  summaryResult = readCurrentPilotFamilySummary_(config, competencia);
+  if (!summaryResult.ok) return summaryResult;
+  digest = buildCopilotWeeklyDigest_(summaryResult.summary);
+
+  chatIds.forEach(function(chatId) {
+    var result = sendTelegramDigestMessage_(config.telegramBotToken, chatId, formatCopilotWeeklyDigest_(digest));
+    if (result.ok) sentCount += 1;
+    else failedCount += 1;
+  });
+
+  return {
+    ok: failedCount === 0,
+    action: 'copilot_digest_delivery',
+    enabled: true,
+    sent_count: sentCount,
+    failed_count: failedCount,
+    digest_kind: digest.kind,
+    competencia: digest.competencia,
+    shouldApplyDomainMutation: false,
+  };
+}
+
+function sendTelegramDigestMessage_(telegramBotToken, chatId, text) {
+  var response = UrlFetchApp.fetch(
+    'https://api.telegram.org/bot' + encodeURIComponent(telegramBotToken) + '/sendMessage',
+    {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({
+        chat_id: String(chatId || ''),
+        text: text,
+        disable_web_page_preview: true,
+      }),
+      muteHttpExceptions: true,
+    }
+  );
+  var statusCode = response.getResponseCode();
+  var parsed = parseJsonSafe_(response.getContentText());
+  return {
+    ok: statusCode >= 200 && statusCode < 300 && parsed && parsed.ok === true,
+    statusCode: statusCode,
   };
 }
 
