@@ -28,16 +28,17 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - Individual categories are active for `OPEX_ROUPAS_GUSTAVO`, `OPEX_ROUPAS_LUANA`, `OPEX_CAFE_TRABALHO_GUSTAVO`, and `OPEX_CAFE_TRABALHO_LUANA`.
 - Snapshot generated on 2026-05-24 reports `OPEX_ALIMENTACAO_FORA` with May spending, including private food-out detail aggregated instead of exposed.
 - Telegram inline UX revamp is deployed: webhook setup accepts `callback_query`, Apps Script returns `telegramActions`, Val Town proxy supports callback actions, Home/Help/read-only buttons, guided missing-field buttons, guided correction, and closing confirmations.
-- First deterministic family financial health layer exists in Apps Script reporting: savings rate, cost-of-life buckets, monthly saving goal, investment blockers, saving opportunities, and more actionable `/revisar_mes` guidance with private spending kept aggregate-only.
+- First deterministic family financial health layer exists in Apps Script reporting: savings rate, cost-of-life buckets, monthly saving goal, investment blockers, saving opportunities, and `/revisar_mes` closing decision guidance with private spending kept aggregate-only.
 - V56 product direction is documented in `docs/COPILOTO_FINANCEIRO_V56_PLAN.md`: Telegram-first financial copilot, deterministic insight engine, IA as explanation layer only, weekly digest plus high-signal alerts, and no automatic banking integration in v1.
 - V56 Phase 1 copilot core is deployed: deterministic `src/copilot-insights.js`, Apps Script `/copiloto`, and Telegram callback `act:copilot_today`.
 - Safe-to-spend answers now use V56 decision-card language and a conservative spendable amount that does not treat reserve below target as free spending.
 - `/onde_cortar`, Telegram callback `act:cut_first`, and remote preview `doGet?action=cut_first` expose the first deterministic saving opportunity without mutating Sheets or opening private line items.
 - `/gasto_seguro`, Telegram callback `act:safe_to_spend`, and remote preview `doGet?action=safe_to_spend` expose the same conservative safe-to-spend decision card without mutating Sheets.
 - `/agenda` and Telegram callback `act:agenda_current` expose next due invoice, 60-day payment evidence, suggested action, avoid rule, and confidence without mutating Sheets.
+- `/revisar_mes` and Telegram callback `act:review_month_current` expose closing decision, blockers, suggested action, avoid rule, confidence, and aggregate-only private review without mutating Sheets.
 - V56 weekly digest preview is available as `doGet?action=copilot_digest_preview` / `npm run digest:preview`; it returns structured digest payload plus Telegram-ready text and never sends Telegram messages.
 - Gated V56 weekly digest delivery is available as trigger-safe `runCopilotWeeklyDigestDeliveryV56` / `doGet?action=copilot_digest_send` / `npm run digest:send`; it sends only when `COPILOT_DIGEST_ENABLED=YES`.
-- Web App deployment `@218` is authorized and remote quick smoke passes for `selftest` and `summary`.
+- Web App deployment `@219` is authorized and remote quick smoke passes for `selftest` and `summary`.
 - Quick remote smoke drains Apps Script redirect responses and runs in about 11s locally for `selftest` + `summary`.
 
 ### Unverified
@@ -90,5 +91,5 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 ## Next Work
 
 1. Pilot weekly digest with `COPILOT_DIGEST_ENABLED` off until owner explicitly enables it.
-2. Continue Telegram decision UX with richer `/revisar_mes` drill-downs and goal/commitment decisions.
+2. Continue Telegram decision UX with goal/commitment decisions.
 3. Add goals/recurring commitments schema only after the insight engine is stable and tested.

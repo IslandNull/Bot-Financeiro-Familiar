@@ -1416,6 +1416,46 @@ test('Apps Script monthly review explains current month is not closable', () => 
     assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 1);
 });
 
+test('Apps Script monthly review callback returns read-only decision card before closing', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+    appendFakeAsset(sheets, { saldo_atual: 1000, conta_reserva_emergencia: true });
+    appendFakeInvoice(sheets, { valor_previsto: 300, status: 'prevista' });
+    appendFakeLaunch(sheets, {
+        valor: 180,
+        id_categoria: 'OPEX_ROUPAS_GUSTAVO',
+        tipo_evento: 'compra_cartao',
+        afeta_caixa_familiar: false,
+        escopo: 'Gustavo',
+        visibilidade: 'privada',
+        descricao: 'compra privada nao abrir',
+    });
+
+    const beforeRows = JSON.stringify(sheets);
+    const result = postTelegramCallback(context, 'act:review_month_current');
+    const text = result.telegramActions[1].text;
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(text, /Decis.o de fechamento/);
+    assert.match(text, /Ainda n.o fechar/);
+    assert.match(text, /Bloqueadores/);
+    assert.match(text, /M.s atual ainda aberto/);
+    assert.match(text, /A..o sugerida/);
+    assert.match(text, /conferir faturas reais/i);
+    assert.match(text, /Privacidade/);
+    assert.match(text, /detalhes pessoais ficam agregados/i);
+    assert.match(text, /Confianca: alta/);
+    assert.doesNotMatch(text, /compra privada nao abrir/);
+    assert.strictEqual(JSON.stringify(sheets), beforeRows);
+});
+
 test('Apps Script summary computes deterministic family financial health without duplicating invoice payments', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,

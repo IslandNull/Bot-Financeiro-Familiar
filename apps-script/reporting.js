@@ -2205,11 +2205,30 @@ function formatMonthlyReviewAnswer_(summary) {
   var health = summary.health_check || {};
   var goal = health.meta_guardar || {};
   var opportunities = health.oportunidades_economia || [];
+  var closingDecision = buildMonthlyReviewDecision_(summary, opportunities);
   var lines = [
     'Revisao de ' + friendlyCompetencia_(summary.competencia),
     '',
-    'Status',
+    'Decisao de fechamento',
+    closingDecision.status,
+    '',
+    'Bloqueadores',
   ];
+  closingDecision.blockers.forEach(function(item) {
+    lines.push(item);
+  });
+  lines = lines.concat([
+    '',
+    'Acao sugerida',
+    closingDecision.action,
+    '',
+    'Nao fazer',
+    closingDecision.avoid,
+    '',
+    'Confianca: ' + closingDecision.confidence,
+    '',
+    'Status',
+  ]);
   if (summary.competencia >= todaySaoPaulo_().slice(0, 7)) {
     lines.push('Mes atual ainda aberto.');
     lines.push('Nao vou fechar este mes agora.');
@@ -2252,6 +2271,11 @@ function formatMonthlyReviewAnswer_(summary) {
       lines.push('Motivo: ' + item.motivo + ' | confianca: ' + item.confianca + '.');
     });
   }
+  if (opportunities.some(function(item) { return item.categoria === 'Gastos pessoais privados'; })) {
+    lines.push('');
+    lines.push('Privacidade');
+    lines.push('Os detalhes pessoais ficam agregados; a revisao compartilhada usa apenas totais.');
+  }
   lines.push('');
   lines.push('Decisao agora');
   if (numberFromSheetValue_(goal.meta_sugerida) > 0) {
@@ -2265,6 +2289,30 @@ function formatMonthlyReviewAnswer_(summary) {
   lines.push('Conferir faturas reais, saldos e reembolsaveis antes de fechar.');
   return lines.join('\n');
 }
+
+function buildMonthlyReviewDecision_(summary, opportunities) {
+  var currentCompetencia = todaySaoPaulo_().slice(0, 7);
+  var isCurrentOrFuture = stringValue_(summary.competencia) >= currentCompetencia;
+  var blockers = [];
+  if (isCurrentOrFuture) blockers.push('Mes atual ainda aberto.');
+  if (numberFromSheetValue_(summary.saldos_fontes_count) === 0) blockers.push('Falta saldo real das contas.');
+  if (numberFromSheetValue_(summary.faturas_atuais) > 0) blockers.push('Faturas atuais: ' + formatMoney_(summary.faturas_atuais) + '.');
+  if (numberFromSheetValue_(summary.obrigacoes_60d) > 0) blockers.push('Compromissos 60d: ' + formatMoney_(summary.obrigacoes_60d) + '.');
+  if ((opportunities || []).length > 0) {
+    blockers.push('Ha categorias para revisar antes de fechar.');
+  }
+  if (blockers.length === 0) blockers.push('Sem bloqueador deterministico registrado.');
+  return {
+    status: isCurrentOrFuture ? 'Ainda nao fechar.' : 'Pode revisar antes de fechar.',
+    blockers: blockers,
+    action: isCurrentOrFuture
+      ? 'Conferir faturas reais, saldos e reembolsaveis; deixar fechamento para depois do fim do mes.'
+      : 'Conferir divergencias e gerar rascunho de fechamento apenas quando os dados baterem.',
+    avoid: 'Nao fechar mes atual nem investir dinheiro novo antes de cobrir faturas, obrigacoes e reserva.',
+    confidence: numberFromSheetValue_(summary.saldos_fontes_count) > 0 ? 'alta' : 'media',
+  };
+}
+
 function shortCardName_(value) {
   var text = stringValue_(value);
   var normalized = normalizeAliasText_(text);
