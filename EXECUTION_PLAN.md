@@ -36,10 +36,10 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - `/gasto_seguro`, Telegram callback `act:safe_to_spend`, and remote preview `doGet?action=safe_to_spend` expose the same conservative safe-to-spend decision card without mutating Sheets.
 - V56 weekly digest preview is available as `doGet?action=copilot_digest_preview` / `npm run digest:preview`; it returns structured digest payload plus Telegram-ready text and never sends Telegram messages.
 - Gated V56 weekly digest delivery is available as trigger-safe `runCopilotWeeklyDigestDeliveryV56` / `doGet?action=copilot_digest_send` / `npm run digest:send`; it sends only when `COPILOT_DIGEST_ENABLED=YES`.
+- Web App deployment `@216` is authorized and remote quick smoke passes for `selftest` and `summary`.
 
 ### Unverified
 
-- Current Web App accessibility after deploy `@216`: `npm run smoke` returns Google Apps Script access denied HTML; Apps Script logs show `doGet` is reached but the deploying user must authorize runtime scopes.
 - Full production readiness beyond owner pilot usage.
 - UX readiness with Luana using real Telegram messages after Gustavo pilot of the new inline buttons.
 - Long-term budget limit tuning beyond the initial pilot limits.
