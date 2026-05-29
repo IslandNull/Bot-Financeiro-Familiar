@@ -574,6 +574,9 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.match(result.responseText, /\/agenda/);
     assert.match(result.responseText, /para onde foi meu dinheiro/);
     assert.match(result.responseText, /\/revisar_mes/);
+    assert.match(result.responseText, /A..es agora/);
+    assert.match(result.responseText, /\/orcamento/);
+    assert.match(result.responseText, /\/gasto_seguro/);
     assert.doesNotMatch(result.responseText, /OPEX_MERCADO_SEMANA/);
     assert.doesNotMatch(result.responseText, /Mercado da semana/);
     assert.doesNotMatch(result.responseText, /privado/);
@@ -1256,6 +1259,50 @@ test('Apps Script answers agenda command with dated invoices and obligations', (
     assert.match(result.responseText, /Financiamento casa.*R\$ 878,41/);
     assert.match(result.responseText, /N.o . tudo vencendo hoje/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script agenda decision drill-down highlights next action without mutating sheets', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 500 });
+    appendFakeAsset(sheets, { saldo_atual: 1000, conta_reserva_emergencia: true });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        id_cartao: 'CARD_NUBANK_GU',
+        competencia: '2026-04',
+        data_vencimento: '2026-05-07',
+        valor_previsto: 300,
+        status: 'prevista',
+    });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_05',
+        id_cartao: 'CARD_NUBANK_GU',
+        competencia: '2026-05',
+        data_vencimento: '2026-06-07',
+        valor_previsto: 200,
+        status: 'prevista',
+    });
+    appendFakeDebt(sheets, { nome: 'Financiamento casa', valor_parcela: 878.41 });
+
+    const beforeRows = JSON.stringify(sheets);
+    const result = postTelegramCallback(context, 'act:agenda_current');
+    const text = result.telegramActions[1].text;
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(text, /Agenda financeira de abril/);
+    assert.match(text, /Pr.ximo vencimento/);
+    assert.match(text, /07\/05 .*Nubank.*R\$ 300,00/);
+    assert.match(text, /A..o sugerida/);
+    assert.match(text, /separar .*R\$ 2256,82/i);
+    assert.match(text, /N.o fazer/);
+    assert.match(text, /Confianca: alta/);
+    assert.strictEqual(JSON.stringify(sheets), beforeRows);
 });
 
 test('Apps Script simulates whether a new installment purchase fits safely', () => {
@@ -5667,6 +5714,56 @@ test('Apps Script budget report command displays active categories and rollover 
     assert.doesNotMatch(resultJune.responseText, /Saldo anterior: -/);
     assert.match(resultJune.responseText, /Dispon.vel: R\$ 300,00 \(0%\)/);
     assert.match(resultAugust.responseText, /Dispon.vel: R\$ 900,00 \(0%\)/);
+});
+
+test('Apps Script budget decision drill-down ranks risk and keeps private line items hidden', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_FOOD_OVER',
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_ALIMENTACAO_FORA',
+        valor: 360,
+        descricao: 'restaurante visivel',
+        visibilidade: 'detalhada',
+        status: 'efetivado',
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_PRIVATE_COFFEE',
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_CAFE_TRABALHO_GUSTAVO',
+        valor: 49,
+        descricao: 'detalhe privado cafe',
+        visibilidade: 'privada',
+        status: 'efetivado',
+    });
+
+    const beforeRows = JSON.stringify(sheets);
+    const result = postPilotMessage(context, '/orcamento 2026-05', { updateId: 'up_bud_decision_1', messageId: 'msg_bud_decision_1' });
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Or.amento por Categoria \(2026-05\)/);
+    assert.match(result.responseText, /Status/);
+    assert.match(result.responseText, /Categoria em risco: Alimentacao fora/);
+    assert.match(result.responseText, /Categorias em risco/);
+    assert.match(result.responseText, /Alimentacao fora.*120%/);
+    assert.match(result.responseText, /Cafe trabalho Gustavo.*98%/);
+    assert.match(result.responseText, /A..o sugerida/);
+    assert.match(result.responseText, /pausar gasto novo em Alimentacao fora/i);
+    assert.match(result.responseText, /Privacidade/);
+    assert.match(result.responseText, /detalhes privados ficam agregados/i);
+    assert.doesNotMatch(result.responseText, /detalhe privado cafe/);
+    assert.strictEqual(JSON.stringify(sheets), beforeRows);
 });
 
 test('Apps Script correction fails and keeps original transaction intact if new parse fails validation', () => {

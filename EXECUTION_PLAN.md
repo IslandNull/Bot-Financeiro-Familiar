@@ -14,7 +14,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - April 2026 was rebuilt and closed from reviewed local source material. April corrections must now be explicit `ajuste`; historical JSONL import is retired.
 - Historical repair/setup/import actions are not live runtime. See `docs/archive/HISTORICAL_REPAIR_ACTIONS.md`.
 - Live schema authority is `SHEET_SCHEMA.md`. Manual owner check on 2026-05-23 confirmed the real spreadsheet no longer has backup sheets or retired `Telegram_Send_Log`.
-- `/resumo` uses informed source balances plus reserve/liquidity assets to evaluate current invoice and obligation coverage.
+- `/resumo` uses informed source balances plus reserve/liquidity assets to evaluate current invoice and obligation coverage, then points to actionable next commands.
 - Parser and deterministic overrides protect strict dates/money, payable invoices, partial invoice payment, closed periods, benefit conversion, own-source transfers, explicit invoice payments, card/account disambiguation, and category confirmation.
 - Telegram runtime keeps a short persistent conversation state in Script Properties per chat: last 5 user-bot conversation turns (10 messages total) plus one pending intent for guided source/card/invoice completion to support context reference resolution like "essa fatura" or "nesse cartão".
 - Read-only views keep private personal detail aggregate-only in shared reports.
@@ -23,7 +23,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - Snapshot generated on 2026-05-23 reports 13 real sheets, all live schema headers matching, 2026-04 closed, and 2026-05 open with May usage in progress.
 - Historical invoice migration planning/apply helpers are no longer live runtime actions or local scripts. Future invoice corrections must use current runtime paths or explicit reviewed adjustments.
 - Remote `sheet:audit` after spreadsheet cleanup and debt-reference repair reports 0 errors and 0 warnings.
-- Budget/envelope runtime is deployed: `/orcamento` reads active category limits, warns near/over limit after launches, starts accumulation at 2026-05, caps accumulating rollover at two monthly limits, and clamps negative carry debt to zero.
+- Budget/envelope runtime is deployed: `/orcamento` reads active category limits, ranks categories at/over risk, keeps private detail aggregate-only, starts accumulation at 2026-05, caps accumulating rollover at two monthly limits, and clamps negative carry debt to zero.
 - Delivery/iFood/restaurant couple spending is consolidated under `OPEX_ALIMENTACAO_FORA`; `OPEX_DELIVERY_FAMILIAR` is inactive in the real config snapshot.
 - Individual categories are active for `OPEX_ROUPAS_GUSTAVO`, `OPEX_ROUPAS_LUANA`, `OPEX_CAFE_TRABALHO_GUSTAVO`, and `OPEX_CAFE_TRABALHO_LUANA`.
 - Snapshot generated on 2026-05-24 reports `OPEX_ALIMENTACAO_FORA` with May spending, including private food-out detail aggregated instead of exposed.
@@ -34,9 +34,10 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - Safe-to-spend answers now use V56 decision-card language and a conservative spendable amount that does not treat reserve below target as free spending.
 - `/onde_cortar`, Telegram callback `act:cut_first`, and remote preview `doGet?action=cut_first` expose the first deterministic saving opportunity without mutating Sheets or opening private line items.
 - `/gasto_seguro`, Telegram callback `act:safe_to_spend`, and remote preview `doGet?action=safe_to_spend` expose the same conservative safe-to-spend decision card without mutating Sheets.
+- `/agenda` and Telegram callback `act:agenda_current` expose next due invoice, 60-day payment evidence, suggested action, avoid rule, and confidence without mutating Sheets.
 - V56 weekly digest preview is available as `doGet?action=copilot_digest_preview` / `npm run digest:preview`; it returns structured digest payload plus Telegram-ready text and never sends Telegram messages.
 - Gated V56 weekly digest delivery is available as trigger-safe `runCopilotWeeklyDigestDeliveryV56` / `doGet?action=copilot_digest_send` / `npm run digest:send`; it sends only when `COPILOT_DIGEST_ENABLED=YES`.
-- Web App deployment `@216` is authorized and remote quick smoke passes for `selftest` and `summary`.
+- Web App deployment `@218` is authorized and remote quick smoke passes for `selftest` and `summary`.
 - Quick remote smoke drains Apps Script redirect responses and runs in about 11s locally for `selftest` + `summary`.
 
 ### Unverified
@@ -89,5 +90,5 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 ## Next Work
 
 1. Pilot weekly digest with `COPILOT_DIGEST_ENABLED` off until owner explicitly enables it.
-2. Add Telegram decision UX and read-only drill-downs for goals, agenda, and budget.
+2. Continue Telegram decision UX with richer `/revisar_mes` drill-downs and goal/commitment decisions.
 3. Add goals/recurring commitments schema only after the insight engine is stable and tested.

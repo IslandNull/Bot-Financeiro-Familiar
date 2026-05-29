@@ -130,10 +130,11 @@ Full headers in `SHEET_SCHEMA.md`.
 | `/copiloto` | No | V56 deterministic decision cards with ranked insights, evidence, recommendation, avoid rule, and confidence |
 | `/onde_cortar` | No | V56 read-only decision card for the first deterministic saving opportunity with private detail aggregate-only |
 | `/gasto_seguro`, `/posso_gastar` | No | V56 conservative safe-to-spend decision card without treating reserve below target as free spending |
-| `/resumo` | No | Short read-only executive summary: current liquidity, current invoices, attention point, top forecast categories, next step, and drill-down commands |
-| `/agenda`, `/faturas`, `/proximas_contas` | No | Dated read-only view of open invoices and registered obligations |
+| `/resumo` | No | Short read-only executive summary: current liquidity, current invoices, attention point, next step, and actionable drill-down commands |
+| `/agenda`, `/faturas`, `/proximas_contas` | No | Read-only decision view of next invoice due, 60-day payment evidence, registered obligations, suggested action, and avoid rule |
 | `/revisar_mes` | No | Month-review checklist before closing; current/future months remain non-closable |
 | `/limpar_contexto` | No | Clears the current chat's persisted conversation state from Script Properties |
 | `/saldo <fonte> <valor> [em data]` | Yes | Source balance snapshot; prefers real account sources over credit-card sources and accepts an optional reference date |
+| `/orcamento`, `/orcamentos`, `/limites` | No | Read-only budget decision view: active limits, categories at/over risk, suggested action, privacy note, and accumulated envelope detail |
 | Safe finance question | No | Deterministic read-only answers using the short `/resumo` layout: cost of life, installment-adjusted spending categories, visible category line-item drill-downs, upcoming invoices/commitments, reserve/liquidity, and conservative "posso comprar ... em Nx?" simulations |
 | Natural text | Yes | Parsed by OpenAI -> validated -> written to sheets; guided failures persist one pending intent so a short follow-up can fill source/card/invoice before validation and writing |

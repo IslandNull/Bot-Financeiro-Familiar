@@ -126,10 +126,7 @@ function buildBudgetReportResponse_(config, requestedCompetencia) {
       spentMap[catId][comp] = (spentMap[catId][comp] || 0) + numberFromSheetValue_(row.valor);
     }
 
-    var lines = [];
-    lines.push('📊 Orçamento por Categoria (' + targetCompetencia + ')');
-    lines.push('');
-
+    var budgetItems = [];
     var referenceData = {
       categoriesById: indexBy_(readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS), 'id_categoria')
     };
@@ -169,14 +166,34 @@ function buildBudgetReportResponse_(config, requestedCompetencia) {
         statusEmoji = '⚠️';
       }
 
-      var limitText = formatMoney_(limit);
-      var rolloverText = accumulates ? ' (Acumulado: ' + formatMoney_(totalLimit) + ')' : '';
-      lines.push(statusEmoji + ' *' + catName + '*');
-      lines.push('  • Consumido: ' + formatMoney_(currentSpent) + ' / ' + limitText + rolloverText);
-      if (accumulates && rollover !== 0) {
-        lines.push('  • Saldo anterior: ' + (rollover >= 0 ? '+' : '') + formatMoney_(rollover));
+      budgetItems.push({
+        id_categoria: catId,
+        nome: catName,
+        limite: limit,
+        total_limite: totalLimit,
+        consumido: currentSpent,
+        disponivel: remaining,
+        percentual: percent,
+        acumula_sobra: accumulates,
+        saldo_anterior: rollover,
+        status_emoji: statusEmoji,
+        visibilidade: stringValue_(cat.visibilidade_padrao),
+      });
+    }
+
+    var lines = formatBudgetDecisionLines_(targetCompetencia, budgetItems);
+    lines.push('');
+
+    for (var b = 0; b < budgetItems.length; b++) {
+      var item = budgetItems[b];
+      var limitText = formatMoney_(item.limite);
+      var rolloverText = item.acumula_sobra ? ' (Acumulado: ' + formatMoney_(item.total_limite) + ')' : '';
+      lines.push(item.status_emoji + ' *' + item.nome + '*');
+      lines.push('  • Consumido: ' + formatMoney_(item.consumido) + ' / ' + limitText + rolloverText);
+      if (item.acumula_sobra && item.saldo_anterior !== 0) {
+        lines.push('  • Saldo anterior: ' + (item.saldo_anterior >= 0 ? '+' : '') + formatMoney_(item.saldo_anterior));
       }
-      lines.push('  • Disponível: ' + formatMoney_(remaining) + ' (' + percent + '%)');
+      lines.push('  • Disponível: ' + formatMoney_(item.disponivel) + ' (' + item.percentual + '%)');
       lines.push('');
     }
 
@@ -188,6 +205,58 @@ function buildBudgetReportResponse_(config, requestedCompetencia) {
   } catch (_err) {
     return fail_('REPORT_READ_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
   }
+}
+
+function formatBudgetDecisionLines_(competencia, budgetItems) {
+  var riskItems = (budgetItems || []).filter(function(item) {
+    return item.percentual >= 85 || item.disponivel < 0;
+  }).sort(function(a, b) {
+    if (a.disponivel < 0 && b.disponivel >= 0) return -1;
+    if (b.disponivel < 0 && a.disponivel >= 0) return 1;
+    if (a.percentual !== b.percentual) return b.percentual - a.percentual;
+    return a.nome < b.nome ? -1 : (a.nome > b.nome ? 1 : 0);
+  });
+  var top = riskItems[0] || null;
+  var hasPrivate = (budgetItems || []).some(function(item) {
+    return item.visibilidade === 'privada' || item.visibilidade === 'resumo';
+  });
+  var lines = [
+    '📊 Orçamento por Categoria (' + competencia + ')',
+    '',
+    'Status',
+  ];
+  if (top) {
+    lines.push('Categoria em risco: ' + top.nome + '.');
+    lines.push('');
+    lines.push('Categorias em risco');
+    riskItems.slice(0, 4).forEach(function(item) {
+      lines.push(item.nome + ': ' + formatMoney_(item.consumido) + ' de ' + formatMoney_(item.total_limite) + ' (' + item.percentual + '%).');
+    });
+    lines.push('');
+    lines.push('Ação sugerida');
+    lines.push(top.disponivel < 0
+      ? 'Pausar gasto novo em ' + top.nome + ' até revisar limite, fatura e necessidade.'
+      : 'Segurar gasto novo em ' + top.nome + ' antes que vire estouro.');
+    lines.push('');
+    lines.push('Não fazer');
+    lines.push('Não compensar estouro usando reserva abaixo da meta ou ignorando faturas próximas.');
+  } else {
+    lines.push('Nenhuma categoria ativa está acima de 85% do limite registrado.');
+    lines.push('');
+    lines.push('Ação sugerida');
+    lines.push('Manter lançamentos atualizados e revisar limites antes de assumir gasto novo relevante.');
+    lines.push('');
+    lines.push('Não fazer');
+    lines.push('Não criar novo gasto recorrente só porque o mês ainda parece folgado.');
+  }
+  lines.push('');
+  lines.push('Privacidade');
+  lines.push(hasPrivate
+    ? 'Categorias pessoais ou resumidas aparecem só por total; detalhes privados ficam agregados.'
+    : 'Sem abertura de lançamentos pessoais neste relatório.');
+  lines.push('');
+  lines.push('Confiança: alta');
+  return lines;
 }
 
 function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
@@ -1131,6 +1200,11 @@ function formatPilotFamilySummary_(summary) {
     '/agenda',
     'para onde foi meu dinheiro?',
     '/revisar_mes',
+    '',
+    'Ações agora',
+    '/orcamento',
+    '/gasto_seguro',
+    '/agenda',
   ]);
   return lines.join('\n');
 }
@@ -1824,18 +1898,22 @@ function formatAgendaAnswer_(summary, event) {
       cardName = ' do cartão ' + friendlyIdentifier_(cardId);
     }
   }
-
-  var lines = [
-    '📅 Agenda financeira' + cardName + ' de ' + friendlyCompetencia_(summary.competencia),
-    '',
-    '💳 Faturas',
-  ];
   invoiceItems.sort(function(a, b) {
     var aDate = stringValue_(a.data_vencimento);
     var bDate = stringValue_(b.data_vencimento);
     if (aDate !== bDate) return aDate < bDate ? -1 : 1;
     return stringValue_(a.cartao) < stringValue_(b.cartao) ? -1 : 1;
   });
+
+  var lines = [
+    '📅 Agenda financeira' + cardName + ' de ' + friendlyCompetencia_(summary.competencia),
+    '',
+  ];
+  Array.prototype.push.apply(lines, formatAgendaDecisionLines_(summary, invoiceItems, cardId));
+  lines.push('');
+  lines = lines.concat([
+    '💳 Faturas',
+  ]);
   if (invoiceItems.length === 0) {
     lines.push('Nenhuma fatura aberta registrada.');
   } else {
@@ -1865,6 +1943,40 @@ function formatAgendaAnswer_(summary, event) {
     lines.push('Não é tudo vencendo hoje. Use esta agenda para separar dinheiro antes de assumir gasto novo.');
   }
   return lines.join('\n');
+}
+
+function formatAgendaDecisionLines_(summary, invoiceItems, cardId) {
+  var totalFaturas = (invoiceItems || []).reduce(function(sum, item) {
+    return roundMoney_(sum + numberFromSheetValue_(item.valor));
+  }, 0);
+  var totalObrigacoes = cardId ? 0 : numberFromSheetValue_(summary.obrigacoes_60d);
+  var totalPlanejar = roundMoney_(totalFaturas + totalObrigacoes);
+  var nextInvoice = invoiceItems && invoiceItems.length > 0 ? invoiceItems[0] : null;
+  var confidence = numberFromSheetValue_(summary.saldos_fontes_count) > 0 ? 'alta' : 'media';
+  var lines = ['Status'];
+  if (nextInvoice) {
+    lines.push('Próximo vencimento: ' + formatShortDate_(nextInvoice.data_vencimento) + ' ' + shortCardName_(nextInvoice.cartao) + ' ' + formatMoney_(nextInvoice.valor) + '.');
+  } else {
+    lines.push('Sem fatura aberta registrada nos próximos 60 dias.');
+  }
+  lines.push('');
+  lines.push('Evidência');
+  lines.push('Faturas abertas: ' + formatMoney_(totalFaturas));
+  if (!cardId) lines.push('Compromissos registrados: ' + formatMoney_(totalObrigacoes));
+  lines.push('Total a planejar: ' + formatMoney_(totalPlanejar));
+  lines.push('');
+  lines.push('Ação sugerida');
+  if (totalPlanejar > 0) {
+    lines.push('Separar ' + formatMoney_(totalPlanejar) + ' antes de assumir gasto novo relevante.');
+  } else {
+    lines.push('Manter agenda revisada; não há vencimento registrado para reservar agora.');
+  }
+  lines.push('');
+  lines.push('Não fazer');
+  lines.push('Não tratar cartão como folga livre antes de reservar faturas e compromissos.');
+  lines.push('');
+  lines.push('Confianca: ' + confidence);
+  return lines;
 }
 
 function formatCanSpendAnswer_(summary, text) {
