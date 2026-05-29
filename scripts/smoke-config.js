@@ -2,7 +2,7 @@
 
 const QUICK_ACTIONS = ['selftest', 'summary'];
 const FULL_ACTIONS = ['selftest', 'summary', 'sheet_audit'];
-const DEFAULT_SMOKE_TIMEOUT_MS = 90000;
+const DEFAULT_SMOKE_TIMEOUT_MS = 30000;
 
 function defaultSmokeTimeoutMs() {
   return DEFAULT_SMOKE_TIMEOUT_MS;

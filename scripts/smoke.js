@@ -8,6 +8,7 @@ const {
   formatSmokeResult,
   parseSmokeArgs,
 } = require('./smoke-config');
+const { runSmokeActions } = require('./smoke-runner');
 
 const root = path.resolve(__dirname, '..');
 const nodeBin = process.execPath;
@@ -41,7 +42,7 @@ function runRemoteAction(action, timeoutMs) {
   });
 }
 
-Promise.all(smokeConfig.actions.map((action) => runRemoteAction(action, smokeConfig.timeoutMs))).then((results) => {
+runSmokeActions(smokeConfig.actions, (action) => runRemoteAction(action, smokeConfig.timeoutMs)).then((results) => {
   process.stdout.write(`Smoke mode: ${smokeConfig.full ? 'full' : 'quick'}\n`);
   process.stdout.write(`Remote timeout: ${smokeConfig.timeoutMs}ms\n`);
   results.forEach((result) => {

@@ -19,6 +19,7 @@ Codebase navigation guide for V55/V56.
 | `scripts/clasp-run.js` | HTTP-based remote execution helper. Reads `.env` for `WEBAPP_URL`, `WEBHOOK_SECRET`, `DEPLOY_ID`. |
 | `scripts/smoke.js` | Quick/full remote smoke runner. Quick mode runs `selftest` + `summary`; full mode adds `sheet_audit`. |
 | `scripts/smoke-config.js` | Pure smoke argument/action/timeout helper covered by local tests. |
+| `scripts/smoke-runner.js` | Sequential smoke action runner; avoids Apps Script web app contention and redirect socket hangs. |
 | `scripts/sheet-audit.js` | Read-only sheet auditor. With no args, calls remote `sheet_audit`; with a JSON state file, audits offline. |
 | `EXECUTION_PLAN.md` | Operational authority: current state, rules, next steps. |
 | `DOMAIN_RULES.md` | Financial domain rules (event types, scopes, visibility, mandatory rules). |
@@ -86,7 +87,7 @@ Remote read-only previews now include `summary`, `cut_first`, `safe_to_spend`, a
 
 **Validation scripts:**
 - `npm run check`: local syntax and deterministic tests.
-- `npm run smoke`: quick remote post-deploy smoke; does not run local tests or snapshot.
+- `npm run smoke`: quick sequential remote post-deploy smoke; does not run local tests or snapshot.
 - `npm run smoke:full`: heavier remote smoke/audit.
 - `npm run verify`: local check plus quick remote smoke.
 - `npm run snapshot`: explicit redacted spreadsheet evidence refresh.

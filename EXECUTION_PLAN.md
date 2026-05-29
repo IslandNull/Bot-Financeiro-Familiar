@@ -37,6 +37,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - V56 weekly digest preview is available as `doGet?action=copilot_digest_preview` / `npm run digest:preview`; it returns structured digest payload plus Telegram-ready text and never sends Telegram messages.
 - Gated V56 weekly digest delivery is available as trigger-safe `runCopilotWeeklyDigestDeliveryV56` / `doGet?action=copilot_digest_send` / `npm run digest:send`; it sends only when `COPILOT_DIGEST_ENABLED=YES`.
 - Web App deployment `@216` is authorized and remote quick smoke passes for `selftest` and `summary`.
+- Quick remote smoke drains Apps Script redirect responses and runs in about 11s locally for `selftest` + `summary`.
 
 ### Unverified
 
@@ -62,7 +63,7 @@ The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>`.
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env`.
 
 Available actions: `snapshot`, `summary`, `cut_first`, `safe_to_spend`, `copilot_digest_preview`, `copilot_digest_send`, `closing_draft`, `closing_close`, `selftest`, and `sheet_audit`.
-`scripts/smoke.js` defaults to quick `selftest` + `summary`; `--full` adds `sheet_audit`. `snapshot` is intentionally explicit.
+`scripts/smoke.js` defaults to quick sequential `selftest` + `summary` with 30s per action; `--full` adds `sheet_audit`. `snapshot` is intentionally explicit.
 
 On Windows with PowerShell execution policy, use `npm.cmd` and `clasp.cmd` if needed.
 

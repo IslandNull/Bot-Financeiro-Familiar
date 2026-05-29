@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const {
     buildClaspRunEnv,
     defaultSmokeTimeoutMs,
@@ -8,6 +10,7 @@ const {
     formatSmokeResult,
     parseSmokeArgs,
 } = require('../scripts/smoke-config');
+const { runSmokeActions } = require('../scripts/smoke-runner');
 
 function test(name, fn) {
     fn();
@@ -21,6 +24,7 @@ test('quick smoke runs only fast remote checks and never snapshot', () => {
     assert.strictEqual(config.full, false);
     assert.strictEqual(config.actions.includes('snapshot'), false);
     assert.strictEqual(config.timeoutMs, defaultSmokeTimeoutMs());
+    assert.strictEqual(config.timeoutMs, 30000);
 });
 
 test('full smoke adds sheet audit but still excludes snapshot', () => {
@@ -91,6 +95,35 @@ test('smoke parser rejects unknown options', () => {
         () => parseSmokeArgs(['--snapshot']),
         /Unknown smoke option/
     );
+});
+
+test('smoke runner executes remote actions sequentially', async () => {
+    const events = [];
+    const results = await runSmokeActions(['selftest', 'summary'], async (action) => {
+        events.push(`start:${action}`);
+        await Promise.resolve();
+        events.push(`end:${action}`);
+        return { action };
+    });
+
+    assert.deepStrictEqual(events, [
+        'start:selftest',
+        'end:selftest',
+        'start:summary',
+        'end:summary',
+    ]);
+    assert.deepStrictEqual(results.map((result) => result.action), ['selftest', 'summary']);
+});
+
+test('clasp runner drains redirect responses before following them', () => {
+    const runner = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'clasp-run.js'), 'utf8');
+    const redirectBranch = runner.slice(
+        runner.indexOf('if (res.statusCode >= 300'),
+        runner.indexOf("var body = '';")
+    );
+
+    assert.match(redirectBranch, /res\.resume\(\);/);
+    assert.ok(redirectBranch.indexOf('res.resume();') < redirectBranch.indexOf('resolve(httpGet'));
 });
 
 module.exports = Promise.resolve();
