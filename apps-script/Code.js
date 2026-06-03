@@ -74,8 +74,8 @@ var HEADERS = {
   Idempotency_Log: ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'],
 };
 var OPTIONAL_V56_HEADERS = {
-  Metas_Financeiras: ['id_meta', 'nome', 'tipo', 'escopo', 'valor_alvo', 'valor_atual_manual', 'data_alvo', 'contribuicao_mensal_planejada', 'prioridade', 'visibilidade', 'ativo', 'observacao'],
-  Compromissos_Recorrentes: ['id_compromisso', 'nome', 'tipo', 'escopo', 'valor_estimado', 'dia_vencimento', 'id_categoria', 'id_fonte', 'prioridade', 'visibilidade', 'ativo', 'observacao'],
+  Metas_Financeiras: ['id_meta', 'nome', 'tipo', 'escopo', 'valor_alvo', 'valor_atual_manual', 'data_alvo', 'contribuicao_mensal_planejada', 'prioridade', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'],
+  Compromissos_Recorrentes: ['id_compromisso', 'nome', 'tipo', 'escopo', 'valor_estimado', 'dia_vencimento', 'id_categoria', 'id_fonte', 'prioridade', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'],
 };
 var PARSED_EVENT_FIELDS = ['tipo_evento', 'data', 'competencia', 'valor', 'descricao', 'id_categoria', 'id_fonte', 'pessoa', 'escopo', 'visibilidade', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'direcao_caixa_familiar', 'status', 'parcelas'];
 

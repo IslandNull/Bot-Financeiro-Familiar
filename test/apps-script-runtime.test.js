@@ -239,8 +239,8 @@ test('Apps Script read-only callbacks reuse summary agenda and review without mu
     assert.match(agenda.telegramActions[1].text, /Agenda|Faturas/);
     assert.match(review.telegramActions[1].text, /fechar|revis/i);
     assert.match(budget.telegramActions[1].text, /Or.amento|orcamento|budget/i);
-    assert.match(goals.telegramActions[1].text, /Metas financeiras|Metas ainda nao configuradas/i);
-    assert.match(commitments.telegramActions[1].text, /Compromissos recorrentes|Compromissos ainda nao configurados/i);
+    assert.match(goals.telegramActions[1].text, /Metas financeiras revisadas|Metas revisadas ainda nao configuradas/i);
+    assert.match(commitments.telegramActions[1].text, /Compromissos recorrentes revisados|Compromissos revisados ainda nao configurados/i);
 });
 
 test('Apps Script launch and clear-context callbacks do not write financial rows', () => {
@@ -1482,7 +1482,7 @@ test('Apps Script /gasto_seguro command previews safe-to-spend without mutation'
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
-test('Apps Script goals command reads optional V56 goals without mutating sheets', () => {
+test('Apps Script goals command reads reviewed optional V56 goals without mutating sheets', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
         properties: {
@@ -1510,13 +1510,22 @@ test('Apps Script goals command reads optional V56 goals without mutating sheets
         prioridade: 'media',
         visibilidade: 'privada',
     });
+    appendFakeGoal(sheets, {
+        id_meta: 'META_RASCUNHO',
+        nome: 'Meta em rascunho',
+        valor_alvo: 20000,
+        valor_atual_manual: 10000,
+        status_revisao: 'rascunho',
+        prioridade: 'alta',
+        visibilidade: 'detalhada',
+    });
 
     const beforeRows = JSON.stringify(sheets);
     const result = postPilotMessage(context, '/metas');
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Metas financeiras/);
+    assert.match(result.responseText, /Metas financeiras revisadas/);
     assert.match(result.responseText, /Reserva emergencial/);
     assert.match(result.responseText, /Progresso: R\$ 6000,00 \/ R\$ 15000,00 \(40%\)/);
     assert.match(result.responseText, /Falta: R\$ 9000,00/);
@@ -1525,10 +1534,11 @@ test('Apps Script goals command reads optional V56 goals without mutating sheets
     assert.match(result.responseText, /Privacidade/);
     assert.match(result.responseText, /1 meta privada ficou apenas agregada/i);
     assert.doesNotMatch(result.responseText, /Objetivo privado/);
+    assert.doesNotMatch(result.responseText, /Meta em rascunho/);
     assert.strictEqual(JSON.stringify(sheets), beforeRows);
 });
 
-test('Apps Script commitments command reads optional recurring commitments without mutating sheets', () => {
+test('Apps Script commitments command reads reviewed recurring commitments with upcoming pressure without mutating sheets', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
         properties: {
@@ -1544,6 +1554,14 @@ test('Apps Script commitments command reads optional recurring commitments witho
         visibilidade: 'detalhada',
     });
     appendFakeCommitment(sheets, {
+        id_compromisso: 'COMP_STREAMING',
+        nome: 'Streaming familiar',
+        valor_estimado: 50,
+        dia_vencimento: 10,
+        prioridade: 'baixa',
+        visibilidade: 'detalhada',
+    });
+    appendFakeCommitment(sheets, {
         id_compromisso: 'COMP_PRIV',
         nome: 'Assinatura privada',
         valor_estimado: 80,
@@ -1552,6 +1570,15 @@ test('Apps Script commitments command reads optional recurring commitments witho
         prioridade: 'baixa',
         visibilidade: 'privada',
     });
+    appendFakeCommitment(sheets, {
+        id_compromisso: 'COMP_RASCUNHO',
+        nome: 'Conta em rascunho',
+        valor_estimado: 900,
+        dia_vencimento: 2,
+        status_revisao: 'rascunho',
+        prioridade: 'alta',
+        visibilidade: 'detalhada',
+    });
 
     const beforeRows = JSON.stringify(sheets);
     const result = postTelegramCallback(context, 'act:commitments_current');
@@ -1559,15 +1586,18 @@ test('Apps Script commitments command reads optional recurring commitments witho
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(text, /Compromissos recorrentes/);
+    assert.match(text, /Compromissos recorrentes revisados/);
     assert.match(text, /Condominio/);
-    assert.match(text, /Dia 05: R\$ 700,00/);
-    assert.match(text, /Total mensal visivel: R\$ 700,00/);
+    assert.match(text, /05\/05 Condominio: R\$ 700,00/);
+    assert.match(text, /10\/05 Streaming familiar: R\$ 50,00/);
+    assert.match(text, /Pressao 30d visivel: R\$ 750,00/);
+    assert.match(text, /Total mensal visivel: R\$ 750,00/);
     assert.match(text, /A..o sugerida/);
-    assert.match(text, /separar dinheiro antes do dia 05/i);
+    assert.match(text, /separar R\$ 700,00 ate 05\/05/i);
     assert.match(text, /Privacidade/);
     assert.match(text, /1 compromisso privado ficou apenas agregado/i);
     assert.doesNotMatch(text, /Assinatura privada/);
+    assert.doesNotMatch(text, /Conta em rascunho/);
     assert.strictEqual(JSON.stringify(sheets), beforeRows);
 });
 

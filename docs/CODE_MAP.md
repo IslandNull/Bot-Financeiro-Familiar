@@ -126,7 +126,7 @@ Remote read-only previews now include `summary`, `cut_first`, `safe_to_spend`, `
 
 `Telegram_Send_Log` is retired from the live schema. Manual owner check on 2026-05-23 confirmed the real spreadsheet no longer has backup sheets or retired send-log sheets.
 
-Optional V56 contracts for `Metas_Financeiras` and `Compromissos_Recorrentes` live in `src/schema.js`. Runtime views and audit coverage are available when those sheets exist, but they are not required until the real spreadsheet is explicitly migrated.
+Optional V56 contracts for `Metas_Financeiras` and `Compromissos_Recorrentes` live in `src/schema.js`. Runtime views and audit coverage are available when those sheets exist, but they are not required until the real spreadsheet is explicitly migrated. Read-only Telegram views use active rows marked `status_revisao=revisado`; private rows remain aggregate-only.
 
 Full headers in `SHEET_SCHEMA.md`.
 
@@ -141,8 +141,8 @@ Full headers in `SHEET_SCHEMA.md`.
 | `/resumo` | No | Short read-only executive summary: current liquidity, current invoices, attention point, next step, and actionable drill-down commands |
 | `/agenda`, `/faturas`, `/proximas_contas` | No | Read-only decision view of next invoice due, 60-day payment evidence, registered obligations, suggested action, and avoid rule |
 | `/revisar_mes` | No | Read-only closing decision view: blockers, faturas/obligations evidence, saving opportunities, action, avoid rule, and privacy aggregate |
-| `/metas`, `/objetivos` | No | Optional V56 read-only goal progress, next contribution action, privacy aggregate, and missing-sheet fallback |
-| `/compromissos`, `/contas_fixas` | No | Optional V56 read-only recurring commitment pressure, next due-day action, privacy aggregate, and missing-sheet fallback |
+| `/metas`, `/objetivos` | No | Optional V56 read-only reviewed goal progress, next contribution action, privacy aggregate, and missing-sheet fallback |
+| `/compromissos`, `/contas_fixas` | No | Optional V56 read-only reviewed recurring commitment pressure for the next 30 days, next due action, privacy aggregate, and missing-sheet fallback |
 | `/limpar_contexto` | No | Clears the current chat's persisted conversation state from Script Properties |
 | `/saldo <fonte> <valor> [em data]` | Yes | Source balance snapshot; prefers real account sources over credit-card sources and accepts an optional reference date |
 | `/orcamento`, `/orcamentos`, `/limites` | No | Read-only budget decision view: active limits, categories at/over risk, suggested action, privacy note, and accumulated envelope detail |

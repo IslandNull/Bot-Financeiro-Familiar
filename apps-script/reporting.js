@@ -2505,6 +2505,15 @@ function filterActiveOptionalRows_(rows) {
   });
 }
 
+function isReviewedOptionalRow_(row) {
+  var status = normalizeAliasText_(row && row.status_revisao);
+  return status === 'revisado' || status === 'reviewed' || status === 'aprovado';
+}
+
+function filterReviewedOptionalRows_(rows) {
+  return filterActiveOptionalRows_(rows).filter(isReviewedOptionalRow_);
+}
+
 function priorityRank_(value) {
   var text = normalizeAliasText_(value);
   if (text === 'alta' || text === 'critica') return 1;
@@ -2514,13 +2523,13 @@ function priorityRank_(value) {
 }
 
 function formatGoalsAnswer_(rows) {
-  var activeGoals = filterActiveOptionalRows_(rows);
+  var activeGoals = filterReviewedOptionalRows_(rows);
   if (activeGoals.length === 0) {
     return [
-      'Metas ainda nao configuradas',
+      'Metas revisadas ainda nao configuradas',
       '',
       'Status',
-      'Nenhuma meta financeira ativa foi encontrada.',
+      'Nenhuma meta financeira revisada ativa foi encontrada.',
       '',
       'Acao sugerida',
       'Criar metas revisadas antes de automatizar recomendacoes sobre objetivos.',
@@ -2542,7 +2551,7 @@ function formatGoalsAnswer_(rows) {
     return stringValue_(a.data_alvo) < stringValue_(b.data_alvo) ? -1 : 1;
   })[0] || null;
   var lines = [
-    'Metas financeiras',
+    'Metas financeiras revisadas',
     '',
     'Status',
     next ? 'Meta prioritaria: ' + stringValue_(next.nome) + '.' : 'Metas ativas existem, mas estao privadas.',
@@ -2581,13 +2590,23 @@ function formatGoalsAnswer_(rows) {
 }
 
 function formatCommitmentsAnswer_(rows) {
-  var activeCommitments = filterActiveOptionalRows_(rows);
+  var referenceDate = todaySaoPaulo_();
+  var windowEndDate = addDaysIsoDate_(referenceDate, 30);
+  var activeCommitments = filterReviewedOptionalRows_(rows).map(function(row) {
+    var nextDueDate = nextMonthlyDueDate_(row.dia_vencimento, referenceDate);
+    var enriched = {};
+    for (var key in row) {
+      if (Object.prototype.hasOwnProperty.call(row, key)) enriched[key] = row[key];
+    }
+    enriched.proximo_vencimento = nextDueDate;
+    return enriched;
+  });
   if (activeCommitments.length === 0) {
     return [
-      'Compromissos ainda nao configurados',
+      'Compromissos revisados ainda nao configurados',
       '',
       'Status',
-      'Nenhum compromisso recorrente ativo foi encontrado.',
+      'Nenhum compromisso recorrente revisado ativo foi encontrado.',
       '',
       'Acao sugerida',
       'Cadastrar compromissos fixos antes de depender deles em recomendacoes.',
@@ -2599,33 +2618,42 @@ function formatCommitmentsAnswer_(rows) {
     ].join('\n');
   }
   var visible = activeCommitments.filter(function(row) { return row.visibilidade !== 'privada'; }).sort(function(a, b) {
-    var da = Number(a.dia_vencimento || 99);
-    var db = Number(b.dia_vencimento || 99);
-    if (da !== db) return da - db;
+    var da = stringValue_(a.proximo_vencimento);
+    var db = stringValue_(b.proximo_vencimento);
+    if (da !== db) return da < db ? -1 : 1;
     return stringValue_(a.nome) < stringValue_(b.nome) ? -1 : 1;
   });
   var privateCount = activeCommitments.length - visible.length;
   var visibleTotal = visible.reduce(function(sum, row) { return roundMoney_(sum + numberFromSheetValue_(row.valor_estimado)); }, 0);
   var allTotal = activeCommitments.reduce(function(sum, row) { return roundMoney_(sum + numberFromSheetValue_(row.valor_estimado)); }, 0);
-  var next = visible[0] || null;
+  var upcomingVisible = visible.filter(function(row) {
+    return row.proximo_vencimento && row.proximo_vencimento >= referenceDate && row.proximo_vencimento <= windowEndDate;
+  });
+  var upcomingAll = activeCommitments.filter(function(row) {
+    return row.proximo_vencimento && row.proximo_vencimento >= referenceDate && row.proximo_vencimento <= windowEndDate;
+  });
+  var upcomingVisibleTotal = upcomingVisible.reduce(function(sum, row) { return roundMoney_(sum + numberFromSheetValue_(row.valor_estimado)); }, 0);
+  var upcomingAllTotal = upcomingAll.reduce(function(sum, row) { return roundMoney_(sum + numberFromSheetValue_(row.valor_estimado)); }, 0);
+  var next = upcomingVisible[0] || visible[0] || null;
   var lines = [
-    'Compromissos recorrentes',
+    'Compromissos recorrentes revisados',
     '',
     'Status',
     next ? 'Proximo compromisso visivel: ' + stringValue_(next.nome) + '.' : 'Compromissos ativos existem, mas estao privados.',
     '',
     'Evidencia',
+    'Pressao 30d visivel: ' + formatMoney_(upcomingVisibleTotal),
+    'Pressao 30d registrada: ' + formatMoney_(upcomingAllTotal),
     'Total mensal visivel: ' + formatMoney_(visibleTotal),
     'Total mensal registrado: ' + formatMoney_(allTotal),
   ];
-  visible.slice(0, 8).forEach(function(item) {
-    var day = Number(item.dia_vencimento || 0);
-    lines.push('Dia ' + ('0' + day).slice(-2) + ': ' + formatMoney_(item.valor_estimado) + ' - ' + stringValue_(item.nome));
+  upcomingVisible.slice(0, 8).forEach(function(item) {
+    lines.push(formatShortDate_(item.proximo_vencimento) + ' ' + stringValue_(item.nome) + ': ' + formatMoney_(item.valor_estimado));
   });
   lines.push('');
   lines.push('Acao sugerida');
   lines.push(next
-    ? 'Separar dinheiro antes do dia ' + ('0' + Number(next.dia_vencimento || 0)).slice(-2) + ' e conferir /agenda antes de gasto novo.'
+    ? 'Separar ' + formatMoney_(next.valor_estimado) + ' ate ' + formatShortDate_(next.proximo_vencimento) + ' e conferir /agenda antes de gasto novo.'
     : 'Revisar compromissos privados individualmente antes de expor decisao compartilhada.');
   lines.push('');
   lines.push('Nao fazer');
@@ -2638,6 +2666,25 @@ function formatCommitmentsAnswer_(rows) {
   lines.push('');
   lines.push('Confianca: alta');
   return lines.join('\n');
+}
+
+function nextMonthlyDueDate_(dayValue, referenceDate) {
+  var day = Number(dayValue || 0);
+  if (!day || day < 1 || day > 31) return '';
+  var competencia = stringValue_(referenceDate).slice(0, 7);
+  var current = buildClampedMonthDate_(competencia, day);
+  if (current >= referenceDate) return current;
+  return buildClampedMonthDate_(addMonthsToCompetencia_(competencia, 1), day);
+}
+
+function buildClampedMonthDate_(competencia, day) {
+  var parts = String(competencia || '').split('-');
+  if (parts.length !== 2) return '';
+  var year = Number(parts[0]);
+  var month = Number(parts[1]);
+  if (!year || !month) return '';
+  var maxDay = new Date(Date.UTC(year, month, 0, 12, 0, 0)).getUTCDate();
+  return year + '-' + pad2_(month) + '-' + pad2_(Math.min(Number(day), maxDay));
 }
 
 function shortCardName_(value) {

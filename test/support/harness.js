@@ -20,8 +20,8 @@ const dividasHeaders = ['id_divida', 'nome', 'credor', 'tipo', 'escopo', 'saldo_
 const fechamentoFamiliarHeaders = ['competencia', 'status', 'receitas_dre', 'despesas_dre', 'resultado_dre', 'caixa_entradas', 'caixa_saidas', 'sobra_caixa', 'faturas_60d', 'obrigacoes_60d', 'reserva_total', 'patrimonio_liquido', 'margem_pos_obrigacoes', 'capacidade_aporte_segura', 'parcela_maxima_segura', 'pode_avaliar_amortizacao', 'motivo_bloqueio_amortizacao', 'destino_reserva', 'destino_obrigacoes', 'destino_investimentos', 'destino_amortizacao', 'destino_sugerido', 'observacao', 'created_at', 'closed_at'];
 const transferenciasHeaders = ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'];
 const idempotencyHeaders = ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'];
-const metasFinanceirasHeaders = ['id_meta', 'nome', 'tipo', 'escopo', 'valor_alvo', 'valor_atual_manual', 'data_alvo', 'contribuicao_mensal_planejada', 'prioridade', 'visibilidade', 'ativo', 'observacao'];
-const compromissosRecorrentesHeaders = ['id_compromisso', 'nome', 'tipo', 'escopo', 'valor_estimado', 'dia_vencimento', 'id_categoria', 'id_fonte', 'prioridade', 'visibilidade', 'ativo', 'observacao'];
+const metasFinanceirasHeaders = ['id_meta', 'nome', 'tipo', 'escopo', 'valor_alvo', 'valor_atual_manual', 'data_alvo', 'contribuicao_mensal_planejada', 'prioridade', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'];
+const compromissosRecorrentesHeaders = ['id_compromisso', 'nome', 'tipo', 'escopo', 'valor_estimado', 'dia_vencimento', 'id_categoria', 'id_fonte', 'prioridade', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'];
 
 function createFakeSheet(headers) {
     const rows = [headers.slice()];
@@ -767,6 +767,8 @@ function appendFakeGoal(sheets, overrides = {}) {
         contribuicao_mensal_planejada: 1000,
         prioridade: 'alta',
         visibilidade: 'detalhada',
+        status_revisao: 'revisado',
+        revisado_em: '2026-04-20',
         ativo: true,
         observacao: '',
         ...overrides,
@@ -787,6 +789,8 @@ function appendFakeCommitment(sheets, overrides = {}) {
         id_fonte: 'FONTE_CONTA_FAMILIA',
         prioridade: 'alta',
         visibilidade: 'detalhada',
+        status_revisao: 'revisado',
+        revisado_em: '2026-04-20',
         ativo: true,
         observacao: '',
         ...overrides,

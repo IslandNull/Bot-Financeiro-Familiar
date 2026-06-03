@@ -65,11 +65,13 @@ These sheets are optional V56 contracts. Runtime read-only views and `sheet:audi
 
 ### Metas_Financeiras
 
-`id_meta | nome | tipo | escopo | valor_alvo | valor_atual_manual | data_alvo | contribuicao_mensal_planejada | prioridade | visibilidade | ativo | observacao`
+`id_meta | nome | tipo | escopo | valor_alvo | valor_atual_manual | data_alvo | contribuicao_mensal_planejada | prioridade | visibilidade | status_revisao | revisado_em | ativo | observacao`
 
 ### Compromissos_Recorrentes
 
-`id_compromisso | nome | tipo | escopo | valor_estimado | dia_vencimento | id_categoria | id_fonte | prioridade | visibilidade | ativo | observacao`
+`id_compromisso | nome | tipo | escopo | valor_estimado | dia_vencimento | id_categoria | id_fonte | prioridade | visibilidade | status_revisao | revisado_em | ativo | observacao`
+
+Read-only Telegram views use only active rows with `status_revisao=revisado`; private rows remain aggregate-only.
 
 ## Formula Standard
 

@@ -50,7 +50,7 @@ test('optional V56 schema defines goals and recurring commitments without making
     assert.strictEqual(SHEETS.COMPROMISSOS_RECORRENTES, undefined);
 });
 
-test('optional V56 goals and commitments capture target amount due timing ownership and privacy', () => {
+test('optional V56 goals and commitments capture reviewed status progress timing ownership and privacy', () => {
     assert.deepStrictEqual(OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS], [
         'id_meta',
         'nome',
@@ -62,6 +62,8 @@ test('optional V56 goals and commitments capture target amount due timing owners
         'contribuicao_mensal_planejada',
         'prioridade',
         'visibilidade',
+        'status_revisao',
+        'revisado_em',
         'ativo',
         'observacao',
     ]);
@@ -76,6 +78,8 @@ test('optional V56 goals and commitments capture target amount due timing owners
         'id_fonte',
         'prioridade',
         'visibilidade',
+        'status_revisao',
+        'revisado_em',
         'ativo',
         'observacao',
     ]);

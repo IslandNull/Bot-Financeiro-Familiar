@@ -157,13 +157,13 @@ Candidate future sheets:
 `Metas_Financeiras`
 
 ```text
-id_meta | nome | tipo | valor_alvo | valor_atual_manual | data_alvo | prioridade | ativo | observacao
+id_meta | nome | tipo | escopo | valor_alvo | valor_atual_manual | data_alvo | contribuicao_mensal_planejada | prioridade | visibilidade | status_revisao | revisado_em | ativo | observacao
 ```
 
 `Compromissos_Recorrentes`
 
 ```text
-id_compromisso | nome | tipo | valor_estimado | dia_vencimento | id_categoria | id_fonte | ativo | observacao
+id_compromisso | nome | tipo | escopo | valor_estimado | dia_vencimento | id_categoria | id_fonte | prioridade | visibilidade | status_revisao | revisado_em | ativo | observacao
 ```
 
 Initial goals:
@@ -233,7 +233,7 @@ Acceptance:
 - Add reviewed schema for goals and recurring commitments.
 - Add `sheet:audit` coverage.
 - Add Telegram read-only views for goal progress and upcoming recurring pressure.
-- Status 2026-05-29: delivered as optional read-only runtime in deployment `@220`; real sheets remain opt-in until reviewed migration.
+- Status 2026-06-03: optional reviewed contracts include `status_revisao`/`revisado_em`; Telegram read-only views include reviewed goal progress and upcoming 30-day recurring pressure, with private rows aggregate-only. Real sheets remain opt-in until reviewed migration.
 
 Acceptance:
 - Snapshot and audit pass after schema update.
