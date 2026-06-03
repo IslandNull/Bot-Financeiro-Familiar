@@ -846,7 +846,7 @@ function checkSheetAuditReference_(findings, sheetName, field, value, index, act
     return;
   }
   if (activeMatters && target.ativo === false) {
-    addSheetAuditFinding_(findings, 'INACTIVE_REFERENCE', 'warning', sheetName, field, 1, 'referenced config row is inactive');
+    addSheetAuditFinding_(findings, 'INACTIVE_REFERENCE', 'warning', sheetName, field, 1, 'referenced config row is inactive: ' + key);
   }
 }
 

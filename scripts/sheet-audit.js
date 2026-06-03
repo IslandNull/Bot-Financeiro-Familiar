@@ -148,7 +148,7 @@ function checkReference(findings, sheetName, field, value, index, activeMatters)
     return;
   }
   if (activeMatters && target.ativo === false) {
-    add(findings, 'INACTIVE_REFERENCE', 'warning', sheetName, field, 1, 'referenced config row is inactive');
+    add(findings, 'INACTIVE_REFERENCE', 'warning', sheetName, field, 1, 'referenced config row is inactive: ' + key);
   }
 }
 

@@ -57,6 +57,11 @@ test('sheet audit reports structural and reference risks without private row dum
     assert.ok(codes.includes('UNKNOWN_STATUS'));
     assert.ok(codes.includes('BROKEN_REFERENCE'));
     assert.ok(codes.includes('INACTIVE_REFERENCE'));
+    assert.ok(result.findings.some((finding) => (
+        finding.code === 'INACTIVE_REFERENCE' &&
+        finding.field === 'id_categoria' &&
+        /OPEX_INATIVA/.test(finding.detail)
+    )));
 
     assert.ok(codes.includes('INCOMPLETE_OBLIGATION'));
 

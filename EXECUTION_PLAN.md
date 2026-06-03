@@ -40,7 +40,8 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - V56 weekly digest preview is available as `doGet?action=copilot_digest_preview` / `npm run digest:preview`; it returns structured digest payload plus Telegram-ready text and never sends Telegram messages.
 - Gated V56 weekly digest delivery is available as trigger-safe `runCopilotWeeklyDigestDeliveryV56` / `doGet?action=copilot_digest_send` / `npm run digest:send`; it sends only when `COPILOT_DIGEST_ENABLED=YES`.
 - Optional IA narrator is deployed behind `COPILOT_NARRATOR_ENABLED=YES`; it uses OpenAI structured output only over deterministic insight payloads, rejects invented numbers/internal IDs, and falls back to deterministic text.
-- Web App deployment `@221` is authorized; remote quick smoke passes for `selftest` + `summary`, optional goals/commitments previews are read-only, and `sheet_audit` returns 0 errors and 1 known inactive-reference warning.
+- Web App deployment `@222` is authorized; remote quick smoke passes for `selftest` + `summary`, optional goals/commitments previews are read-only, and `sheet_audit` returns 0 errors and 1 known inactive-reference warning.
+- The known audit warning is `Lancamentos.id_categoria -> OPEX_VESTUARIO_LUANA`; active replacement is `OPEX_ROUPAS_LUANA`, but changing the historical launch category needs explicit owner review because it changes budget/category meaning.
 
 ### Unverified
 
@@ -91,6 +92,6 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 
 ## Next Work
 
-1. Review the one remote `sheet_audit` inactive-category warning and decide whether it is expected legacy data or needs an adjustment.
+1. Decide whether the historical `OPEX_VESTUARIO_LUANA` launch should remain as legacy evidence or be corrected to `OPEX_ROUPAS_LUANA` through an explicit reviewed adjustment.
 2. Migrate real goals/recurring commitment sheets only after owner review of the optional contracts.
 3. Keep digest/narrator gated off until pilot review explicitly enables them.
