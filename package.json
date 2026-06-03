@@ -22,6 +22,8 @@
     "commitments:preview": "node scripts/clasp-run.js commitments_preview",
     "digest:preview": "node scripts/clasp-run.js copilot_digest_preview",
     "digest:send": "node scripts/clasp-run.js copilot_digest_send",
+    "schema:upgrade:dry-run": "node scripts/clasp-run.js schema_upgrade_dry_run",
+    "schema:upgrade": "node scripts/clasp-run.js schema_upgrade",
     "closing:draft": "node scripts/clasp-run.js closing_draft",
     "closing:close": "node scripts/clasp-run.js closing_close",
     "selftest": "node scripts/clasp-run.js selftest",

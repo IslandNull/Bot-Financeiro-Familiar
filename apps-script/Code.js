@@ -156,8 +156,11 @@ function doGet(e) {
   if (action === 'reconcile_faturas') {
     return json_(reconcileAllFaturas());
   }
+  if (action === 'schema_upgrade_dry_run') {
+    return json_(upgradeSchemaV56({ dryRun: true }));
+  }
   if (action === 'schema_upgrade') {
-    return json_(upgradeSchemaV56());
+    return json_(upgradeSchemaV56({ dryRun: false }));
   }
   return json_({ ok: false, error: 'UNKNOWN_ACTION', action: action });
 }
@@ -485,7 +488,7 @@ function exportSnapshotV55() {
     var name = sheet.getName();
     var lastRow = sheet.getLastRow();
     var dataRows = Math.max(0, lastRow - 1);
-    var expectedHeaders = HEADERS[name];
+    var expectedHeaders = HEADERS[name] || OPTIONAL_V56_HEADERS[name];
     var headersOk = 'n/a';
     if (expectedHeaders) {
       var actualHeaders = sheet.getRange(1, 1, 1, expectedHeaders.length).getValues()[0];
@@ -934,20 +937,50 @@ function reconcileAllFaturas() {
   return { ok: true, reconciled: reconciledCount };
 }
 
-function upgradeSchemaV56() {
+function upgradeSchemaV56(options) {
+  options = options || {};
   var config = readConfig_();
   if (!config.spreadsheetId) return { ok: false, error: 'MISSING_SPREADSHEET_ID' };
   var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
-  var sheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
-  if (!sheet) return { ok: false, error: 'SHEET_NOT_FOUND' };
+  var dryRun = options.dryRun !== false;
+  var changes = [];
+  var errors = [];
 
-  var expected = HEADERS.Faturas_Linhas;
-  var actual = sheet.getLastRow() > 0 ? sheet.getRange(1, 1, 1, expected.length).getValues()[0].map(function(value) { return String(value || '').trim(); }) : [];
+  objectValues_(OPTIONAL_V56_SHEETS).forEach(function(sheetName) {
+    var expected = OPTIONAL_V56_HEADERS[sheetName];
+    var sheet = spreadsheet.getSheetByName(sheetName);
+    if (!sheet) {
+      changes.push({ sheet: sheetName, action: 'create_sheet', rowsToWrite: 1 });
+      if (!dryRun) {
+        var created = spreadsheet.insertSheet(sheetName);
+        created.getRange(1, 1, 1, expected.length).setValues([expected]);
+      }
+      return;
+    }
 
-  if (actual.indexOf('id_lancamento') === -1) {
-    sheet.getRange(1, expected.indexOf('id_lancamento') + 1).setValue('id_lancamento');
-    return { ok: true, status: 'upgraded', message: 'Added id_lancamento column to Faturas_Linhas' };
-  }
-  return { ok: true, status: 'no_change', message: 'Schema already up to date' };
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 1) {
+      changes.push({ sheet: sheetName, action: 'write_headers', rowsToWrite: 1 });
+      if (!dryRun) {
+        sheet.getRange(1, 1, 1, expected.length).setValues([expected]);
+      }
+      return;
+    }
+
+    var actual = sheet.getRange(1, 1, 1, expected.length).getValues()[0].map(function(value) { return String(value || '').trim(); });
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      errors.push({ sheet: sheetName, error: 'HEADER_MISMATCH', message: 'optional V56 headers differ from schema; no automatic rewrite was applied' });
+      return;
+    }
+  });
+
+  return {
+    ok: errors.length === 0,
+    shouldApplyDomainMutation: false,
+    dryRun: dryRun,
+    status: errors.length ? 'blocked' : (changes.length ? (dryRun ? 'planned' : 'upgraded') : 'no_change'),
+    changes: changes,
+    errors: errors,
+  };
 }
 

@@ -98,6 +98,8 @@ Remote read-only previews now include `summary`, `cut_first`, `safe_to_spend`, `
 - `npm run commitments:preview`: remote optional V56 recurring commitments preview; read-only.
 - `npm run digest:preview`: remote weekly copilot digest preview; read-only, no Telegram send.
 - `npm run digest:send`: remote weekly copilot digest delivery; sends only when `COPILOT_DIGEST_ENABLED=YES`.
+- `npm run schema:upgrade:dry-run`: remote schema migration dry-run for optional V56 sheets.
+- `npm run schema:upgrade`: remote idempotent schema migration for optional V56 sheets.
 
 **Runtime file split:**
 - `Code.js`: public Apps Script surface and remote action wrappers.
@@ -126,7 +128,7 @@ Remote read-only previews now include `summary`, `cut_first`, `safe_to_spend`, `
 
 `Telegram_Send_Log` is retired from the live schema. Manual owner check on 2026-05-23 confirmed the real spreadsheet no longer has backup sheets or retired send-log sheets.
 
-Optional V56 contracts for `Metas_Financeiras` and `Compromissos_Recorrentes` live in `src/schema.js`. Runtime views and audit coverage are available when those sheets exist, but they are not required until the real spreadsheet is explicitly migrated. Read-only Telegram views use active rows marked `status_revisao=revisado`; private rows remain aggregate-only.
+Optional V56 contracts for `Metas_Financeiras` and `Compromissos_Recorrentes` live in `src/schema.js` and are present in the real spreadsheet with headers only until reviewed rows are added. Runtime views and audit coverage are available; read-only Telegram views use active rows marked `status_revisao=revisado`, and private rows remain aggregate-only.
 
 Full headers in `SHEET_SCHEMA.md`.
 

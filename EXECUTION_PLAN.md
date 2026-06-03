@@ -20,7 +20,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - Read-only views keep private personal detail aggregate-only in shared reports.
 - Current real closing state in snapshot: 2026-04 closed; 2026-05 open with May usage in progress.
 - Current schema/runtime use split invoice sheets: `Faturas_Resumo` for invoice authority/summary and `Faturas_Linhas` for purchase/installment exposure.
-- Snapshot generated on 2026-05-23 reports 13 real sheets, all live schema headers matching, 2026-04 closed, and 2026-05 open with May usage in progress.
+- Snapshot generated on 2026-06-03 reports 15 real sheets, all live/optional schema headers matching, 2026-04 closed, and 2026-05 open with May usage in progress.
 - Historical invoice migration planning/apply helpers are no longer live runtime actions or local scripts. Future invoice corrections must use current runtime paths or explicit reviewed adjustments.
 - Remote `sheet:audit` after spreadsheet cleanup and debt-reference repair reports 0 errors and 0 warnings.
 - Budget/envelope runtime is deployed: `/orcamento` reads active category limits, ranks categories at/over risk, keeps private detail aggregate-only, starts accumulation at 2026-05, caps accumulating rollover at two monthly limits, and clamps negative carry debt to zero.
@@ -36,12 +36,13 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - `/gasto_seguro`, Telegram callback `act:safe_to_spend`, and remote preview `doGet?action=safe_to_spend` expose the same conservative safe-to-spend decision card without mutating Sheets.
 - `/agenda` and Telegram callback `act:agenda_current` expose next due invoice, 60-day payment evidence, suggested action, avoid rule, and confidence without mutating Sheets.
 - `/revisar_mes` and Telegram callback `act:review_month_current` expose closing decision, blockers, suggested action, avoid rule, confidence, and aggregate-only private review without mutating Sheets.
-- V56 goals/commitments are deployed as optional reviewed read-only contracts: `/metas`, `/compromissos`, callbacks, `goals_preview`, `commitments_preview`, and `sheet_audit` coverage work when `Metas_Financeiras` / `Compromissos_Recorrentes` exist; views use active `status_revisao=revisado` rows, show goal progress and upcoming 30-day recurring pressure, keep private rows aggregate-only, and the real sheets are still not required until explicitly migrated.
+- V56 goals/commitments are deployed as optional reviewed read-only contracts: `/metas`, `/compromissos`, callbacks, `goals_preview`, `commitments_preview`, and `sheet_audit` coverage work with real `Metas_Financeiras` / `Compromissos_Recorrentes`; views use active `status_revisao=revisado` rows, show goal progress and upcoming 30-day recurring pressure, keep private rows aggregate-only, and the real sheets currently have headers only with 0 data rows.
 - V56 weekly digest preview is available as `doGet?action=copilot_digest_preview` / `npm run digest:preview`; it returns structured digest payload plus Telegram-ready text and never sends Telegram messages.
 - Gated V56 weekly digest delivery is available as trigger-safe `runCopilotWeeklyDigestDeliveryV56` / `doGet?action=copilot_digest_send` / `npm run digest:send`; it sends only when `COPILOT_DIGEST_ENABLED=YES`.
 - Optional IA narrator is deployed behind `COPILOT_NARRATOR_ENABLED=YES`; it uses OpenAI structured output only over deterministic insight payloads, rejects invented numbers/internal IDs, and falls back to deterministic text.
-- Web App deployment `@224` is authorized; remote quick smoke passes for `selftest` + `summary`, optional goals/commitments previews are read-only, and `sheet:audit` reports 0 errors and 0 warnings.
+- Web App deployment `@226` is authorized; remote quick smoke passes for `selftest` + `summary`, optional goals/commitments previews are read-only, and `sheet:audit` reports 0 errors and 0 warnings.
 - The inactive-category audit warning was cleaned on 2026-06-03 by updating exactly 1 `Lancamentos.id_categoria` from `OPEX_VESTUARIO_LUANA` to active replacement `OPEX_ROUPAS_LUANA`; remote `sheet:audit` now reports 0 errors and 0 warnings.
+- Real optional V56 sheets were migrated on 2026-06-03 by creating `Metas_Financeiras` and `Compromissos_Recorrentes` with schema headers only; `schema_upgrade_dry_run` is now idempotent and reports `no_change`.
 
 ### Unverified
 
@@ -66,7 +67,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>`.
 `scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env`.
 
-Available actions: `snapshot`, `summary`, `cut_first`, `safe_to_spend`, `copilot_digest_preview`, `copilot_digest_send`, `closing_draft`, `closing_close`, `selftest`, and `sheet_audit`.
+Available actions: `snapshot`, `summary`, `cut_first`, `safe_to_spend`, `goals_preview`, `commitments_preview`, `copilot_digest_preview`, `copilot_digest_send`, `closing_draft`, `closing_close`, `selftest`, `sheet_audit`, `schema_upgrade_dry_run`, and `schema_upgrade`.
 `scripts/smoke.js` defaults to quick sequential `selftest` + `summary` with 30s per action; `--full` adds `sheet_audit`. `snapshot` is intentionally explicit.
 
 On Windows with PowerShell execution policy, use `npm.cmd` and `clasp.cmd` if needed.
@@ -92,5 +93,5 @@ Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Proper
 
 ## Next Work
 
-1. Migrate real goals/recurring commitment sheets only after owner review of the optional contracts.
+1. Fill reviewed rows in `Metas_Financeiras` and `Compromissos_Recorrentes` from owner-approved goals/commitments; do not seed invented amounts.
 2. Keep digest/narrator gated off until pilot review explicitly enables them.

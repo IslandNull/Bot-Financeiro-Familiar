@@ -1626,6 +1626,66 @@ test('Apps Script optional V56 sheets are audited only when present', () => {
     assert.ok(broken.findings.some((finding) => finding.sheet === 'Compromissos_Recorrentes' && finding.code === 'UNKNOWN_REFERENCE'));
 });
 
+test('Apps Script schema_upgrade creates optional V56 sheets with headers only', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+
+    assert.strictEqual(sheets.Metas_Financeiras, undefined);
+    assert.strictEqual(sheets.Compromissos_Recorrentes, undefined);
+
+    const dryRun = runRemoteAction(context, 'schema_upgrade_dry_run');
+    assert.strictEqual(dryRun.ok, true);
+    assert.strictEqual(dryRun.dryRun, true);
+    assert.strictEqual(dryRun.status, 'planned');
+    assert.deepStrictEqual(dryRun.changes.map((change) => change.sheet).sort(), ['Compromissos_Recorrentes', 'Metas_Financeiras']);
+    assert.strictEqual(sheets.Metas_Financeiras, undefined);
+    assert.strictEqual(sheets.Compromissos_Recorrentes, undefined);
+
+    const applied = runRemoteAction(context, 'schema_upgrade');
+    assert.strictEqual(applied.ok, true);
+    assert.strictEqual(applied.dryRun, false);
+    assert.strictEqual(applied.status, 'upgraded');
+    assert.deepStrictEqual(sheets.Metas_Financeiras.rows, [metasFinanceirasHeaders]);
+    assert.deepStrictEqual(sheets.Compromissos_Recorrentes.rows, [compromissosRecorrentesHeaders]);
+
+    const secondRun = runRemoteAction(context, 'schema_upgrade');
+    assert.strictEqual(secondRun.ok, true);
+    assert.strictEqual(secondRun.status, 'no_change');
+    assert.deepStrictEqual(secondRun.changes, []);
+    assert.deepStrictEqual(sheets.Metas_Financeiras.rows, [metasFinanceirasHeaders]);
+    assert.deepStrictEqual(sheets.Compromissos_Recorrentes.rows, [compromissosRecorrentesHeaders]);
+
+    const audit = runRemoteAction(context, 'sheet_audit');
+    assert.strictEqual(audit.ok, true);
+    const snapshot = runRemoteAction(context, 'snapshot');
+    assert.ok(snapshot.snapshot.includes('| `Metas_Financeiras` | 0 | YES |'));
+    assert.ok(snapshot.snapshot.includes('| `Compromissos_Recorrentes` | 0 | YES |'));
+});
+
+test('Apps Script schema_upgrade refuses optional V56 header rewrites', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    sheets.Metas_Financeiras = createFakeSheet(['legacy_header']);
+    sheets.Metas_Financeiras.getName = () => 'Metas_Financeiras';
+
+    const result = runRemoteAction(context, 'schema_upgrade');
+
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.status, 'blocked');
+    assert.ok(result.errors.some((error) => error.sheet === 'Metas_Financeiras' && error.error === 'HEADER_MISMATCH'));
+    assert.deepStrictEqual(sheets.Metas_Financeiras.rows, [['legacy_header']]);
+});
+
 test('Apps Script monthly review explains current month is not closable', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
