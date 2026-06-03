@@ -333,6 +333,7 @@ function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
     var categorySheet = spreadsheet.getSheetByName(SHEETS.CONFIG_CATEGORIAS);
     var cardSheet = spreadsheet.getSheetByName(SHEETS.CARTOES);
     var sourceSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_FONTES);
+    var commitmentSheet = spreadsheet.getSheetByName(OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES);
 
     verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
     verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS_RESUMO);
@@ -357,11 +358,16 @@ function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
     var debts = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS);
     var recurringIncomes = readRowsAsObjects_(recurringIncomeSheet, SHEETS.RENDAS_RECORRENTES);
     var sourceBalances = readRowsAsObjects_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
+    var commitments = [];
+    if (commitmentSheet) {
+      verifyOptionalV56SheetHeaders_(commitmentSheet, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES);
+      commitments = readOptionalV56RowsAsObjects_(commitmentSheet, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES);
+    }
     var categoriesById = indexBy_(readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS), 'id_categoria');
     var cardsById = indexBy_(readRowsAsObjects_(cardSheet, SHEETS.CARTOES), 'id_cartao');
     var sourcesById = indexBy_(readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES), 'id_fonte');
     var reserveTarget = Number(config.essentialCostOfLife || 5000) * Number(config.reserveMonths || 3);
-    var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget);
+    var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget, commitments);
 
     return {
       ok: true,
@@ -374,7 +380,7 @@ function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
   }
 }
 
-function computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget) {
+function computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget, commitments) {
   var dre = launches.reduce(function(summary, row) {
     var amount = numberFromSheetValue_(row.valor);
     if (row.afeta_dre !== true) return summary;
@@ -406,7 +412,7 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
   var invoiceExposure = summarizePilotInvoiceExposure_(invoices, todaySaoPaulo_(), cardsById || {}, buildPilotInvoicePaymentCoverage_(launches, invoices, cardsById || {}));
   var faturas60d = invoiceExposure.total;
   var currentInvoiceExposure = summarizeCurrentInvoiceExposure_(invoiceExposure.items, todaySaoPaulo_());
-  var obligationExposure = summarizePilotObligationExposure_(debts);
+  var obligationExposure = summarizePilotObligationExposure_(debts, commitments, todaySaoPaulo_());
   var obrigacoes60d = obligationExposure.total;
   var reservaTotal = assets.reduce(function(sum, row) {
     return row.ativo !== false && row.conta_reserva_emergencia === true
@@ -654,8 +660,10 @@ function roundRatio_(value) {
   return Math.round(value * 100) / 100;
 }
 
-function summarizePilotObligationExposure_(debts) {
-  var items = (debts || []).filter(function(row) {
+function summarizePilotObligationExposure_(debts, commitments, referenceDate) {
+  referenceDate = referenceDate || todaySaoPaulo_();
+  var windowEndDate = addDaysIsoDate_(referenceDate, 60);
+  var debtItems = (debts || []).filter(function(row) {
     return row.status === 'ativa' && numberFromSheetValue_(row.valor_parcela) > 0;
   }).map(function(row) {
     var remainingInstallments = Number(row.parcelas_total) - Number(row.parcela_atual) + 1;
@@ -668,8 +676,55 @@ function summarizePilotObligationExposure_(debts) {
       nome: stringValue_(row.nome) || friendlyIdentifier_(row.id_divida),
       valor: numberFromSheetValue_(row.valor_parcela),
       exposure: roundMoney_(exposure),
+      tipo: 'divida',
     };
-  }).sort(function(a, b) {
+  });
+  var commitmentItems = [];
+  var privateCommitmentExposure = 0;
+  var privateCommitmentCycleTotal = 0;
+  filterReviewedOptionalRows_(commitments).forEach(function(row) {
+    var amount = numberFromSheetValue_(row.valor_estimado);
+    if (amount <= 0) return;
+    var isPrivate = stringValue_(row.visibilidade) === 'privada';
+    if (isPrivate) privateCommitmentCycleTotal = roundMoney_(privateCommitmentCycleTotal + amount);
+    var dueDate = nextMonthlyDueDate_(row.dia_vencimento, referenceDate);
+    var occurrences = [];
+    if (dueDate && dueDate <= windowEndDate) occurrences.push(dueDate);
+    var secondDueDate = dueDate ? buildClampedMonthDate_(addMonthsToCompetencia_(dueDate.slice(0, 7), 1), Number(row.dia_vencimento)) : '';
+    if (secondDueDate && secondDueDate <= windowEndDate) occurrences.push(secondDueDate);
+    var exposure = roundMoney_(amount * occurrences.length);
+    if (isPrivate) {
+      privateCommitmentExposure = roundMoney_(privateCommitmentExposure + exposure);
+      return;
+    }
+    commitmentItems.push({
+      nome: stringValue_(row.nome) || friendlyIdentifier_(row.id_compromisso),
+      valor: amount,
+      exposure: exposure,
+      tipo: 'compromisso_recorrente',
+      data_vencimento: dueDate,
+      ocorrencias_60d: occurrences,
+    });
+  });
+  if (privateCommitmentExposure > 0 || privateCommitmentCycleTotal > 0) {
+    commitmentItems.push({
+      nome: 'Compromissos privados agregados',
+      valor: privateCommitmentCycleTotal,
+      exposure: privateCommitmentExposure,
+      tipo: 'compromisso_privado_agregado',
+      data_vencimento: '',
+      ocorrencias_60d: [],
+      aggregate_only: true,
+    });
+  }
+  var items = debtItems.concat(commitmentItems).sort(function(a, b) {
+    var dateA = stringValue_(a.data_vencimento);
+    var dateB = stringValue_(b.data_vencimento);
+    if (dateA || dateB) {
+      if (!dateA) return 1;
+      if (!dateB) return -1;
+      if (dateA !== dateB) return dateA < dateB ? -1 : 1;
+    }
     if (b.valor !== a.valor) return b.valor - a.valor;
     return a.nome < b.nome ? -1 : 1;
   });
@@ -2116,7 +2171,13 @@ function formatAgendaAnswer_(summary, event) {
       lines.push('Nenhum compromisso mensal cadastrado.');
     } else {
       obligationItems.slice(0, 6).forEach(function(item) {
-        lines.push('Sem data fixa: ' + item.nome + ' ' + formatMoney_(item.valor));
+        if (item.aggregate_only) {
+          lines.push('Privados agregados: ' + formatMoney_(item.exposure || item.valor));
+        } else if (item.data_vencimento) {
+          lines.push(formatShortDate_(item.data_vencimento) + ' ' + item.nome + ': ' + formatMoney_(item.valor));
+        } else {
+          lines.push('Sem data fixa: ' + item.nome + ' ' + formatMoney_(item.valor));
+        }
       });
     }
   }
@@ -2138,9 +2199,21 @@ function formatAgendaDecisionLines_(summary, invoiceItems, cardId) {
   var totalObrigacoes = cardId ? 0 : numberFromSheetValue_(summary.obrigacoes_60d);
   var totalPlanejar = roundMoney_(totalFaturas + totalObrigacoes);
   var nextInvoice = invoiceItems && invoiceItems.length > 0 ? invoiceItems[0] : null;
+  var nextObligation = null;
+  if (!cardId) {
+    var datedObligations = (summary.obrigacoes_60d_detalhe || []).filter(function(item) {
+      return item.data_vencimento && !item.aggregate_only;
+    }).sort(function(a, b) {
+      if (a.data_vencimento !== b.data_vencimento) return a.data_vencimento < b.data_vencimento ? -1 : 1;
+      return stringValue_(a.nome) < stringValue_(b.nome) ? -1 : 1;
+    });
+    nextObligation = datedObligations[0] || null;
+  }
   var confidence = numberFromSheetValue_(summary.saldos_fontes_count) > 0 ? 'alta' : 'media';
   var lines = ['Status'];
-  if (nextInvoice) {
+  if (nextObligation && (!nextInvoice || nextObligation.data_vencimento < nextInvoice.data_vencimento)) {
+    lines.push('Próximo vencimento: ' + formatShortDate_(nextObligation.data_vencimento) + ' ' + nextObligation.nome + ' ' + formatMoney_(nextObligation.valor) + '.');
+  } else if (nextInvoice) {
     lines.push('Próximo vencimento: ' + formatShortDate_(nextInvoice.data_vencimento) + ' ' + shortCardName_(nextInvoice.cartao) + ' ' + formatMoney_(nextInvoice.valor) + '.');
   } else {
     lines.push('Sem fatura aberta registrada nos próximos 60 dias.');

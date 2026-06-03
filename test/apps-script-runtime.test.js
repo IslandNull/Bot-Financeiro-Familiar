@@ -926,6 +926,40 @@ test('Apps Script /resumo separates current liquidity from 60-day exposure and s
     assert.doesNotMatch(result.responseText, /Ãšltimos gastos|Ultimos gastos/);
 });
 
+test('Apps Script /resumo includes reviewed recurring commitments without exposing private names', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeSourceBalance(sheets, { saldo_disponivel: 3000 });
+    appendFakeCommitment(sheets, {
+        nome: 'Condominio',
+        valor_estimado: 700,
+        dia_vencimento: 5,
+        visibilidade: 'detalhada',
+    });
+    appendFakeCommitment(sheets, {
+        id_compromisso: 'COMP_PRIV',
+        nome: 'Assinatura privada',
+        valor_estimado: 80,
+        dia_vencimento: 3,
+        escopo: 'Luana',
+        visibilidade: 'privada',
+    });
+
+    const result = runRemoteAction(context, 'summary');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.summary.obrigacoes_ciclo, 780);
+    assert.strictEqual(result.summary.obrigacoes_60d, 1560);
+    assert.ok(result.summary.obrigacoes_60d_detalhe.some((item) => item.nome === 'Condominio' && item.data_vencimento === '2026-05-05'));
+    assert.ok(result.summary.obrigacoes_60d_detalhe.some((item) => item.nome === 'Compromissos privados agregados' && item.aggregate_only === true));
+    assert.doesNotMatch(result.responseText, /Assinatura privada/);
+});
+
 test('Apps Script /resumo subtracts effective invoice payments when invoice rows still look open', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
@@ -1338,6 +1372,13 @@ test('Apps Script answers agenda command with dated invoices and obligations', (
         status: 'prevista',
     });
     appendFakeDebt(sheets, { nome: 'Financiamento casa', valor_parcela: 878.41 });
+    appendFakeCommitment(sheets, {
+        nome: 'Condominio',
+        valor_estimado: 700,
+        dia_vencimento: 5,
+        prioridade: 'alta',
+        visibilidade: 'detalhada',
+    });
 
     const result = postPilotMessage(context, '/agenda');
 
@@ -1349,6 +1390,7 @@ test('Apps Script answers agenda command with dated invoices and obligations', (
     assert.match(result.responseText, /Aten..o/);
     assert.match(result.responseText, /07\/05 .*Nubank.*R\$ 300,00/);
     assert.match(result.responseText, /07\/06 .*Nubank.*R\$ 200,00/);
+    assert.match(result.responseText, /05\/05 Condominio: R\$ 700,00/);
     assert.match(result.responseText, /Financiamento casa.*R\$ 878,41/);
     assert.match(result.responseText, /N.o . tudo vencendo hoje/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
@@ -1381,6 +1423,13 @@ test('Apps Script agenda decision drill-down highlights next action without muta
         status: 'prevista',
     });
     appendFakeDebt(sheets, { nome: 'Financiamento casa', valor_parcela: 878.41 });
+    appendFakeCommitment(sheets, {
+        nome: 'Condominio',
+        valor_estimado: 700,
+        dia_vencimento: 5,
+        prioridade: 'alta',
+        visibilidade: 'detalhada',
+    });
 
     const beforeRows = JSON.stringify(sheets);
     const result = postTelegramCallback(context, 'act:agenda_current');
@@ -1390,9 +1439,10 @@ test('Apps Script agenda decision drill-down highlights next action without muta
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(text, /Agenda financeira de abril/);
     assert.match(text, /Pr.ximo vencimento/);
+    assert.match(text, /05\/05 Condominio R\$ 700,00/);
     assert.match(text, /07\/05 .*Nubank.*R\$ 300,00/);
     assert.match(text, /A..o sugerida/);
-    assert.match(text, /separar .*R\$ 2256,82/i);
+    assert.match(text, /separar .*R\$ 3656,82/i);
     assert.match(text, /N.o fazer/);
     assert.match(text, /Confianca: alta/);
     assert.strictEqual(JSON.stringify(sheets), beforeRows);
