@@ -406,8 +406,8 @@ function appendRuntimeConfigRows(sheets) {
             ativo: true,
         },
         {
-            id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_DINHEIRO',
-            nome: 'Transporte trabalho Gustavo dinheiro',
+            id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO',
+            nome: 'Transporte trabalho Gustavo avulso',
             grupo: 'Transporte',
             tipo_evento_padrao: 'despesa',
             classe_dre: 'despesa_operacional',

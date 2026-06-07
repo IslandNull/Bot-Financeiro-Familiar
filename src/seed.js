@@ -80,8 +80,8 @@ const canonicalSeed = {
             ativo: true,
         },
         {
-            id_categoria: 'OPEX_DESENVOLVIMENTO_PROFISSIONAL_DINHEIRO',
-            nome: 'Desenvolvimento profissional dinheiro',
+            id_categoria: 'OPEX_DESENVOLVIMENTO_PROFISSIONAL_AVULSO',
+            nome: 'Desenvolvimento profissional avulso',
             grupo: 'Carreira',
             tipo_evento_padrao: 'despesa',
             classe_dre: 'despesa_operacional',
@@ -110,8 +110,8 @@ const canonicalSeed = {
             ativo: true,
         },
         {
-            id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_DINHEIRO',
-            nome: 'Transporte trabalho Gustavo dinheiro',
+            id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO',
+            nome: 'Transporte trabalho Gustavo avulso',
             grupo: 'Transporte',
             tipo_evento_padrao: 'despesa',
             classe_dre: 'despesa_operacional',
@@ -200,8 +200,8 @@ const canonicalSeed = {
             ativo: true,
         },
         {
-            id_categoria: 'OPEX_LAZER_PESSOAL_DINHEIRO',
-            nome: 'Lazer pessoal dinheiro',
+            id_categoria: 'OPEX_LAZER_PESSOAL_AVULSO',
+            nome: 'Lazer pessoal avulso',
             grupo: 'Lazer',
             tipo_evento_padrao: 'despesa',
             classe_dre: 'despesa_operacional',

@@ -3778,8 +3778,8 @@ test('Apps Script cash account payment with explicit category is not recorded as
         parcelas: 1,
     });
     sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => ({
-        id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_DINHEIRO',
-        nome: 'Transporte trabalho Gustavo dinheiro',
+        id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO',
+        nome: 'Transporte trabalho Gustavo avulso',
         grupo: 'Transporte',
         tipo_evento_padrao: 'despesa',
         classe_dre: 'despesa_operacional',
@@ -3817,12 +3817,12 @@ test('Apps Script cash account payment with explicit category is not recorded as
         ativo: true,
     })[header] ?? ''));
 
-    const result = postPilotMessage(context, 'Paguei estacionamento aeroporto Gustavo trabalho 90 pela Conta Mercado Pago Gustavo em 05/05. Categoria transporte trabalho Gustavo dinheiro.');
+    const result = postPilotMessage(context, 'Paguei estacionamento aeroporto Gustavo trabalho 90 pela Conta Mercado Pago Gustavo em 05/05. Categoria transporte trabalho Gustavo avulso.');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.tipo_evento, 'despesa');
-    assert.strictEqual(launch.id_categoria, 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_DINHEIRO');
+    assert.strictEqual(launch.id_categoria, 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO');
     assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_MERCADO_PAGO_GU');
     assert.strictEqual(launch.id_cartao, '');
     assert.strictEqual(launch.id_fatura, '');

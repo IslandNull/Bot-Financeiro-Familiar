@@ -10,6 +10,7 @@ const {
     getSheetNames,
     validateSchema,
 } = require('../src/schema');
+const { getSeedRows } = require('../src/seed');
 
 function test(name, fn) {
     fn();
@@ -113,4 +114,14 @@ test('decision-capacity sheets exist before Telegram phase', () => {
         'observacao',
         'created_at',
     ]);
+});
+
+test('canonical active category ids avoid payment-medium wording', () => {
+    const categories = getSeedRows(SHEETS.CONFIG_CATEGORIAS);
+    const offenders = categories
+        .filter((row) => row.ativo !== false)
+        .filter((row) => /DINHEIRO/i.test(`${row.id_categoria} ${row.nome}`))
+        .map((row) => row.id_categoria);
+
+    assert.deepStrictEqual(offenders, []);
 });
