@@ -40,7 +40,7 @@ Operational authority for Bot Financeiro Familiar V55/V56.
 - V56 weekly digest preview is available as `doGet?action=copilot_digest_preview` / `npm run digest:preview`; it returns structured digest payload plus Telegram-ready text and never sends Telegram messages.
 - Gated V56 weekly digest delivery is available as trigger-safe `runCopilotWeeklyDigestDeliveryV56` / `doGet?action=copilot_digest_send` / `npm run digest:send`; it sends only when `COPILOT_DIGEST_ENABLED=YES`.
 - Optional IA narrator is deployed behind `COPILOT_NARRATOR_ENABLED=YES`; it uses OpenAI structured output only over deterministic insight payloads, rejects invented numbers/internal IDs, and falls back to deterministic text.
-- Web App deployment `@227` is authorized; remote quick smoke passes for `selftest` + `summary`, optional goals/commitments previews are read-only, and `sheet:audit` reports 0 errors and 0 warnings.
+- Web App deployment `@231` is authorized; remote quick smoke passes for `selftest` + `summary`, optional goals/commitments previews are read-only, and `sheet:audit` reports 0 errors and 0 warnings.
 - The inactive-category audit warning was cleaned on 2026-06-03 by updating exactly 1 `Lancamentos.id_categoria` from `OPEX_VESTUARIO_LUANA` to active replacement `OPEX_ROUPAS_LUANA`; remote `sheet:audit` now reports 0 errors and 0 warnings.
 - Real optional V56 sheets were migrated on 2026-06-03 by creating `Metas_Financeiras` and `Compromissos_Recorrentes` with schema headers only; `schema_upgrade_dry_run` is now idempotent and reports `no_change`.
 

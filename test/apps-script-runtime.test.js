@@ -1676,6 +1676,42 @@ test('Apps Script optional V56 sheets are audited only when present', () => {
     assert.ok(broken.findings.some((finding) => finding.sheet === 'Compromissos_Recorrentes' && finding.code === 'UNKNOWN_REFERENCE'));
 });
 
+test('Apps Script optional V56 audit blocks incomplete reviewed rows and warns on active drafts', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    appendFakeGoal(sheets, {
+        valor_alvo: '',
+        revisado_em: '',
+    });
+    appendFakeCommitment(sheets, {
+        id_compromisso: 'COMP_INVALID',
+        valor_estimado: '',
+        dia_vencimento: 40,
+        revisado_em: '20/04/2026',
+    });
+    appendFakeCommitment(sheets, {
+        id_compromisso: 'COMP_DRAFT',
+        nome: 'Rascunho ativo',
+        status_revisao: 'rascunho',
+        ativo: true,
+    });
+
+    const result = runRemoteAction(context, 'sheet_audit');
+
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.findings.some((finding) => finding.sheet === 'Metas_Financeiras' && finding.code === 'MISSING_REQUIRED_FIELD' && finding.field === 'valor_alvo'));
+    assert.ok(result.findings.some((finding) => finding.sheet === 'Metas_Financeiras' && finding.code === 'MISSING_REQUIRED_FIELD' && finding.field === 'revisado_em'));
+    assert.ok(result.findings.some((finding) => finding.sheet === 'Compromissos_Recorrentes' && finding.code === 'MISSING_REQUIRED_FIELD' && finding.field === 'valor_estimado'));
+    assert.ok(result.findings.some((finding) => finding.sheet === 'Compromissos_Recorrentes' && finding.code === 'INVALID_DUE_DAY'));
+    assert.ok(result.findings.some((finding) => finding.sheet === 'Compromissos_Recorrentes' && finding.code === 'INVALID_DATE' && finding.field === 'revisado_em'));
+    assert.ok(result.findings.some((finding) => finding.sheet === 'Compromissos_Recorrentes' && finding.code === 'UNREVIEWED_ACTIVE_OPTIONAL_ROW' && finding.severity === 'warning'));
+});
+
 test('Apps Script schema_upgrade creates optional V56 sheets with headers only', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
