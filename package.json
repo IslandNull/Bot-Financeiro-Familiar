@@ -20,6 +20,7 @@
     "summary": "node scripts/clasp-run.js summary",
     "goals:preview": "node scripts/clasp-run.js goals_preview",
     "commitments:preview": "node scripts/clasp-run.js commitments_preview",
+    "optional:v56:template": "node scripts/clasp-run.js optional_v56_template",
     "digest:preview": "node scripts/clasp-run.js copilot_digest_preview",
     "digest:send": "node scripts/clasp-run.js copilot_digest_send",
     "schema:upgrade:dry-run": "node scripts/clasp-run.js schema_upgrade_dry_run",

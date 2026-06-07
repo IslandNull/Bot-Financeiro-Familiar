@@ -78,6 +78,7 @@ doGet(e)
        ├─ safe_to_spend → exportSafeToSpendV56()
        ├─ goals_preview → buildGoalsResponse_()
        ├─ commitments_preview → buildCommitmentsResponse_()
+       ├─ optional_v56_template → exportOptionalV56Template()
        ├─ copilot_digest_preview → exportCopilotDigestPreviewV56()
        ├─ copilot_digest_send → runCopilotWeeklyDigestDeliveryV56()
        ├─ closing_draft → writeDraftFamilyClosingV55()
@@ -86,7 +87,7 @@ doGet(e)
        └─ sheet_audit → exportSheetAuditV55()
 ```
 
-Remote read-only previews now include `summary`, `cut_first`, `safe_to_spend`, `goals_preview`, `commitments_preview`, and `copilot_digest_preview`; digest send is gated by `COPILOT_DIGEST_ENABLED=YES`; mutation-oriented closing actions remain explicit.
+Remote read-only previews now include `summary`, `cut_first`, `safe_to_spend`, `goals_preview`, `commitments_preview`, `optional_v56_template`, and `copilot_digest_preview`; digest send is gated by `COPILOT_DIGEST_ENABLED=YES`; mutation-oriented closing actions remain explicit.
 
 **Validation scripts:**
 - `npm run check`: local syntax and deterministic tests.
@@ -96,6 +97,7 @@ Remote read-only previews now include `summary`, `cut_first`, `safe_to_spend`, `
 - `npm run snapshot`: explicit redacted spreadsheet evidence refresh.
 - `npm run goals:preview`: remote optional V56 goals preview; read-only.
 - `npm run commitments:preview`: remote optional V56 recurring commitments preview; read-only.
+- `npm run optional:v56:template`: remote optional V56 reviewed-row template; read-only, placeholders only.
 - `npm run digest:preview`: remote weekly copilot digest preview; read-only, no Telegram send.
 - `npm run digest:send`: remote weekly copilot digest delivery; sends only when `COPILOT_DIGEST_ENABLED=YES`.
 - `npm run schema:upgrade:dry-run`: remote schema migration dry-run for optional V56 sheets.

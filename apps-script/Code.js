@@ -126,6 +126,9 @@ function doGet(e) {
   if (action === 'commitments_preview') {
     return json_(buildCommitmentsResponse_(config));
   }
+  if (action === 'optional_v56_template') {
+    return json_(exportOptionalV56Template());
+  }
   if (action === 'copilot_digest_preview') {
     return json_(exportCopilotDigestPreviewV56(params.competencia));
   }
@@ -1073,3 +1076,72 @@ function upgradeSchemaV56(options) {
   };
 }
 
+function exportOptionalV56Template() {
+  var goalHeaders = OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS];
+  var commitmentHeaders = OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES];
+  var goalRow = {
+    id_meta: 'META_<SLUG_APROVADO>',
+    nome: '<NOME_DA_META_APROVADA>',
+    tipo: '<reserva|compra_planejada|divida|outro>',
+    escopo: 'Familiar',
+    valor_alvo: '<VALOR_REAL_APROVADO>',
+    valor_atual_manual: '<OPCIONAL_VALOR_REAL_ATUAL>',
+    data_alvo: '<OPCIONAL_YYYY-MM-DD>',
+    contribuicao_mensal_planejada: '<OPCIONAL_VALOR_REAL_MENSAL>',
+    prioridade: 'alta',
+    visibilidade: 'detalhada',
+    status_revisao: 'revisado',
+    revisado_em: '<YYYY-MM-DD>',
+    ativo: true,
+    observacao: '<OPCIONAL_CONTEXTO_REVISADO>',
+  };
+  var commitmentRow = {
+    id_compromisso: 'COMP_<SLUG_APROVADO>',
+    nome: '<NOME_DO_COMPROMISSO_APROVADO>',
+    tipo: '<moradia|assinatura|financiamento|servico|outro>',
+    escopo: 'Familiar',
+    valor_estimado: '<VALOR_REAL_APROVADO>',
+    dia_vencimento: '<1..31>',
+    id_categoria: '<ID_CATEGORIA_ATIVA_OU_VAZIO>',
+    id_fonte: '<ID_FONTE_ATIVA_OU_VAZIO>',
+    prioridade: 'alta',
+    visibilidade: 'detalhada',
+    status_revisao: 'revisado',
+    revisado_em: '<YYYY-MM-DD>',
+    ativo: true,
+    observacao: '<OPCIONAL_CONTEXTO_REVISADO>',
+  };
+  return {
+    ok: true,
+    shouldApplyDomainMutation: false,
+    responseText: [
+      'Modelo V56 opcional para preenchimento revisado',
+      '',
+      'Uso',
+      'Copiar apenas depois de substituir todos os placeholders por dados reais aprovados.',
+      '',
+      'Nao fazer',
+      'Nao colar placeholders, estimativas nao revisadas ou linhas ativas sem status_revisao=revisado.',
+      '',
+      'Validacao',
+      'Depois de preencher, rodar sheet_audit antes de depender dessas linhas no Copiloto.',
+    ].join('\n'),
+    rules: [
+      'Use somente dados reais aprovados pelo dono.',
+      'Linhas ativas precisam ter status_revisao=revisado e revisado_em em YYYY-MM-DD.',
+      'Valores monetarios revisados precisam ser positivos quando obrigatorios.',
+      'Linhas privadas podem usar visibilidade=privada; views compartilhadas ficam agregado-only.',
+      'Remova rascunhos sem utilidade; nao mantenha lixo legado ativo.',
+    ],
+    sheets: {
+      Metas_Financeiras: {
+        headers: goalHeaders.slice(),
+        rows: [goalRow],
+      },
+      Compromissos_Recorrentes: {
+        headers: commitmentHeaders.slice(),
+        rows: [commitmentRow],
+      },
+    },
+  };
+}

@@ -1772,6 +1772,33 @@ test('Apps Script schema_upgrade refuses optional V56 header rewrites', () => {
     assert.deepStrictEqual(sheets.Metas_Financeiras.rows, [['legacy_header']]);
 });
 
+test('Apps Script optional V56 template action returns read-only reviewed row guidance', () => {
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: {
+            PILOT_FINANCIAL_MUTATION_ENABLED: '',
+            OPENAI_API_KEY: '',
+        },
+    });
+    assert.strictEqual(runRemoteAction(context, 'schema_upgrade').ok, true);
+    const beforeGoalRows = sheets.Metas_Financeiras.rows.length;
+    const beforeCommitmentRows = sheets.Compromissos_Recorrentes.rows.length;
+
+    const result = runRemoteAction(context, 'optional_v56_template');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.deepStrictEqual(result.sheets.Metas_Financeiras.headers, metasFinanceirasHeaders);
+    assert.deepStrictEqual(result.sheets.Compromissos_Recorrentes.headers, compromissosRecorrentesHeaders);
+    assert.strictEqual(result.sheets.Metas_Financeiras.rows.length, 1);
+    assert.strictEqual(result.sheets.Compromissos_Recorrentes.rows.length, 1);
+    assert.strictEqual(result.sheets.Metas_Financeiras.rows[0].valor_alvo, '<VALOR_REAL_APROVADO>');
+    assert.strictEqual(result.sheets.Compromissos_Recorrentes.rows[0].valor_estimado, '<VALOR_REAL_APROVADO>');
+    assert.match(result.responseText, /Nao colar placeholders/);
+    assert.strictEqual(sheets.Metas_Financeiras.rows.length, beforeGoalRows);
+    assert.strictEqual(sheets.Compromissos_Recorrentes.rows.length, beforeCommitmentRows);
+});
+
 test('Apps Script monthly review explains current month is not closable', () => {
     const { context, sheets } = createAppsScriptHarness(null, {
         failOnFetch: true,
