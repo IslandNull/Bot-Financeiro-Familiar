@@ -112,10 +112,10 @@ test('sheet audit accepts optional V56 sheets when present and audits recurring 
                 { id_fonte: 'FONTE_CONTA', nome: 'Conta', ativo: true },
             ]),
             [OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS]: sheet(OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS], [
-                { id_meta: 'META_RESERVA', nome: 'Reserva', ativo: true },
+                { id_meta: 'META_RESERVA', nome: 'Reserva', tipo: 'reserva', escopo: 'Familiar', valor_alvo: 10000, prioridade: 'alta', visibilidade: 'detalhada', status_revisao: 'revisado', revisado_em: '2026-06-07', ativo: true },
             ]),
             [OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES]: sheet(OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES], [
-                { id_compromisso: 'COMP_ALUGUEL', nome: 'Aluguel', valor_estimado: 1500, dia_vencimento: 5, id_categoria: 'OPEX_MORADIA', id_fonte: 'FONTE_CONTA', ativo: true },
+                { id_compromisso: 'COMP_ALUGUEL', nome: 'Aluguel', tipo: 'moradia', escopo: 'Familiar', valor_estimado: 1500, dia_vencimento: 5, id_categoria: 'OPEX_MORADIA', id_fonte: 'FONTE_CONTA', prioridade: 'alta', visibilidade: 'detalhada', status_revisao: 'revisado', revisado_em: '2026-06-07', ativo: true },
             ]),
         },
     };
@@ -128,4 +128,68 @@ test('sheet audit accepts optional V56 sheets when present and audits recurring 
     const broken = auditSheetState(state);
     assert.strictEqual(broken.ok, false);
     assert.ok(broken.findings.some((finding) => finding.sheet === OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES && finding.code === 'UNKNOWN_REFERENCE'));
+});
+
+test('sheet audit blocks incomplete reviewed optional V56 rows and warns on active drafts', () => {
+    const emptySheets = Object.fromEntries(
+        Object.keys(HEADERS).map((sheetName) => [sheetName, sheet(HEADERS[sheetName], [])])
+    );
+    const state = {
+        sheets: {
+            ...emptySheets,
+            [SHEETS.CONFIG_CATEGORIAS]: sheet(HEADERS[SHEETS.CONFIG_CATEGORIAS], [
+                { id_categoria: 'OPEX_MORADIA', nome: 'Moradia', ativo: true },
+            ]),
+            [SHEETS.CONFIG_FONTES]: sheet(HEADERS[SHEETS.CONFIG_FONTES], [
+                { id_fonte: 'FONTE_CONTA', nome: 'Conta', ativo: true },
+            ]),
+            [OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS]: sheet(OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS], [
+                {
+                    id_meta: 'META_INVALIDA',
+                    nome: 'Meta invalida',
+                    tipo: 'reserva',
+                    escopo: 'Familiar',
+                    valor_alvo: '',
+                    prioridade: 'alta',
+                    visibilidade: 'detalhada',
+                    status_revisao: 'revisado',
+                    revisado_em: '',
+                    ativo: true,
+                },
+            ]),
+            [OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES]: sheet(OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES], [
+                {
+                    id_compromisso: 'COMP_INVALIDO',
+                    nome: 'Conta invalida',
+                    tipo: 'moradia',
+                    escopo: 'Familiar',
+                    valor_estimado: '',
+                    dia_vencimento: 40,
+                    id_categoria: 'OPEX_MORADIA',
+                    id_fonte: 'FONTE_CONTA',
+                    prioridade: 'alta',
+                    visibilidade: 'detalhada',
+                    status_revisao: 'revisado',
+                    revisado_em: '20/04/2026',
+                    ativo: true,
+                },
+                {
+                    id_compromisso: 'COMP_RASCUNHO',
+                    nome: 'Rascunho ativo',
+                    status_revisao: 'rascunho',
+                    ativo: true,
+                },
+            ]),
+        },
+    };
+
+    const result = auditSheetState(state);
+
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.findings.some((finding) => finding.sheet === OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS && finding.code === 'MISSING_REQUIRED_FIELD' && finding.field === 'valor_alvo'));
+    assert.ok(result.findings.some((finding) => finding.sheet === OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS && finding.code === 'MISSING_REQUIRED_FIELD' && finding.field === 'revisado_em'));
+    assert.ok(result.findings.some((finding) => finding.sheet === OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES && finding.code === 'MISSING_REQUIRED_FIELD' && finding.field === 'valor_estimado'));
+    assert.ok(result.findings.some((finding) => finding.sheet === OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES && finding.code === 'INVALID_DUE_DAY'));
+    assert.ok(result.findings.some((finding) => finding.sheet === OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES && finding.code === 'INVALID_DATE' && finding.field === 'revisado_em'));
+    assert.ok(result.findings.some((finding) => finding.sheet === OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES && finding.code === 'UNREVIEWED_ACTIVE_OPTIONAL_ROW' && finding.severity === 'warning'));
 });

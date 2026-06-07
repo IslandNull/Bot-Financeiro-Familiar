@@ -49,7 +49,8 @@ function auditSheetState(state) {
   auditCardReferences(findings, rows[SHEETS.CARTOES], sources);
   auditInvoiceReferences(findings, rows[SHEETS.FATURAS_RESUMO], cards);
   auditObligations(findings, rows[SHEETS.DIVIDAS]);
-  auditOptionalV56References(findings, optionalRows[OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES], { categories, sources });
+  auditOptionalV56Goals(findings, optionalRows[OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS]);
+  auditOptionalV56Commitments(findings, optionalRows[OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES], { categories, sources });
 
   const summary = summarizeFindings(findings);
   return { ok: summary.error === 0, findings: compactFindings(findings), summary };
@@ -120,8 +121,42 @@ function readOptionalV56Rows(findings, sheets) {
   }, {});
 }
 
-function auditOptionalV56References(findings, commitments, refs) {
+function auditOptionalV56Goals(findings, goals) {
+  (goals || []).forEach((row) => {
+    const active = row.ativo !== false;
+    const reviewed = isReviewedOptionalRow(row);
+    if (active && !reviewed) {
+      add(findings, 'UNREVIEWED_ACTIVE_OPTIONAL_ROW', 'warning', OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS, 'status_revisao', 1, 'active optional V56 rows should be reviewed or removed to avoid stale planning data');
+      return;
+    }
+    if (!active || !reviewed) return;
+    auditOptionalRequiredFields(findings, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS, row, ['id_meta', 'nome', 'tipo', 'escopo', 'valor_alvo', 'prioridade', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo']);
+    auditOptionalEnumField(findings, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS, 'escopo', row.escopo, ['Familiar', 'Gustavo', 'Luana']);
+    auditOptionalEnumField(findings, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS, 'visibilidade', row.visibilidade, ['detalhada', 'privada']);
+    auditOptionalEnumField(findings, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS, 'prioridade', normalizeAuditText(row.prioridade), ['critica', 'alta', 'media', 'baixa']);
+    auditOptionalPositiveMoney(findings, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS, 'valor_alvo', row.valor_alvo);
+    auditOptionalNonNegativeMoney(findings, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS, 'valor_atual_manual', row.valor_atual_manual, true);
+    auditOptionalNonNegativeMoney(findings, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS, 'contribuicao_mensal_planejada', row.contribuicao_mensal_planejada, true);
+    auditOptionalIsoDate(findings, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS, 'data_alvo', row.data_alvo, true);
+    auditOptionalIsoDate(findings, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS, 'revisado_em', row.revisado_em, false);
+  });
+}
+
+function auditOptionalV56Commitments(findings, commitments, refs) {
   (commitments || []).forEach((row) => {
+    const active = row.ativo !== false;
+    const reviewed = isReviewedOptionalRow(row);
+    if (active && !reviewed) {
+      add(findings, 'UNREVIEWED_ACTIVE_OPTIONAL_ROW', 'warning', OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'status_revisao', 1, 'active optional V56 rows should be reviewed or removed to avoid stale planning data');
+      return;
+    }
+    if (!active || !reviewed) return;
+    auditOptionalRequiredFields(findings, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, row, ['id_compromisso', 'nome', 'tipo', 'escopo', 'valor_estimado', 'dia_vencimento', 'prioridade', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo']);
+    auditOptionalEnumField(findings, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'escopo', row.escopo, ['Familiar', 'Gustavo', 'Luana']);
+    auditOptionalEnumField(findings, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'visibilidade', row.visibilidade, ['detalhada', 'privada']);
+    auditOptionalEnumField(findings, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'prioridade', normalizeAuditText(row.prioridade), ['critica', 'alta', 'media', 'baixa']);
+    auditOptionalPositiveMoney(findings, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'valor_estimado', row.valor_estimado);
+    auditOptionalIsoDate(findings, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'revisado_em', row.revisado_em, false);
     checkOptionalReference(findings, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'id_categoria', row.id_categoria, refs.categories);
     checkOptionalReference(findings, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'id_fonte', row.id_fonte, refs.sources);
     const day = Number(row.dia_vencimento || 0);
@@ -129,6 +164,48 @@ function auditOptionalV56References(findings, commitments, refs) {
       add(findings, 'INVALID_DUE_DAY', 'error', OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'dia_vencimento', 1, 'dia_vencimento must be 1..31');
     }
   });
+}
+
+function isReviewedOptionalRow(row) {
+  const status = normalizeAuditText(row && row.status_revisao);
+  return status === 'revisado' || status === 'reviewed' || status === 'aprovado';
+}
+
+function auditOptionalRequiredFields(findings, sheetName, row, fields) {
+  fields.forEach((field) => {
+    if (stringValue(row[field]) === '') {
+      add(findings, 'MISSING_REQUIRED_FIELD', 'error', sheetName, field, 1, 'reviewed optional V56 row is missing required field: ' + field);
+    }
+  });
+}
+
+function auditOptionalEnumField(findings, sheetName, field, value, allowed) {
+  const text = stringValue(value);
+  if (!text || allowed.includes(text)) return;
+  add(findings, 'INVALID_ENUM_VALUE', 'error', sheetName, field, 1, 'reviewed optional V56 field has invalid value: ' + text);
+}
+
+function auditOptionalPositiveMoney(findings, sheetName, field, value) {
+  const amount = numberFromSheetValue(value);
+  if (Number.isNaN(amount) || amount <= 0) {
+    add(findings, 'INVALID_MONEY_VALUE', 'error', sheetName, field, 1, 'reviewed optional V56 money field must be greater than zero');
+  }
+}
+
+function auditOptionalNonNegativeMoney(findings, sheetName, field, value, allowBlank) {
+  if (allowBlank && stringValue(value) === '') return;
+  const amount = numberFromSheetValue(value);
+  if (Number.isNaN(amount) || amount < 0) {
+    add(findings, 'INVALID_MONEY_VALUE', 'error', sheetName, field, 1, 'reviewed optional V56 money field must be zero or greater');
+  }
+}
+
+function auditOptionalIsoDate(findings, sheetName, field, value, allowBlank) {
+  const text = formatDateValue(value);
+  if (allowBlank && !text) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || !isValidIsoDate(text)) {
+    add(findings, 'INVALID_DATE', 'error', sheetName, field, 1, 'reviewed optional V56 date field must use YYYY-MM-DD');
+  }
 }
 
 function checkOptionalReference(findings, sheetName, field, value, index) {
@@ -213,6 +290,39 @@ function formatAuditReport(result) {
 function stringValue(value) {
   if (value === undefined || value === null) return '';
   return String(value).trim();
+}
+
+function normalizeAuditText(value) {
+  return stringValue(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function numberFromSheetValue(value) {
+  if (typeof value === 'number') return value;
+  const text = stringValue(value);
+  if (!text) return NaN;
+  return Number(text.replace(',', '.'));
+}
+
+function formatDateValue(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  return stringValue(value);
+}
+
+function isValidIsoDate(value) {
+  const match = stringValue(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
 }
 
 function loadStateFromJson(filePath) {
