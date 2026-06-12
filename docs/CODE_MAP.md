@@ -130,7 +130,7 @@ Remote read-only previews now include `summary`, `cut_first`, `safe_to_spend`, `
 
 `Telegram_Send_Log` is retired from the live schema. Manual owner check on 2026-05-23 confirmed the real spreadsheet no longer has backup sheets or retired send-log sheets.
 
-Optional V56 contracts for `Metas_Financeiras` and `Compromissos_Recorrentes` live in `src/schema.js` and are present in the real spreadsheet with headers only until reviewed rows are added. Runtime views and audit coverage are available; read-only Telegram views use active rows marked `status_revisao=revisado`, and private rows remain aggregate-only.
+Optional V56 contracts for `Metas_Financeiras` and `Compromissos_Recorrentes` live in `src/schema.js` and are present in the real spreadsheet. Runtime views and audit coverage are available; read-only Telegram views use active rows marked `status_revisao=revisado`, and private rows remain aggregate-only. Current real reviewed optional rows are the emergency reserve goal and the recurring airport parking commitment.
 
 Full headers in `SHEET_SCHEMA.md`.
 
