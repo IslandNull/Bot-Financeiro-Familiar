@@ -6,7 +6,10 @@ function readConfig_() {
   
   var reserveMonths = Number(props.getProperty('RESERVE_MONTHS'));
   if (isNaN(reserveMonths) || reserveMonths <= 0) reserveMonths = 3;
-  var balanceFreshnessDays = Number(props.getProperty('BALANCE_FRESHNESS_DAYS'));
+  var balanceFreshnessDaysRaw = props.getProperty('BALANCE_FRESHNESS_DAYS');
+  var balanceFreshnessDays = balanceFreshnessDaysRaw === null || String(balanceFreshnessDaysRaw).trim() === ''
+    ? 7
+    : Number(balanceFreshnessDaysRaw);
   if (!isFinite(balanceFreshnessDays) || balanceFreshnessDays < 0) balanceFreshnessDays = 7;
 
   return {

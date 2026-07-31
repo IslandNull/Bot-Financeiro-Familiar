@@ -120,6 +120,22 @@ test('Apps Script runtime reads expected script properties without hardcoded sec
     assert.ok(!/1[A-Za-z0-9_-]{25,}/.test(code));
 });
 
+test('Apps Script balance freshness defaults to 7 days and preserves an explicit zero', () => {
+    const { context: defaultContext } = createAppsScriptHarness(null, { failOnFetch: true });
+    const { context: blankContext } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: { BALANCE_FRESHNESS_DAYS: '   ' },
+    });
+    const { context: zeroContext } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: { BALANCE_FRESHNESS_DAYS: '0' },
+    });
+
+    assert.strictEqual(defaultContext.readConfig_().balanceFreshnessDays, 7);
+    assert.strictEqual(blankContext.readConfig_().balanceFreshnessDays, 7);
+    assert.strictEqual(zeroContext.readConfig_().balanceFreshnessDays, 0);
+});
+
 test('Apps Script runtime gates and narrows financial mutation', () => {
     assert.ok(code.includes('INVALID_WEBHOOK_SECRET'));
     assert.ok(code.includes('UNAUTHORIZED'));
@@ -5439,9 +5455,9 @@ test('Apps Script manifest is a web app in project timezone', () => {
 
 test('Apps Script manifest declares runtime service scopes explicitly', () => {
     assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.external_request'));
+    assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.scriptapp'));
     assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.storage'));
     assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/spreadsheets'));
-    assert.ok(!manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.scriptapp'));
 });
 
 test('Apps Script parser prompt formats conversation history context', () => {

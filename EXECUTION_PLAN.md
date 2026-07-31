@@ -24,23 +24,20 @@ Operational authority for Bot Financeiro Familiar V56.
 
 ### Remote rollout state
 
-- VERIFIED: `.env` URL and deployment ID align; Apps Script API reports `ANYONE_ANONYMOUS`/`USER_DEPLOYING`; runtime version 239 is published.
-- BLOCKED: the deploying owner has not granted this script its declared Spreadsheet, Properties and external-request scopes. Anonymous requests receive Google Drive 403 before `doGet`, so remote smoke and safe schema migration cannot run yet.
-- VERIFIED: GitHub variable `VAL_TOWN_VAL` targets the existing public Val project.
-- TODO: add GitHub secret `VAL_TOWN_API_KEY`; no key is available in local environment or repository.
-- TODO after owner OAuth consent: smoke, header-only `Regras_Importacao` migration, audit/snapshot, previews and digest trigger activation.
+- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 241 is published.
+- VERIFIED: owner OAuth consent covers Spreadsheet, Properties, external requests and Apps Script trigger management.
+- VERIFIED: quick/full remote smoke pass; sheet audit has zero findings and the redacted snapshot is current.
+- VERIFIED: the idempotent migration created `Regras_Importacao` with header only; no financial row was created or deleted.
+- VERIFIED: pending-attention uses the 7-day default; alerts/import/digest previews pass and immediate alerts remain disabled.
+- VERIFIED: exactly one Monday 08:00 weekly digest trigger exists; digest delivery is enabled without an immediate deploy-time send.
+- VERIFIED: GitHub variable `VAL_TOWN_VAL` and secret name `VAL_TOWN_API_KEY` are configured; no secret value was read or stored locally.
+- TODO: owner reviews and merges the draft PR; the main-branch workflow then publishes the versioned Val Town proxy.
 
-## Required rollout order
+## Remaining release order
 
-1. Owner signs in to the opened Google page, reviews this project's requested scopes and grants consent.
-2. `npm run smoke`.
-3. `npm run schema:upgrade:dry-run`, then `npm run schema:upgrade`.
-4. `npm run smoke:full`, `npm run sheet:audit`, and redacted `npm run snapshot`.
-5. Preview `pending_attention_preview`, `alerts_preview`, `import_selftest` and `copilot_digest_preview`.
-6. Run `ensureCopilotWeeklyDigestTriggerV56`; only after passing previews/smoke run `activateCopilotDigestAfterApprovalV56` (does not send immediately).
-7. Keep `COPILOT_ALERTS_ENABLED=NO`.
-8. Add `VAL_TOWN_API_KEY` as a GitHub secret; post-merge workflow publishes the versioned proxy.
-9. Never merge the draft PR automatically.
+1. Keep the PR draft until owner review is complete.
+2. Never merge automatically.
+3. After the owner merges, verify the Val Town workflow and signed edge smoke without exposing secrets.
 
 ## Runtime configuration
 
