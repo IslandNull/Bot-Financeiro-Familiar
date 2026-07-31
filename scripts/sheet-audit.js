@@ -51,6 +51,7 @@ function auditSheetState(state) {
   auditObligations(findings, rows[SHEETS.DIVIDAS]);
   auditOptionalV56Goals(findings, optionalRows[OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS]);
   auditOptionalV56Commitments(findings, optionalRows[OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES], { categories, sources });
+  auditOptionalV56ImportRules(findings, optionalRows[OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO], { categories, sources, cards });
 
   const summary = summarizeFindings(findings);
   return { ok: summary.error === 0, findings: compactFindings(findings), summary };
@@ -162,6 +163,29 @@ function auditOptionalV56Commitments(findings, commitments, refs) {
     const day = Number(row.dia_vencimento || 0);
     if (day && (day < 1 || day > 31)) {
       add(findings, 'INVALID_DUE_DAY', 'error', OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'dia_vencimento', 1, 'dia_vencimento must be 1..31');
+    }
+  });
+}
+
+function auditOptionalV56ImportRules(findings, rules, refs) {
+  (rules || []).forEach((row) => {
+    const active = row.ativo !== false;
+    const reviewed = isReviewedOptionalRow(row);
+    if (active && !reviewed) {
+      add(findings, 'UNREVIEWED_ACTIVE_OPTIONAL_ROW', 'warning', OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'status_revisao', 1, 'active import rules must be reviewed before automatic inclusion');
+      return;
+    }
+    if (!active || !reviewed) return;
+    auditOptionalRequiredFields(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, row, ['id_regra', 'assinatura_descricao', 'tipo_evento', 'id_categoria', 'escopo', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo']);
+    auditOptionalEnumField(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'tipo_evento', row.tipo_evento, ['despesa', 'receita', 'compra_cartao']);
+    auditOptionalEnumField(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'escopo', row.escopo, ['Familiar', 'Gustavo', 'Luana']);
+    auditOptionalEnumField(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'visibilidade', row.visibilidade, ['detalhada', 'privada']);
+    auditOptionalIsoDate(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'revisado_em', row.revisado_em, false);
+    checkOptionalReference(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'id_categoria', row.id_categoria, refs.categories);
+    checkOptionalReference(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'id_fonte', row.id_fonte, refs.sources);
+    checkOptionalReference(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'id_cartao', row.id_cartao, refs.cards);
+    if ((!row.id_fonte && !row.id_cartao) || (row.id_fonte && row.id_cartao)) {
+      add(findings, 'INVALID_IMPORT_ORIGIN', 'error', OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'id_fonte', 1, 'reviewed import rule requires exactly one source or card');
     }
   });
 }

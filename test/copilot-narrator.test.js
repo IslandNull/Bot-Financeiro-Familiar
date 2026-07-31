@@ -72,6 +72,7 @@ test('copilot narrator payload requests strict structured output', () => {
     const payload = buildCopilotNarratorPayload(facts, deterministicText, { model: 'gpt-5-nano' });
 
     assert.strictEqual(payload.model, 'gpt-5-nano');
+    assert.strictEqual(payload.store, false);
     assert.strictEqual(payload.text.format.type, 'json_schema');
     assert.strictEqual(payload.text.format.strict, true);
     assert.deepStrictEqual(payload.text.format.schema.required, ['text']);

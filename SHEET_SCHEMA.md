@@ -25,7 +25,7 @@ For the current redacted state of the real spreadsheet, use `docs/SPREADSHEET_SN
 
 ### Faturas_Linhas
 
-`id_linha_fatura | id_fatura | id_cartao | competencia | valor_previsto | status_origem`
+`id_linha_fatura | id_fatura | id_cartao | competencia | valor_previsto | status_origem | id_lancamento`
 
 ### Lancamentos
 
@@ -71,7 +71,13 @@ These sheets are optional V56 contracts. They exist in the real spreadsheet with
 
 `id_compromisso | nome | tipo | escopo | valor_estimado | dia_vencimento | id_categoria | id_fonte | prioridade | visibilidade | status_revisao | revisado_em | ativo | observacao`
 
-Read-only Telegram views use only active rows with `status_revisao=revisado`; private rows remain aggregate-only.
+### Regras_Importacao
+
+`id_regra | assinatura_descricao | tipo_evento | id_categoria | id_fonte | id_cartao | escopo | visibilidade | status_revisao | revisado_em | ativo | observacao`
+
+A reviewed rule must reference exactly one origin (`id_fonte` or `id_cartao`), an active category, an allowed event type (`despesa`, `receita` or `compra_cartao`) and a review date. Suggested AI rules remain non-automatic until individual confirmation changes them to active `revisado` rows.
+
+Read-only Telegram views and automatic import matching use only active rows with `status_revisao=revisado`; private rows remain aggregate-only.
 
 ## Formula Standard
 

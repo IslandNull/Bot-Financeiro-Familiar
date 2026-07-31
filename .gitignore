@@ -6,3 +6,4 @@ dist/
 *.log
 .agent/
 private/
+apps-script/generated-core.js

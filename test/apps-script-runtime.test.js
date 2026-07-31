@@ -23,6 +23,7 @@ const {
     createFakeSheet,
     createAppsScriptHarness,
     postPilotMessage,
+    postTelegramDocument,
     postTelegramCallback,
     appendRuntimeConfigRows,
     runRemoteAction,
@@ -36,6 +37,7 @@ const {
     appendFakeClosing,
     appendFakeGoal,
     appendFakeCommitment,
+    appendFakeImportRule,
     lancamentosHeaders,
     configCategoriasHeaders,
     configFontesHeaders,
@@ -51,6 +53,7 @@ const {
     idempotencyHeaders,
     metasFinanceirasHeaders,
     compromissosRecorrentesHeaders,
+    regrasImportacaoHeaders,
 } = require('./support/harness');
 
 function appendFakeCategory(sheets, overrides = {}) {
@@ -111,6 +114,8 @@ test('Apps Script runtime reads expected script properties without hardcoded sec
     assert.ok(code.includes("getProperty('SPREADSHEET_ID')"));
     assert.ok(code.includes("getProperty('OPENAI_API_KEY')"));
     assert.ok(code.includes("getProperty('OPENAI_MODEL')"));
+    assert.ok(code.includes("getProperty('OPENAI_PARSER_MODEL')"));
+    assert.ok(code.includes("getProperty('OPENAI_NARRATOR_MODEL')"));
     assert.ok(!/sk-[A-Za-z0-9_-]+/.test(code));
     assert.ok(!/1[A-Za-z0-9_-]{25,}/.test(code));
 });
@@ -275,7 +280,7 @@ test('Apps Script UX messages use short summary-style sections', () => {
     });
 
     const launch = postPilotMessage(context, 'mercado 10 hoje');
-    const balance = postPilotMessage(context, '/saldo nubank 1500,50');
+    const balance = postPilotMessage(context, '/saldo nubank 1500,50', { updateId: 'balance_ux', messageId: 'balance_ux' });
 
     assert.strictEqual(launch.ok, true);
     assert.match(launch.responseText, /Gasto anotado/);
@@ -386,8 +391,8 @@ test('Apps Script balance snapshot accepts reference date and prefers account so
 test('Apps Script asset balance updates caixinha and cofrinho as reserve liquidity', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
 
-    const mp = postPilotMessage(context, 'Atualizar patrimonio: cofrinho Mercado Pago Gustavo com saldo 9482,99 em 18/05. E reserva/liquidez, nao e receita');
-    const nu = postPilotMessage(context, 'Atualizar patrimonio: caixinha Nubank Gustavo com saldo 5189,84 em 18/05. E reserva/liquidez, nao e receita');
+    const mp = postPilotMessage(context, 'Atualizar patrimonio: cofrinho Mercado Pago Gustavo com saldo 9482,99 em 18/05. E reserva/liquidez, nao e receita', { updateId: 'asset_mp', messageId: 'asset_mp' });
+    const nu = postPilotMessage(context, 'Atualizar patrimonio: caixinha Nubank Gustavo com saldo 5189,84 em 18/05. E reserva/liquidez, nao e receita', { updateId: 'asset_nu', messageId: 'asset_nu' });
 
     assert.strictEqual(mp.ok, true);
     assert.strictEqual(nu.ok, true);
@@ -659,6 +664,8 @@ test('Apps Script optional IA narrator uses structured output and accepts only d
     context.UrlFetchApp.fetch = function(url, options) {
         calls.push({ url, options });
         const payload = JSON.parse(options.payload);
+        assert.strictEqual(payload.model, 'gpt-5.4-nano');
+        assert.strictEqual(payload.store, false);
         assert.strictEqual(payload.text.format.type, 'json_schema');
         assert.strictEqual(payload.text.format.strict, true);
         return {
@@ -958,6 +965,36 @@ test('Apps Script /resumo includes reviewed recurring commitments without exposi
     assert.ok(result.summary.obrigacoes_60d_detalhe.some((item) => item.nome === 'Condominio' && item.data_vencimento === '2026-05-05'));
     assert.ok(result.summary.obrigacoes_60d_detalhe.some((item) => item.nome === 'Compromissos privados agregados' && item.aggregate_only === true));
     assert.doesNotMatch(result.responseText, /Assinatura privada/);
+});
+
+test('Apps Script requires both user and chat when both authorization lists are configured', () => {
+    const { context } = createAppsScriptHarness({}, { failOnFetch: true });
+    const wrongChat = postPilotMessage(context, '/help', { userId: 'user_1', chatId: 'chat_intruder' });
+    const wrongUser = postPilotMessage(context, '/help', { userId: 'user_intruder', chatId: 'chat_1' });
+
+    assert.strictEqual(wrongChat.ok, false);
+    assert.strictEqual(wrongUser.ok, false);
+    assert.ok(wrongChat.errors.some((error) => error.code === 'UNAUTHORIZED'));
+    assert.ok(wrongUser.errors.some((error) => error.code === 'UNAUTHORIZED'));
+});
+
+test('Apps Script requires the only authorization list that is configured and blocks an empty configuration', () => {
+    const userOnly = createAppsScriptHarness({}, {
+        failOnFetch: true,
+        properties: { AUTHORIZED_CHAT_IDS: '' },
+    }).context;
+    const chatOnly = createAppsScriptHarness({}, {
+        failOnFetch: true,
+        properties: { AUTHORIZED_USER_IDS: '' },
+    }).context;
+    const empty = createAppsScriptHarness({}, {
+        failOnFetch: true,
+        properties: { AUTHORIZED_USER_IDS: '', AUTHORIZED_CHAT_IDS: '' },
+    }).context;
+
+    assert.strictEqual(postPilotMessage(userOnly, '/help', { userId: 'user_1', chatId: 'any_chat' }).ok, true);
+    assert.strictEqual(postPilotMessage(chatOnly, '/help', { userId: 'any_user', chatId: 'chat_1' }).ok, true);
+    assert.strictEqual(postPilotMessage(empty, '/help').ok, false);
 });
 
 test('Apps Script /resumo subtracts effective invoice payments when invoice rows still look open', () => {
@@ -1501,7 +1538,8 @@ test('Apps Script answers how much can be spent now without requiring a purchase
     assert.match(result.responseText, /Status/);
     assert.match(result.responseText, /Por que/);
     assert.match(result.responseText, /Dinheiro em contas: R\$ 2600,00/);
-    assert.match(result.responseText, /Gasto seguro agora: R\$ 900,00/);
+    assert.match(result.responseText, /Gasto seguro agora: R\$ 0,00/);
+    assert.match(result.responseText, /Pendencia principal|fontes sem saldo/);
     assert.match(result.responseText, /O que fazer agora/);
     assert.match(result.responseText, /Nao fazer/);
     assert.doesNotMatch(result.responseText, /O que falta/);
@@ -1527,7 +1565,8 @@ test('Apps Script /gasto_seguro command previews safe-to-spend without mutation'
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Gasto seguro agora/);
     assert.match(result.responseText, /Dinheiro em contas: R\$ 2600,00/);
-    assert.match(result.responseText, /Gasto seguro agora: R\$ 900,00/);
+    assert.match(result.responseText, /Gasto seguro agora: R\$ 0,00/);
+    assert.match(result.responseText, /fontes sem saldo/);
     assert.doesNotMatch(result.responseText, /FONTE_|CARD_|FAT_|OPEX_|INSIGHT_/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
@@ -1586,6 +1625,39 @@ test('Apps Script goals command reads reviewed optional V56 goals without mutati
     assert.doesNotMatch(result.responseText, /Objetivo privado/);
     assert.doesNotMatch(result.responseText, /Meta em rascunho/);
     assert.strictEqual(JSON.stringify(sheets), beforeRows);
+});
+
+test('Apps Script /pendencias and callback expose only aggregate quality blockers', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true, properties: { BALANCE_FRESHNESS_DAYS: '7' } });
+    appendFakeSourceBalance(sheets, { id_snapshot: 'SNAP_OLD', data_referencia: '2026-04-22', saldo_disponivel: 1000 });
+    appendFakeAsset(sheets, { id_ativo: 'PRIVATE_ASSET_ID', data_referencia: '2026-03-31' });
+    appendFakeDebt(sheets, { id_divida: 'PRIVATE_DEBT_ID', data_atualizacao: '2026-03-31' });
+    appendFakeGoal(sheets, { status_revisao: 'pendente', ativo: true });
+    appendFakeImportRule(sheets, { status_revisao: 'sugerido', ativo: false });
+
+    const command = postPilotMessage(context, '/pendencias');
+    const callback = postTelegramCallback(context, 'act:pending_attention');
+    assert.strictEqual(command.ok, true);
+    assert.strictEqual(callback.ok, true);
+    assert.match(command.responseText, /Central de pendencias/);
+    assert.match(command.responseText, /fontes sem saldo|saldos com mais de 7 dias/);
+    assert.match(command.responseText, /somente contagens agregadas/);
+    assert.doesNotMatch(command.responseText, /PRIVATE_ASSET_ID|PRIVATE_DEBT_ID/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+});
+
+test('Apps Script alerts_preview applies 85 percent warning and remains send-disabled', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true, properties: { COPILOT_ALERTS_ENABLED: 'NO' } });
+    appendFakeLaunch(sheets, { id_lancamento: 'LAN_ALERT', id_categoria: 'OPEX_ALIMENTACAO_FORA', valor: 270, tipo_evento: 'compra_cartao', afeta_caixa_familiar: false });
+    const result = runRemoteAction(context, 'alerts_preview');
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(result.alerts.enabled, false);
+    assert.strictEqual(result.alerts.preview_only, true);
+    assert.strictEqual(result.alerts.alerts[0].percent, 90);
+    assert.strictEqual(result.alerts.alerts[0].severity, 'warning');
+    assert.match(result.responseText, /Envio imediato: desativado/);
 });
 
 test('Apps Script commitments command reads reviewed recurring commitments with upcoming pressure without mutating sheets', () => {
@@ -1728,7 +1800,7 @@ test('Apps Script schema_upgrade creates optional V56 sheets with headers only',
     assert.strictEqual(dryRun.ok, true);
     assert.strictEqual(dryRun.dryRun, true);
     assert.strictEqual(dryRun.status, 'planned');
-    assert.deepStrictEqual(dryRun.changes.map((change) => change.sheet).sort(), ['Compromissos_Recorrentes', 'Metas_Financeiras']);
+    assert.deepStrictEqual(dryRun.changes.map((change) => change.sheet).sort(), ['Compromissos_Recorrentes', 'Metas_Financeiras', 'Regras_Importacao']);
     assert.strictEqual(sheets.Metas_Financeiras, undefined);
     assert.strictEqual(sheets.Compromissos_Recorrentes, undefined);
 
@@ -1738,6 +1810,7 @@ test('Apps Script schema_upgrade creates optional V56 sheets with headers only',
     assert.strictEqual(applied.status, 'upgraded');
     assert.deepStrictEqual(sheets.Metas_Financeiras.rows, [metasFinanceirasHeaders]);
     assert.deepStrictEqual(sheets.Compromissos_Recorrentes.rows, [compromissosRecorrentesHeaders]);
+    assert.deepStrictEqual(sheets.Regras_Importacao.rows, [regrasImportacaoHeaders]);
 
     const secondRun = runRemoteAction(context, 'schema_upgrade');
     assert.strictEqual(secondRun.ok, true);
@@ -1745,6 +1818,7 @@ test('Apps Script schema_upgrade creates optional V56 sheets with headers only',
     assert.deepStrictEqual(secondRun.changes, []);
     assert.deepStrictEqual(sheets.Metas_Financeiras.rows, [metasFinanceirasHeaders]);
     assert.deepStrictEqual(sheets.Compromissos_Recorrentes.rows, [compromissosRecorrentesHeaders]);
+    assert.deepStrictEqual(sheets.Regras_Importacao.rows, [regrasImportacaoHeaders]);
 
     const audit = runRemoteAction(context, 'sheet_audit');
     assert.strictEqual(audit.ok, true);
@@ -2059,7 +2133,8 @@ test('Apps Script doGet safe_to_spend action previews gasto seguro without mutat
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Gasto seguro agora/);
-    assert.match(result.responseText, /Gasto seguro agora: R\$ 900,00/);
+    assert.match(result.responseText, /Gasto seguro agora: R\$ 0,00/);
+    assert.match(result.responseText, /fontes sem saldo/);
     assert.strictEqual(result.summary.competencia, '2026-04');
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
@@ -2165,6 +2240,46 @@ test('Apps Script copilot digest delivery sends only when enabled without leakin
     assert.ok(payloads.every((payload) => /Digest semanal do copiloto/.test(payload.text)));
     assert.doesNotMatch(JSON.stringify(result), /123456:test_token|chat_1|chat_2/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+
+    const duplicate = context.runCopilotWeeklyDigestDeliveryV56();
+    assert.strictEqual(duplicate.ok, true);
+    assert.strictEqual(duplicate.sent_count, 0);
+    assert.strictEqual(duplicate.skipped_count, 2);
+    assert.strictEqual(calls.length, 2);
+});
+
+test('Apps Script weekly digest trigger is Monday 08:00 Sao Paulo and idempotent', () => {
+    const { context } = createAppsScriptHarness(null, { failOnFetch: true });
+    const triggers = [];
+    context.ScriptApp = {
+        WeekDay: { MONDAY: 'MONDAY' },
+        getProjectTriggers: () => triggers,
+        deleteTrigger(trigger) { triggers.splice(triggers.indexOf(trigger), 1); },
+        newTrigger(handler) {
+            const settings = { handler };
+            const builder = {
+                timeBased() { return builder; },
+                onWeekDay(value) { settings.weekday = value; return builder; },
+                atHour(value) { settings.hour = value; return builder; },
+                inTimezone(value) { settings.timezone = value; return builder; },
+                create() { triggers.push({ getHandlerFunction: () => handler, settings }); return triggers[triggers.length - 1]; },
+            };
+            return builder;
+        },
+    };
+
+    const first = context.ensureCopilotWeeklyDigestTriggerV56();
+    const second = context.ensureCopilotWeeklyDigestTriggerV56();
+    assert.strictEqual(first.created, true);
+    assert.strictEqual(second.created, false);
+    assert.strictEqual(triggers.length, 1);
+    assert.deepStrictEqual({ ...triggers[0].settings }, { handler: 'runCopilotWeeklyDigestDeliveryV56', weekday: 'MONDAY', hour: 8, timezone: 'America/Sao_Paulo' });
+    const activated = context.activateCopilotDigestAfterApprovalV56();
+    assert.strictEqual(activated.digest_enabled, true);
+    assert.strictEqual(activated.alerts_enabled, false);
+    assert.strictEqual(activated.digest_sent, false);
+    assert.strictEqual(context.__scriptProperties.COPILOT_DIGEST_ENABLED, 'YES');
+    assert.strictEqual(context.__scriptProperties.COPILOT_ALERTS_ENABLED, 'NO');
 });
 
 test('Apps Script safe question answers how much to save and blocks investment without real balances', () => {
@@ -2507,10 +2622,12 @@ test('Apps Script summary and closing_draft actions accept explicit competencia'
     assert.deepStrictEqual(invalid.errors.map((error) => error.code), ['INVALID_REQUESTED_COMPETENCIA']);
 });
 
-test('Apps Script runtime uses OpenAI Responses JSON output for parser boundary', () => {
+test('Apps Script runtime uses strict OpenAI Responses structured output for parser boundary', () => {
     assert.ok(code.includes("DEFAULT_OPENAI_MODEL = 'gpt-5-nano'"));
     assert.ok(code.includes('https://api.openai.com/v1/responses'));
-    assert.ok(code.includes("type: 'json_object'"));
+    assert.ok(code.includes("name: 'financial_event'"));
+    assert.ok(code.includes('strict: true'));
+    assert.ok(code.includes('store: false'));
     assert.ok(code.includes('input: buildParserPrompt_(text, referenceData, conversation)'));
     assert.ok(code.includes('extractOpenAIOutputText_'));
     assert.ok(code.includes('if (!parsed.ok) return '));
@@ -4086,7 +4203,8 @@ test('Apps Script pilot invoice payment reconciles small reviewed invoice overag
     assert.strictEqual(sheets.Faturas_Resumo.rows.length, 3);
     const originalFirst = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
     const originalSecond = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[2][index]]));
-    const reconciliation = Object.fromEntries(faturasLinhasHeaders.map((header, index) => [header, sheets.Faturas_Linhas.rows[1][index]]));
+    const reconciliationRow = sheets.Faturas_Linhas.rows.slice(1).find((row) => row[faturasLinhasHeaders.indexOf('status_origem')] === 'fatura_prevista');
+    const reconciliation = Object.fromEntries(faturasLinhasHeaders.map((header, index) => [header, reconciliationRow[index]]));
     assert.strictEqual(originalFirst.status, 'paga');
     assert.strictEqual(originalSecond.status, 'paga');
     assert.strictEqual(reconciliation.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
@@ -4203,6 +4321,90 @@ test('Apps Script pilot invoice payment requires reviewed invoice and amount', (
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
     assert.strictEqual(invoice.valor_pago, '');
+    assert.strictEqual(invoice.status, 'prevista');
+});
+
+test('Apps Script invoice payment correction replaces a linked payment without reopening or duplicating the invoice', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
+    appendFakeInvoice(sheets, { valor_previsto: 100, valor_pago: '', valor_aberto: 100, status: 'prevista' });
+    const config = context.readConfig_();
+    const referenceData = context.readRuntimeReferenceData_(config);
+    const event = {
+        tipo_evento: 'pagamento_fatura', data: '2026-04-30', competencia: '2026-04', valor: 100,
+        descricao: 'pagamento fatura', id_categoria: '', id_fonte: 'FONTE_CONTA_FAMILIA', pessoa: 'Gustavo',
+        escopo: 'Familiar', visibilidade: 'detalhada', id_cartao: '', id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        id_divida: '', id_ativo: '', afeta_dre: false, afeta_patrimonio: false, afeta_caixa_familiar: true,
+        direcao_caixa_familiar: 'saida', status: 'efetivado', parcelas: 1,
+    };
+    const oldUpdate = { update_id: 'old-payment' };
+    const oldMessage = {
+        message_id: 'old-payment', chat: { id: 'chat_1' },
+        __request: { idempotency_key: 'telegram:old-payment:1', source: 'telegram', external_update_id: 'old-payment', external_message_id: 'old-payment', chat_id: 'chat_1', payload_hash: '' },
+    };
+    const oldResult = context.recordPilotInvoicePayment_(oldUpdate, oldMessage, event, config, referenceData);
+    assert.strictEqual(oldResult.ok, true, JSON.stringify(oldResult.errors));
+
+    const newUpdate = { update_id: 'new-payment' };
+    const newMessage = {
+        message_id: 'new-payment', chat: { id: 'chat_1' }, __correction_target_id: oldResult.result_ref,
+        __request: { idempotency_key: 'telegram:new-payment:1', source: 'telegram', external_update_id: 'new-payment', external_message_id: 'new-payment', chat_id: 'chat_1', payload_hash: '' },
+    };
+    const replacement = context.recordPilotInvoicePayment_(newUpdate, newMessage, { ...event, descricao: 'pagamento corrigido' }, config, referenceData);
+    assert.strictEqual(replacement.ok, true, JSON.stringify(replacement.errors));
+    const correction = context.applyCorrectionMutationPlan_(oldResult.result_ref, replacement.result_ref, newUpdate, newMessage, config, []);
+    assert.strictEqual(correction.ok, true, JSON.stringify(correction.errors));
+
+    const launchIds = sheets.Lancamentos.rows.slice(1).map((row) => row[lancamentosHeaders.indexOf('id_lancamento')]);
+    assert.deepStrictEqual(launchIds, [replacement.result_ref]);
+    const paymentLines = sheets.Faturas_Linhas.rows.slice(1).filter((row) => row[faturasLinhasHeaders.indexOf('status_origem')] === 'paga');
+    assert.strictEqual(paymentLines.length, 1);
+    assert.strictEqual(paymentLines[0][faturasLinhasHeaders.indexOf('id_lancamento')], replacement.result_ref);
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
+    assert.strictEqual(invoice.valor_pago, 100);
+    assert.strictEqual(invoice.valor_aberto, 0);
+    assert.strictEqual(invoice.status, 'paga');
+});
+
+test('Apps Script invoice payment correction restores the invoice and resumes after a dependency-boundary failure', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
+    appendFakeInvoice(sheets, { valor_previsto: 100, valor_pago: '', valor_aberto: 100, status: 'prevista' });
+    const config = context.readConfig_();
+    const referenceData = context.readRuntimeReferenceData_(config);
+    const event = {
+        tipo_evento: 'pagamento_fatura', data: '2026-04-30', competencia: '2026-04', valor: 100,
+        descricao: 'pagamento fatura', id_categoria: '', id_fonte: 'FONTE_CONTA_FAMILIA', pessoa: 'Gustavo',
+        escopo: 'Familiar', visibilidade: 'detalhada', id_cartao: '', id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        id_divida: '', id_ativo: '', afeta_dre: false, afeta_patrimonio: false, afeta_caixa_familiar: true,
+        direcao_caixa_familiar: 'saida', status: 'efetivado', parcelas: 1,
+    };
+    const oldUpdate = { update_id: 'restore-payment' };
+    const oldMessage = {
+        message_id: 'restore-payment', chat: { id: 'chat_1' },
+        __request: { idempotency_key: 'telegram:restore-payment:1', source: 'telegram', external_update_id: 'restore-payment', external_message_id: 'restore-payment', chat_id: 'chat_1', payload_hash: '' },
+    };
+    const oldResult = context.recordPilotInvoicePayment_(oldUpdate, oldMessage, event, config, referenceData);
+    assert.strictEqual(oldResult.ok, true, JSON.stringify(oldResult.errors));
+    appendFakeLaunch(sheets, { id_lancamento: 'LAN_PAYMENT_REPLACEMENT', tipo_evento: 'despesa', valor: 100, descricao: 'despesa correta' });
+
+    const correctionUpdate = { update_id: 'restore-payment-correction' };
+    const correctionMessage = {
+        message_id: 'restore-payment-correction', chat: { id: 'chat_1' },
+        __request: { idempotency_key: 'telegram:restore-payment-correction:1', source: 'telegram', external_update_id: 'restore-payment-correction', external_message_id: 'restore-payment-correction', chat_id: 'chat_1', payload_hash: '' },
+    };
+    context.__BFF_FAIL_MUTATION_OPERATION = 'correct_transaction';
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 2;
+    const failed = context.applyCorrectionMutationPlan_(oldResult.result_ref, 'LAN_PAYMENT_REPLACEMENT', correctionUpdate, correctionMessage, config, []);
+    assert.strictEqual(failed.ok, false);
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
+    const retried = context.applyCorrectionMutationPlan_(oldResult.result_ref, 'LAN_PAYMENT_REPLACEMENT', correctionUpdate, correctionMessage, config, []);
+    assert.strictEqual(retried.ok, true, JSON.stringify(retried.errors));
+
+    const launchIds = sheets.Lancamentos.rows.slice(1).map((row) => row[lancamentosHeaders.indexOf('id_lancamento')]);
+    assert.deepStrictEqual(launchIds, ['LAN_PAYMENT_REPLACEMENT']);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.slice(1).filter((row) => row[faturasLinhasHeaders.indexOf('id_lancamento')] === oldResult.result_ref).length, 0);
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
+    assert.strictEqual(invoice.valor_pago, '');
+    assert.strictEqual(invoice.valor_aberto, 100);
     assert.strictEqual(invoice.status, 'prevista');
 });
 
@@ -5138,19 +5340,76 @@ test('Apps Script generic launches block inactive asset and debt references', ()
     assert.strictEqual(inactiveDebt.sheets.Lancamentos.rows.length, 1);
 });
 
-test('Apps Script runtime writes pilot expense with idempotency before launch row', () => {
-    assert.ok(code.includes('LockService.getScriptLock()'));
-    assert.ok(code.includes('waitLock(10000)'));
-    assert.ok(code.includes("appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG"));
-    assert.ok(code.includes("appendRow_(launchSheet, SHEETS.LANCAMENTOS"));
-    assert.ok(code.includes("appendRow_(sheet, SHEETS.FATURAS_RESUMO"));
-    assert.ok(code.includes("appendRow_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS"));
-    assert.ok(code.includes("appendRow_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS"));
-    assert.ok(code.includes('updateInvoicePayments_'));
-    assert.ok(code.includes('duplicate_completed'));
-    assert.ok(code.includes('DUPLICATE_PROCESSING'));
-    assert.ok(code.includes("'failed'"));
-    assert.ok(code.includes('REAL_WRITE_FAILED'));
+test('Apps Script MutationPlan resumes a failed expense without duplicating the launch', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa', data: '2026-04-30', competencia: '2026-04', valor: 42,
+        descricao: 'mercado 42', id_categoria: 'OPEX_MERCADO_SEMANA', id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Familiar', escopo: 'Familiar', visibilidade: 'detalhada', id_cartao: '', id_fatura: '',
+        id_divida: '', id_ativo: '', afeta_dre: true, afeta_patrimonio: false, afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '', status: 'efetivado',
+    });
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 1;
+    const failed = postPilotMessage(context, 'mercado 42 conta familia', { updateId: 'recover_1', messageId: 'recover_1' });
+    assert.strictEqual(failed.ok, false);
+    assert.strictEqual(sheets.Idempotency_Log.rows[1][6], 'failed');
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
+    const recovered = postPilotMessage(context, 'mercado 42 conta familia', { updateId: 'recover_1', messageId: 'recover_1' });
+    assert.strictEqual(recovered.ok, true);
+    assert.strictEqual(sheets.Idempotency_Log.rows[1][6], 'completed');
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+
+    const duplicate = postPilotMessage(context, 'mercado 42 conta familia', { updateId: 'recover_1', messageId: 'recover_1' });
+    assert.strictEqual(duplicate.ok, true);
+    assert.strictEqual(duplicate.shouldApplyDomainMutation, false);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+});
+
+test('Apps Script parser sends strict schema, store false, and parser-specific model', () => {
+    let payload;
+    const { context } = createAppsScriptHarness(null, {
+        properties: {
+            OPENAI_MODEL: 'legacy-model',
+            OPENAI_PARSER_MODEL: 'parser-model',
+            OPENAI_NARRATOR_MODEL: 'narrator-model',
+        },
+        onOpenAiRequest(request) {
+            payload = request;
+        },
+    });
+
+    postPilotMessage(context, 'mercado 10 hoje', { updateId: 'strict_schema', messageId: 'strict_schema' });
+
+    assert.strictEqual(payload.model, 'parser-model');
+    assert.strictEqual(payload.store, false);
+    assert.strictEqual(payload.text.format.type, 'json_schema');
+    assert.strictEqual(payload.text.format.strict, true);
+    assert.deepStrictEqual(Array.from(payload.text.format.schema.required), Array.from(context.PARSED_EVENT_FIELDS));
+    assert.strictEqual(payload.text.format.schema.additionalProperties, false);
+});
+
+test('Apps Script installment purchase recovers after every sheet boundary without duplicates', () => {
+    for (const boundary of [1, 2, 3]) {
+        const { context, sheets } = createAppsScriptHarness({
+            tipo_evento: 'compra_cartao', data: '2026-04-30', competencia: '2026-04', valor: 300,
+            descricao: 'notebook 300 em 3x', id_categoria: 'OPEX_ELETRONICOS_E_EQUIPAMENTOS',
+            id_fonte: 'FONTE_NUBANK_GU', pessoa: 'Gustavo', escopo: 'Familiar', visibilidade: 'detalhada',
+            id_cartao: 'CARD_NUBANK_GU', id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: true,
+            afeta_patrimonio: false, afeta_caixa_familiar: false, direcao_caixa_familiar: '', status: 'efetivado', parcelas: 3,
+        });
+        context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = boundary;
+        const options = { updateId: `card_recover_${boundary}`, messageId: `card_recover_${boundary}` };
+        const failed = postPilotMessage(context, 'notebook 300 em 3x no nubank categoria eletronicos', options);
+        assert.strictEqual(failed.ok, false);
+
+        context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
+        const recovered = postPilotMessage(context, 'notebook 300 em 3x no nubank categoria eletronicos', options);
+        assert.strictEqual(recovered.ok, true, JSON.stringify(recovered.errors));
+        assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+        assert.strictEqual(sheets.Faturas_Linhas.rows.length, 4);
+        assert.strictEqual(new Set(sheets.Faturas_Linhas.rows.slice(1).map((row) => row[0])).size, 3);
+    }
 });
 
 test('Apps Script runtime does not hardcode private ids or tokens', () => {
@@ -5474,7 +5733,9 @@ test('Apps Script correction using last_success_ref rolls back purchase and rewr
     const finalLaunch = sheets.Lancamentos.rows[1];
     assert.strictEqual(finalLaunch[lancamentosHeaders.indexOf('id_categoria')], 'OPEX_FARMACIA');
     assert.strictEqual(finalLaunch[lancamentosHeaders.indexOf('valor')], 39.46);
-    assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 4);
+    assert.strictEqual(sheets.Idempotency_Log.rows[3][idempotencyHeaders.indexOf('status')], 'completed');
+    assert.match(sheets.Idempotency_Log.rows[3][idempotencyHeaders.indexOf('observacao')], /correct_transaction/);
     assert.strictEqual(sheets.Faturas_Linhas.rows.length, 2);
 });
 
@@ -6373,7 +6634,7 @@ test('Apps Script correction fails and keeps original transaction intact if muta
     assert.strictEqual(sheets.Lancamentos.rows[1][lancamentosHeaders.indexOf('id_lancamento')], 'LAN_VALID_1');
 });
 
-test('Apps Script invoice line deletion uses id_lancamento and does not delete other card purchase lines of identical value', () => {
+test('Apps Script correction plan uses id_lancamento and does not delete other card purchase lines of identical value', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
 
     // Setup initial state: two card purchases of the same amount but different launch IDs
@@ -6397,6 +6658,16 @@ test('Apps Script invoice line deletion uses id_lancamento and does not delete o
         valor: 100.00,
         id_cartao: 'CARD_NUBANK_GU',
         descricao: 'other purchase',
+    });
+
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_REPLACEMENT',
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_FARMACIA',
+        valor: 100.00,
+        descricao: 'replacement purchase',
     });
 
     // Add corresponding invoice lines in Faturas_Linhas
@@ -6423,9 +6694,16 @@ test('Apps Script invoice line deletion uses id_lancamento and does not delete o
     // Assert initially 2 lines exist
     assert.strictEqual(sheets.Faturas_Linhas.rows.length, 3); // header + 2 rows
 
-    // Call deleteFinancialTransaction_ for the target ID
-    const deleteResult = context.deleteFinancialTransaction_('LAN_TARGET', { spreadsheetId: 'sheet_1' }, []);
-    assert.strictEqual(deleteResult.ok, true);
+    const inspection = context.inspectCorrectionTarget_('LAN_TARGET', { spreadsheetId: 'sheet_1' }, []);
+    assert.strictEqual(inspection.ok, true);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 3);
+    const update = { update_id: 'card-correction' };
+    const message = {
+        message_id: 'card-correction', chat: { id: 'chat_1' },
+        __request: { idempotency_key: 'telegram:card-correction:1', source: 'telegram', external_update_id: 'card-correction', external_message_id: 'card-correction', chat_id: 'chat_1', payload_hash: '' },
+    };
+    const deleteResult = context.applyCorrectionMutationPlan_('LAN_TARGET', 'LAN_REPLACEMENT', update, message, context.readConfig_(), []);
+    assert.strictEqual(deleteResult.ok, true, JSON.stringify(deleteResult.errors));
 
     // Verify target line was deleted but other line remains
     assert.strictEqual(sheets.Faturas_Linhas.rows.length, 2); // header + 1 row remaining
@@ -6434,7 +6712,7 @@ test('Apps Script invoice line deletion uses id_lancamento and does not delete o
     assert.strictEqual(remainingLine.id_lancamento, 'LAN_OTHER');
 });
 
-test('Apps Script deletion fails and returns LEGACY_INVOICE_LINES_NOT_FOUND when target card purchase lacks corresponding invoice lines', () => {
+test('Apps Script correction inspection blocks legacy card purchase without deterministic invoice links', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
 
     // Setup initial state: a legacy card purchase launch
@@ -6460,13 +6738,174 @@ test('Apps Script deletion fails and returns LEGACY_INVOICE_LINES_NOT_FOUND when
         id_lancamento: '', // empty id_lancamento
     })[h] ?? ''));
 
-    // Call deleteFinancialTransaction_ for the target ID
-    const deleteResult = context.deleteFinancialTransaction_('LAN_LEGACY_TARGET', { spreadsheetId: 'sheet_1' }, []);
+    const deleteResult = context.inspectCorrectionTarget_('LAN_LEGACY_TARGET', { spreadsheetId: 'sheet_1' }, []);
     
     assert.strictEqual(deleteResult.ok, false);
     assert.strictEqual(deleteResult.error, 'LEGACY_INVOICE_LINES_NOT_FOUND');
 
     // Verify launch was NOT deleted
     assert.strictEqual(sheets.Lancamentos.rows.length, 2); // header + 1 row remaining
+});
+
+test('Apps Script correction retry completes delete-and-replace after an injected boundary failure', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeLaunch(sheets, { id_lancamento: 'LAN_CORR_OLD', descricao: 'original', valor: 20 });
+    appendFakeLaunch(sheets, { id_lancamento: 'LAN_CORR_NEW', descricao: 'substituto', valor: 25 });
+    const update = { update_id: 'correction_retry' };
+    const message = {
+        message_id: 'correction_retry', chat: { id: 'chat_1' },
+        __request: { idempotency_key: 'telegram:correction_retry:1', source: 'telegram', external_update_id: 'correction_retry', external_message_id: 'correction_retry', chat_id: 'chat_1', payload_hash: '' },
+    };
+    context.__BFF_FAIL_MUTATION_OPERATION = 'correct_transaction';
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 1;
+    const failed = context.applyCorrectionMutationPlan_('LAN_CORR_OLD', 'LAN_CORR_NEW', update, message, context.readConfig_(), []);
+    assert.strictEqual(failed.ok, false);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(sheets.Lancamentos.rows[1][lancamentosHeaders.indexOf('id_lancamento')], 'LAN_CORR_NEW');
+
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
+    const retried = context.applyCorrectionMutationPlan_('LAN_CORR_OLD', 'LAN_CORR_NEW', update, message, context.readConfig_(), []);
+    assert.strictEqual(retried.ok, true, JSON.stringify(retried.errors));
+    const ids = sheets.Lancamentos.rows.slice(1).map(row => row[lancamentosHeaders.indexOf('id_lancamento')]);
+    assert.deepStrictEqual(ids, ['LAN_CORR_NEW']);
+    assert.strictEqual(sheets.Idempotency_Log.rows[1][idempotencyHeaders.indexOf('status')], 'completed');
+});
+
+test('Apps Script imports a confirmed OFX batch through one MutationPlan and rejects reupload duplicates', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { properties: { TELEGRAM_BOT_TOKEN: '123456:test_token' } });
+    appendFakeImportRule(sheets);
+    const ofx = 'OFXHEADER:100\n<OFX><BANKTRANLIST><STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20260430<TRNAMT>-42.50<FITID>fit-runtime-1<NAME>Mercado Central</STMTTRN></BANKTRANLIST></OFX>';
+    const bytes = Array.from(Buffer.from(ofx, 'utf8'));
+    let fetchCount = 0;
+    context.UrlFetchApp.fetch = function(url) {
+        fetchCount += 1;
+        if (url.includes('/getFile')) return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, result: { file_path: 'documents/test.ofx', file_size: bytes.length } }) };
+        if (url.includes('/file/bot')) return { getResponseCode: () => 200, getBlob: () => ({ getBytes: () => bytes }) };
+        throw new Error('unexpected URL');
+    };
+    const document = { file_id: 'file-id', file_unique_id: 'file-unique', file_name: 'extrato.ofx', mime_type: 'application/x-ofx', file_size: bytes.length };
+
+    const preview = postTelegramDocument(context, document, { caption: 'Conta familia' });
+    assert.strictEqual(preview.ok, true, JSON.stringify(preview.errors));
+    assert.match(preview.responseText, /Incluidos: 1/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    const ephemeral = JSON.parse(context.__scriptProperties.BFF_IMPORT_chat_1);
+    assert.deepStrictEqual(Object.keys(ephemeral).sort(), ['expires_at', 'file_id', 'file_unique_id', 'hash', 'origin', 'token']);
+    assert.doesNotMatch(JSON.stringify(ephemeral), /Mercado|TRNAMT|OFXHEADER/);
+    const confirmData = preview.reply_markup.inline_keyboard.flat().find(button => button.callback_data.startsWith('imp:confirm:')).callback_data;
+    const confirmed = postTelegramCallback(context, confirmData, { updateId: 'confirm-import', messageId: 'preview-message' });
+    assert.strictEqual(confirmed.ok, true, JSON.stringify(confirmed.errors));
+    assert.match(confirmed.responseText, /1 transacoes incluidas/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
+    assert.strictEqual(sheets.Lancamentos.rows[1][lancamentosHeaders.indexOf('descricao')], 'Mercado Central');
+
+    const reupload = postTelegramDocument(context, document, { caption: 'Conta familia', updateId: 'document-reupload', messageId: 'document-reupload' });
+    assert.match(reupload.responseText, /Incluidos: 0/);
+    assert.match(reupload.responseText, /Duplicados: 1/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(fetchCount, 6);
+});
+
+test('Apps Script card import retries every sheet boundary without duplicate launch invoice line or summary', () => {
+    [1, 2, 3].forEach((boundary) => {
+        const { context, sheets } = createAppsScriptHarness(null, { properties: { TELEGRAM_BOT_TOKEN: '123456:test_token' } });
+        appendFakeImportRule(sheets, {
+            id_regra: `REG_CARD_${boundary}`,
+            assinatura_descricao: 'restaurante',
+            tipo_evento: 'compra_cartao',
+            id_categoria: 'OPEX_ALIMENTACAO_FORA',
+            id_fonte: '',
+            id_cartao: 'CARD_NUBANK_GU',
+        });
+        const ofx = `OFXHEADER:100\n<OFX><BANKTRANLIST><STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20260420<TRNAMT>-30.00<FITID>card-${boundary}<NAME>Restaurante</STMTTRN></BANKTRANLIST></OFX>`;
+        const bytes = Array.from(Buffer.from(ofx, 'utf8'));
+        context.UrlFetchApp.fetch = function(url) {
+            if (url.includes('/getFile')) return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, result: { file_path: 'documents/card.ofx', file_size: bytes.length } }) };
+            return { getResponseCode: () => 200, getBlob: () => ({ getBytes: () => bytes }) };
+        };
+        const preview = postTelegramDocument(context, { file_id: `card-file-${boundary}`, file_unique_id: `card-unique-${boundary}`, file_name: 'card.ofx', mime_type: 'application/x-ofx', file_size: bytes.length }, { caption: 'Nubank Gustavo', updateId: `card-doc-${boundary}` });
+        const confirmData = preview.reply_markup.inline_keyboard.flat().find(button => button.callback_data.startsWith('imp:confirm:')).callback_data;
+        context.__BFF_FAIL_MUTATION_OPERATION = 'import_statement';
+        context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = boundary;
+        postTelegramCallback(context, confirmData, { updateId: `card-confirm-${boundary}`, messageId: `card-preview-${boundary}` });
+        context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
+        const retried = postTelegramCallback(context, confirmData, { updateId: `card-confirm-retry-${boundary}`, messageId: `card-preview-${boundary}` });
+        assert.strictEqual(retried.ok, true);
+        assert.match(retried.responseText, /1 transacoes incluidas/);
+        assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+        assert.strictEqual(sheets.Faturas_Linhas.rows.length, 2);
+        assert.strictEqual(sheets.Faturas_Resumo.rows.length, 2);
+        assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
+        assert.strictEqual(sheets.Idempotency_Log.rows[1][idempotencyHeaders.indexOf('status')], 'completed');
+    });
+});
+
+test('Apps Script import validates file before download and keeps group preview aggregated', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { properties: { TELEGRAM_BOT_TOKEN: '123456:test_token' } });
+    appendFakeImportRule(sheets);
+    let calls = 0;
+    const csv = 'data;descricao;valor\n30/04/2026;Mercado privado;-10,00';
+    const bytes = Array.from(Buffer.from(csv, 'utf8'));
+    context.UrlFetchApp.fetch = function(url) {
+        calls += 1;
+        if (url.includes('/getFile')) return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, result: { file_path: 'documents/test.csv', file_size: bytes.length } }) };
+        return { getResponseCode: () => 200, getBlob: () => ({ getBytes: () => bytes }) };
+    };
+    const tooLarge = postTelegramDocument(context, { file_id: 'x', file_unique_id: 'x', file_name: 'x.csv', mime_type: 'text/csv', file_size: 5 * 1024 * 1024 + 1 });
+    assert.strictEqual(tooLarge.ok, false);
+    assert.strictEqual(calls, 0);
+    const group = postTelegramDocument(context, { file_id: 'y', file_unique_id: 'y', file_name: 'x.csv', mime_type: 'text/csv', file_size: bytes.length }, { caption: 'Conta familia', chatType: 'group', updateId: 'group-import' });
+    assert.strictEqual(group.ok, true);
+    assert.match(group.responseText, /Incluidos: 1/);
+    assert.doesNotMatch(group.responseText, /Mercado privado/);
+});
+
+test('Apps Script AI import suggestion uses strict store-false output and saves only after individual confirmation', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { properties: { TELEGRAM_BOT_TOKEN: '123456:test_token', OPENAI_PARSER_MODEL: 'parser-model' } });
+    appendFakeImportRule(sheets, { id_regra: 'DRAFT_UNUSED', assinatura_descricao: 'unused', status_revisao: 'sugerido', ativo: false });
+    const csv = 'data;descricao;valor\n30/04/2026;Loja desconhecida;-15,00';
+    const bytes = Array.from(Buffer.from(csv, 'utf8'));
+    let aiPayload;
+    context.UrlFetchApp.fetch = function(url, options) {
+        if (url.includes('/getFile')) return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, result: { file_path: 'documents/unknown.csv', file_size: bytes.length } }) };
+        if (url.includes('/file/bot')) return { getResponseCode: () => 200, getBlob: () => ({ getBytes: () => bytes }) };
+        if (url === 'https://api.openai.com/v1/responses') {
+            aiPayload = JSON.parse(options.payload);
+            return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ output: [{ content: [{ text: JSON.stringify({ tipo_evento: 'despesa', id_categoria: 'OPEX_MERCADO_SEMANA' }) }] }] }) };
+        }
+        throw new Error('unexpected URL');
+    };
+    const document = { file_id: 'unknown-file', file_unique_id: 'unknown-unique', file_name: 'unknown.csv', mime_type: 'text/csv', file_size: bytes.length };
+    const preview = postTelegramDocument(context, document, { caption: 'Conta familia', updateId: 'unknown-doc' });
+    assert.match(preview.responseText, /Ambiguos: 1/);
+    const suggestData = preview.reply_markup.inline_keyboard.flat().find(button => button.callback_data.startsWith('imp:suggest:')).callback_data;
+    const suggestion = postTelegramCallback(context, suggestData, { updateId: 'suggest-rule', messageId: 'suggest-preview' });
+    assert.strictEqual(aiPayload.model, 'parser-model');
+    assert.strictEqual(aiPayload.store, false);
+    assert.strictEqual(aiPayload.text.format.type, 'json_schema');
+    assert.strictEqual(aiPayload.text.format.strict, true);
+    assert.match(suggestion.responseText, /ainda nao salva/);
+    assert.strictEqual(sheets.Regras_Importacao.rows.length, 2);
+    const saveData = suggestion.reply_markup.inline_keyboard.flat().find(button => button.callback_data.startsWith('imp:save:')).callback_data;
+    const saved = postTelegramCallback(context, saveData, { updateId: 'save-rule', messageId: 'suggest-preview' });
+    assert.match(saved.responseText, /Regra revisada salva/);
+    assert.strictEqual(sheets.Regras_Importacao.rows.length, 3);
+    const newRule = Object.fromEntries(regrasImportacaoHeaders.map((header, index) => [header, sheets.Regras_Importacao.rows[2][index]]));
+    assert.strictEqual(newRule.status_revisao, 'revisado');
+    assert.strictEqual(newRule.ativo, true);
+    assert.strictEqual(newRule.id_categoria, 'OPEX_MERCADO_SEMANA');
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    const refreshed = postTelegramDocument(context, document, { caption: 'Conta familia', updateId: 'unknown-doc-2', messageId: 'unknown-doc-2' });
+    assert.match(refreshed.responseText, /Incluidos: 1/);
+});
+
+test('Apps Script import selftest is read-only', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const result = runRemoteAction(context, 'import_selftest');
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.processed, 1);
+    assert.strictEqual(result.stores_raw_file, false);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 

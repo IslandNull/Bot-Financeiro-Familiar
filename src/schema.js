@@ -19,6 +19,7 @@ const SHEETS = {
 const OPTIONAL_V56_SHEETS = {
     METAS_FINANCEIRAS: 'Metas_Financeiras',
     COMPROMISSOS_RECORRENTES: 'Compromissos_Recorrentes',
+    REGRAS_IMPORTACAO: 'Regras_Importacao',
 };
 
 const HEADERS = {
@@ -225,6 +226,20 @@ const OPTIONAL_V56_HEADERS = {
         'id_categoria',
         'id_fonte',
         'prioridade',
+        'visibilidade',
+        'status_revisao',
+        'revisado_em',
+        'ativo',
+        'observacao',
+    ],
+    [OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO]: [
+        'id_regra',
+        'assinatura_descricao',
+        'tipo_evento',
+        'id_categoria',
+        'id_fonte',
+        'id_cartao',
+        'escopo',
         'visibilidade',
         'status_revisao',
         'revisado_em',

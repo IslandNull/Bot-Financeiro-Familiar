@@ -22,6 +22,10 @@ function handleTelegramUpdate_(update, config) {
     return fail_('UNAUTHORIZED', 'authorization', GENERIC_MESSAGE_FAILURE);
   }
 
+  if (message && message.document) {
+    return handleTelegramImportDocument_(update, message, config);
+  }
+
   var text = message && typeof (message.text || message.caption) === 'string' ? (message.text || message.caption).trim() : '';
   var conversation = readConversationState_(chatId);
   if (isClearConversationCommand_(text)) {
@@ -85,6 +89,18 @@ function handleTelegramUpdate_(update, config) {
     return finishConversationTurn_(chatId, text, buildCommitmentsResponse_(config), conversation, null);
   }
 
+  if (isPendingAttentionCommand_(text)) {
+    return finishConversationTurn_(chatId, text, buildPendingAttentionResponse_(config), conversation, null);
+  }
+
+  if (isImportHelpCommand_(text)) {
+    return finishConversationTurn_(chatId, text, importInstructionsResponse_(), conversation, null);
+  }
+
+  if (isPendingImportCommand_(text)) {
+    return finishConversationTurn_(chatId, text, buildPendingImportResponse_(message, config), conversation, null);
+  }
+
   if (conversation.pending_action) {
     var pendingActionResult = handlePendingTelegramActionMessage_(update, message, text, config, conversation);
     if (pendingActionResult.handled) return pendingActionResult.result;
@@ -99,7 +115,7 @@ function handleTelegramUpdate_(update, config) {
 
   if (isSafeFinanceQuestion_(text)) {
     var parsed = null;
-    if (config.openAiApiKey && config.openAiModel) {
+    if (config.openAiApiKey && config.openAiParserModel) {
       parsed = parseFinancialEventWithOpenAI_(text, config, referenceData, conversation);
     }
     if (parsed && parsed.ok && parsed.event && parsed.event.tipo_evento === 'leitura') {
@@ -214,8 +230,8 @@ function handleTelegramUpdate_(update, config) {
       }, conversation, pendingIntentFromFailure_(validationResult, newParsed.event));
     }
     
-    // 1. Dry run delete validation
-    var deleteDryRun = deleteFinancialTransaction_(targetId, config, referenceData.closedCompetencias, true);
+    // 1. Read-only target and dependency validation.
+    var deleteDryRun = inspectCorrectionTarget_(targetId, config, referenceData.closedCompetencias);
     if (!deleteDryRun.ok) {
       var errorMsg = '⚠️ Não foi possível deletar o lançamento original para correção.';
       if (deleteDryRun.error === 'CLOSED_PERIOD') {
@@ -231,21 +247,20 @@ function handleTelegramUpdate_(update, config) {
     }
     
     // 2. Apply new transaction first
+    message.__correction_target_id = targetId;
     var result = applyParsedFinancialEvent_(update, message, newParsed.event, config, referenceData);
     if (!result.ok) {
       result.responseText = '⚠️ A correção foi recusada: ' + result.responseText;
       return finishWithPendingIntent_(chatId, text, result, conversation, newParsed.event, referenceData);
     }
     
-    // 3. Permanently delete old transaction
-    var deleteResult = deleteFinancialTransaction_(targetId, config, referenceData.closedCompetencias, false);
-    if (!deleteResult.ok) {
-      // Catastrophic failure during deletion. Rollback the new transaction!
-      deleteFinancialTransaction_(result.result_ref, config, referenceData.closedCompetencias, false);
+    // 3. Complete the journaled delete-and-replace correction.
+    var correctionResult = applyCorrectionMutationPlan_(targetId, result.result_ref, update, message, config, referenceData.closedCompetencias);
+    if (!correctionResult.ok) {
       var nextConvFailure = conversation || emptyConversationState_();
       return finishConversationTurn_(chatId, text, {
         ok: false,
-        responseText: '⚠️ Erro interno ao apagar lançamento original. A correção foi revertida para evitar duplicação.',
+        responseText: 'A substituicao foi validada, mas a correcao ainda precisa ser concluida. Reenvie a mesma mensagem para reconciliar sem duplicar.',
         shouldApplyDomainMutation: false
       }, nextConvFailure, null);
     }
@@ -403,6 +418,9 @@ function handleTelegramCallback_(update, config) {
   if (data === TELEGRAM_CALLBACKS.help) {
     return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramHelpView_(), false);
   }
+  if (data === TELEGRAM_CALLBACKS.importHelp) {
+    return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, importInstructionsResponse_());
+  }
   if (data === TELEGRAM_CALLBACKS.examples) {
     return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramExamplesView_(), false);
   }
@@ -440,6 +458,12 @@ function handleTelegramCallback_(update, config) {
   if (data === TELEGRAM_CALLBACKS.commitments) {
     return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, buildCommitmentsResponse_(config));
   }
+  if (data === TELEGRAM_CALLBACKS.pendingAttention) {
+    return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, buildPendingAttentionResponse_(config));
+  }
+  if (data.indexOf('imp:') === 0) {
+    return handleTelegramImportCallback_(update, config, readImportState_(chatId), data, chatId, messageId);
+  }
   if (data.indexOf('flow:') === 0) {
     return handleTelegramFlowCallback_(update, config, state, data, chatId, messageId);
   }
@@ -457,9 +481,6 @@ function handleTelegramCallback_(update, config) {
 }
 
 function isAuthorizedCallback_(config, chatId, userId) {
-  if (config.authorizedUserIds && config.authorizedUserIds.length > 0) {
-    return contains_(config.authorizedUserIds, String(userId || ''));
-  }
   return isAuthorized_(config, chatId, userId);
 }
 
@@ -736,7 +757,7 @@ function handlePendingTelegramActionMessage_(update, message, text, config, conv
     return { handled: true, result: finishConversationTurn_(chatId, text, closedCheck, conversation, null) };
   }
   var targetId = action.payload && action.payload.target_id;
-  var dryRun = deleteFinancialTransaction_(targetId, config, referenceData.closedCompetencias, true);
+  var dryRun = inspectCorrectionTarget_(targetId, config, referenceData.closedCompetencias);
   if (!dryRun.ok) {
     var msg = dryRun.error === 'CLOSED_PERIOD'
       ? 'Nao e permitido corrigir lancamentos de competencias fechadas. Use ajuste revisado com motivo.'
@@ -789,16 +810,16 @@ function applyGuidedCorrectionConfirmation_(update, config, state, chatId, messa
       payload_hash: '',
     },
   };
+  requestMessage.__correction_target_id = payload.target_id;
   var applyResult = applyParsedFinancialEvent_(update, requestMessage, event, config, referenceData);
   if (!applyResult.ok) {
     return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, applyResult);
   }
 
-  var deleteResult = deleteFinancialTransaction_(payload.target_id, config, referenceData.closedCompetencias, false);
-  if (!deleteResult.ok) {
-    deleteFinancialTransaction_(applyResult.result_ref, config, referenceData.closedCompetencias, false);
+  var correctionResult = applyCorrectionMutationPlan_(payload.target_id, applyResult.result_ref, update, requestMessage, config, referenceData.closedCompetencias);
+  if (!correctionResult.ok) {
     return telegramCallbackViewResult_(callback, chatId, messageId, telegramView_(
-      'Erro interno ao apagar lancamento original. A correcao foi revertida para evitar duplicacao.',
+      'A substituicao foi validada, mas a correcao precisa ser reconciliada. Toque em confirmar novamente.',
       [telegramCallbackButton_('Inicio', TELEGRAM_CALLBACKS.home)]
     ), false);
   }
@@ -1277,14 +1298,56 @@ function classifyOpenAIFetchError_(err) {
 
 function openAiParserPayload_(text, config, referenceData, conversation) {
   return {
-    model: config.openAiModel,
+    model: config.openAiParserModel,
+    store: false,
     input: buildParserPrompt_(text, referenceData, conversation),
     text: {
       format: {
-        type: 'json_object',
+        type: 'json_schema',
+        name: 'financial_event',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          required: PARSED_EVENT_FIELDS,
+          properties: {
+            tipo_evento: { type: 'string' },
+            data: { type: 'string' },
+            competencia: { type: 'string' },
+            valor: { type: 'string' },
+            descricao: { type: 'string' },
+            id_categoria: { type: 'string' },
+            id_fonte: { type: 'string' },
+            pessoa: { type: 'string' },
+            escopo: { type: 'string' },
+            visibilidade: { type: 'string' },
+            id_cartao: { type: 'string' },
+            id_fatura: { type: 'string' },
+            id_divida: { type: 'string' },
+            id_ativo: { type: 'string' },
+            afeta_dre: { type: 'boolean' },
+            afeta_patrimonio: { type: 'boolean' },
+            afeta_caixa_familiar: { type: 'boolean' },
+            direcao_caixa_familiar: { type: 'string' },
+            status: { type: 'string' },
+            parcelas: { type: 'integer', minimum: 1, maximum: 24 },
+          },
+        },
       },
     },
   };
+}
+
+function isPendingAttentionCommand_(text) {
+  return text.split(' ')[0].trim().toLowerCase() === '/pendencias';
+}
+
+function isImportHelpCommand_(text) {
+  return text.split(' ')[0].trim().toLowerCase() === '/importar';
+}
+
+function isPendingImportCommand_(text) {
+  return text.split(' ')[0].trim().toLowerCase() === '/pendencias_importacao';
 }
 
 function buildParserPrompt_(text, referenceData, conversation) {

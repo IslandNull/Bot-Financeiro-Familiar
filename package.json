@@ -4,7 +4,8 @@
   "private": true,
   "description": "Clean V55 family cash contracts for Bot Financeiro.",
   "scripts": {
-    "test": "node test/run-tests.js",
+    "build:gas": "node scripts/build-gas.js",
+    "test": "node --experimental-transform-types test/run-tests.js",
     "test:domain": "node test/domain.test.js",
     "test:schema": "node test/schema.test.js",
     "test:guardrails": "node test/guardrails.test.js",
@@ -12,7 +13,7 @@
     "pull": "clasp pull",
     "open": "clasp open",
     "logs": "clasp logs --watch",
-    "check": "node scripts/check-syntax.js && npm test",
+    "check": "npm run build:gas && node scripts/check-syntax.js && npm test",
     "smoke": "node scripts/smoke.js",
     "smoke:full": "node scripts/smoke.js --full --timeout-ms=120000",
     "verify": "npm run check && npm run smoke",
@@ -20,6 +21,9 @@
     "summary": "node scripts/clasp-run.js summary",
     "goals:preview": "node scripts/clasp-run.js goals_preview",
     "commitments:preview": "node scripts/clasp-run.js commitments_preview",
+    "pending:preview": "node scripts/clasp-run.js pending_attention_preview",
+    "alerts:preview": "node scripts/clasp-run.js alerts_preview",
+    "import:selftest": "node scripts/clasp-run.js import_selftest",
     "optional:v56:template": "node scripts/clasp-run.js optional_v56_template",
     "digest:preview": "node scripts/clasp-run.js copilot_digest_preview",
     "digest:send": "node scripts/clasp-run.js copilot_digest_send",
@@ -29,5 +33,8 @@
     "closing:close": "node scripts/clasp-run.js closing_close",
     "selftest": "node scripts/clasp-run.js selftest",
     "sheet:audit": "node scripts/sheet-audit.js"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1"
   }
 }

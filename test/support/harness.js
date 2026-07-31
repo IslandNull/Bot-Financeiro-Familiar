@@ -22,6 +22,7 @@ const transferenciasHeaders = ['id_transferencia', 'data', 'competencia', 'valor
 const idempotencyHeaders = ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'];
 const metasFinanceirasHeaders = ['id_meta', 'nome', 'tipo', 'escopo', 'valor_alvo', 'valor_atual_manual', 'data_alvo', 'contribuicao_mensal_planejada', 'prioridade', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'];
 const compromissosRecorrentesHeaders = ['id_compromisso', 'nome', 'tipo', 'escopo', 'valor_estimado', 'dia_vencimento', 'id_categoria', 'id_fonte', 'prioridade', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'];
+const regrasImportacaoHeaders = ['id_regra', 'assinatura_descricao', 'tipo_evento', 'id_categoria', 'id_fonte', 'id_cartao', 'escopo', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'];
 
 function createFakeSheet(headers) {
     const rows = [headers.slice()];
@@ -131,9 +132,10 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
             },
         },
         UrlFetchApp: {
-            fetch(url) {
+            fetch(url, fetchOptions) {
                 if (options.failOnFetch) throw new Error('UrlFetchApp.fetch should not be called');
                 assert.strictEqual(url, 'https://api.openai.com/v1/responses');
+                if (typeof options.onOpenAiRequest === 'function') options.onOpenAiRequest(JSON.parse(fetchOptions.payload));
                 return {
                     getResponseCode() {
                         return 200;
@@ -194,7 +196,8 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
             DigestAlgorithm: { SHA_256: 'sha256' },
             Charset: { UTF_8: 'utf8' },
             computeDigest(_algorithm, value) {
-                return Array.from(crypto.createHash('sha256').update(value, 'utf8').digest()).map((byte) => byte > 127 ? byte - 256 : byte);
+                const input = Array.isArray(value) || ArrayBuffer.isView(value) ? Buffer.from(value) : Buffer.from(String(value), 'utf8');
+                return Array.from(crypto.createHash('sha256').update(input).digest()).map((byte) => byte > 127 ? byte - 256 : byte);
             },
             formatDate(_date, timezone, pattern) {
                 if (timezone === 'America/Sao_Paulo' && pattern === 'yyyy-MM-dd') return '2026-04-30';
@@ -798,10 +801,50 @@ function appendFakeCommitment(sheets, overrides = {}) {
     sheet.appendRow(compromissosRecorrentesHeaders.map((header) => commitment[header] === undefined ? '' : commitment[header]));
 }
 
+function postTelegramDocument(context, document, options = {}) {
+    const output = context.doPost({
+        parameter: { secret: 'test_secret' },
+        postData: {
+            contents: JSON.stringify({
+                update_id: options.updateId || 'document_update_1',
+                message: {
+                    message_id: options.messageId || 'document_message_1',
+                    chat: { id: options.chatId || 'chat_1', type: options.chatType || 'private' },
+                    from: { id: options.userId || 'user_1' },
+                    caption: options.caption || '',
+                    document,
+                },
+            }),
+        },
+    });
+    return JSON.parse(output.getContentText());
+}
+
+function appendFakeImportRule(sheets, overrides = {}) {
+    const sheet = ensureOptionalSheet(sheets, 'Regras_Importacao', regrasImportacaoHeaders);
+    const rule = {
+        id_regra: 'REG_MERCADO',
+        assinatura_descricao: 'mercado',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        id_cartao: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        status_revisao: 'revisado',
+        revisado_em: '2026-04-20',
+        ativo: true,
+        observacao: '',
+        ...overrides,
+    };
+    sheet.appendRow(regrasImportacaoHeaders.map((header) => rule[header] === undefined ? '' : rule[header]));
+}
+
 module.exports = {
     createFakeSheet,
     createAppsScriptHarness,
     postPilotMessage,
+    postTelegramDocument,
     postTelegramCallback,
     appendRuntimeConfigRows,
     runRemoteAction,
@@ -815,6 +858,7 @@ module.exports = {
     appendFakeClosing,
     appendFakeGoal,
     appendFakeCommitment,
+    appendFakeImportRule,
     lancamentosHeaders,
     configCategoriasHeaders,
     configFontesHeaders,
@@ -831,4 +875,5 @@ module.exports = {
     idempotencyHeaders,
     metasFinanceirasHeaders,
     compromissosRecorrentesHeaders,
+    regrasImportacaoHeaders,
 };

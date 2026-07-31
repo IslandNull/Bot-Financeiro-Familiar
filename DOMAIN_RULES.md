@@ -48,3 +48,12 @@ Every event answers:
 - Amortization advice is blocked unless debt parameters are complete enough for a reviewed rule.
 - Scheduled or pending launches must use `status`; only `efetivado` launches are treated as already applied cash movement by the current Telegram path.
 - Closed monthly records are not changed silently; use `ajuste`.
+- Financial writes are deterministic `MutationPlan` upserts. Missing IDs are inserted, identical rows are ignored, and divergent rows with the same ID fail with `MUTATION_CONFLICT`.
+- Corrections validate and persist the replacement before physically deleting the original and its dependent invoice lines. Closed periods remain blocked.
+- Safe spending, investment and amortization are blocked when an active non-card source has no balance, its latest balance is older than `BALANCE_FRESHNESS_DAYS` (default 7), or an upcoming invoice has no authority value. Exactly 7 days is valid; 8 days is stale.
+- Every copilot insight or pending-attention item carries evidence, confidence and privacy level. Missing evidence produces a blocker, not a guessed recommendation.
+- Statement imports never treat transfers, invoice payments, card refunds/reversals, closed periods or ambiguous signs as safe automatic events.
+- OFX idempotency uses `file_unique_id + FITID`; CSV idempotency uses origin + date + signed value + normalized description. A possible manual duplicate stays outside the batch.
+- Only active import rules with `status_revisao=revisado` may include a transaction automatically. An AI category suggestion is non-binding and must be confirmed individually before a reviewed rule is saved.
+- Raw OFX/CSV bytes are transient: they are not written to Sheets, logs or Script Properties.
+- The LLM may parse text, phrase deterministic facts or suggest an import category. It never invents values, creates financial rules or authorizes spending/investment/amortization.

@@ -249,16 +249,17 @@ Rejected:
 ## V55-D017 - Val Town Proxy Is A Hardened Edge Boundary
 
 Status: Accepted
-Date: 2026-04-30
+Date: 2026-07-31
 
 Decision:
-Keep the Val Town proxy as a small edge boundary with explicit timeouts for Apps Script and Telegram calls, HTTPS validation for the Apps Script target, redacted operational diagnostics, Telegram message length protection, disabled web page preview, and webhook-secret forwarding through both header and `secret` query parameter when calling Apps Script.
+Keep the Val Town proxy as a small edge boundary. It accepts only `POST application/json`, limits the request body to 1 MB, requires the configured webhook-secret header, and enforces every configured user/chat authorization list before Telegram preflight or Apps Script forwarding. It uses explicit timeouts, HTTPS validation, redacted diagnostics, Telegram message-length protection and disabled web-page preview. The secret is forwarded to Apps Script only through `X-Telegram-Bot-Api-Secret-Token`; the public query-string fallback is removed.
 
 Reason:
-The real pilot proved that Apps Script Web App requests may not reliably expose custom headers to `doPost(e)`, while the query parameter path works. The proxy also needs to avoid hanging background work, leaking secrets in logs, or failing on oversized Telegram responses.
+The proxy is the internet-facing trust boundary. Rejecting forged, oversized or unauthorized updates before all external work prevents them from reaching Telegram or Apps Script, while keeping the secret out of URLs and access logs. Apps Script retains query-string compatibility only for authenticated local administrative scripts.
 
 Rejected:
-- Depending only on custom headers for Apps Script webhook-secret forwarding.
+- Forwarding the webhook secret in a URL or accepting it from a query parameter at the public proxy.
+- Treating user authorization as sufficient when a configured chat authorization also fails.
 - Logging raw URLs, tokens, webhook secrets, chat IDs, or user IDs from the proxy.
 - Sending arbitrarily long response text to Telegram.
 

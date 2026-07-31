@@ -14,7 +14,7 @@ function buildCopilotResponse_(config) {
   if (!result.ok) return result;
   return {
     ok: true,
-    responseText: formatCopilotDecisionCardsMaybeNarrated_(result.summary, config),
+    responseText: appendPendingAttentionBlocker_(formatCopilotDecisionCardsMaybeNarrated_(result.summary, config), result.summary),
     shouldApplyDomainMutation: false,
   };
 }
@@ -34,7 +34,7 @@ function buildSafeToSpendResponse_(config) {
   if (!result.ok) return result;
   return {
     ok: true,
-    responseText: formatSafeToSpendAnswer_(result.summary),
+    responseText: appendPendingAttentionBlocker_(formatSafeToSpendAnswer_(result.summary), result.summary),
     shouldApplyDomainMutation: false,
   };
 }
@@ -54,7 +54,7 @@ function buildMonthlyReviewResponse_(config) {
   if (!result.ok) return result;
   return {
     ok: true,
-    responseText: formatMonthlyReviewAnswer_(result.summary),
+    responseText: appendPendingAttentionBlocker_(formatMonthlyReviewAnswer_(result.summary), result.summary),
     shouldApplyDomainMutation: false,
   };
 }
@@ -334,6 +334,8 @@ function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
     var cardSheet = spreadsheet.getSheetByName(SHEETS.CARTOES);
     var sourceSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_FONTES);
     var commitmentSheet = spreadsheet.getSheetByName(OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES);
+    var goalSheet = spreadsheet.getSheetByName(OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS);
+    var importRuleSheet = spreadsheet.getSheetByName(OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO);
 
     verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
     verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS_RESUMO);
@@ -363,15 +365,46 @@ function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
       verifyOptionalV56SheetHeaders_(commitmentSheet, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES);
       commitments = readOptionalV56RowsAsObjects_(commitmentSheet, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES);
     }
+    var goals = [];
+    if (goalSheet) {
+      verifyOptionalV56SheetHeaders_(goalSheet, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS);
+      goals = readOptionalV56RowsAsObjects_(goalSheet, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS);
+    }
+    var importRules = [];
+    if (importRuleSheet) {
+      verifyOptionalV56SheetHeaders_(importRuleSheet, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO);
+      importRules = readOptionalV56RowsAsObjects_(importRuleSheet, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO);
+    }
     var categoriesById = indexBy_(readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS), 'id_categoria');
     var cardsById = indexBy_(readRowsAsObjects_(cardSheet, SHEETS.CARTOES), 'id_cartao');
-    var sourcesById = indexBy_(readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES), 'id_fonte');
+    var sourceRows = readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES);
+    var sourcesById = indexBy_(sourceRows, 'id_fonte');
     var reserveTarget = Number(config.essentialCostOfLife || 5000) * Number(config.reserveMonths || 3);
     var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget, commitments);
+    summary.pending_attention = BFFCore.buildPendingAttention({
+      today: todaySaoPaulo_(),
+      freshnessDays: config.balanceFreshnessDays,
+      sources: sourceRows,
+      balances: sourceBalances,
+      invoices: invoices,
+      assets: assets,
+      debts: debts,
+      goals: goals,
+      commitments: commitments,
+      importRules: importRules,
+    });
+    if (summary.pending_attention.blocking) {
+      summary.capacidade_aporte_segura = 0;
+      summary.parcela_maxima_segura = 0;
+      summary.pode_avaliar_amortizacao = false;
+      summary.destino_investimentos = 0;
+      summary.destino_amortizacao = 0;
+      summary.motivo_bloqueio_amortizacao = summary.pending_attention.primary_blocker.code;
+    }
 
     return {
       ok: true,
-      responseText: formatPilotFamilySummary_(summary),
+      responseText: appendPendingAttentionBlocker_(formatPilotFamilySummary_(summary), summary),
       summary: summary,
       shouldApplyDomainMutation: false,
     };
@@ -444,6 +477,18 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
 
   var categoryForecast = summarizePilotForecastCategories_(launches, categoriesById || {}, competencia);
   var categoryDetails = summarizePilotCategoryDetails_(launches, categoriesById || {}, competencia);
+  var proactiveAlerts = BFFCore.buildHighSignalAlerts({
+    usage: categoryForecast.map(function(item) {
+      var category = categoriesById[stringValue_(item.id_categoria)] || {};
+      var privateCategory = category.visibilidade_padrao === 'privada' || category.visibilidade_padrao === 'resumo' || category.escopo_padrao === 'Gustavo' || category.escopo_padrao === 'Luana';
+      return {
+        category: item.categoria,
+        limit: numberFromSheetValue_(category.limite_mensal),
+        spent: numberFromSheetValue_(item.valor),
+        privacy_level: privateCategory ? 'private' : 'shared',
+      };
+    }),
+  });
   var healthCheck = computeFamilyFinancialHealth_({
     competencia: competencia,
     launches: launches,
@@ -505,6 +550,7 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     eventos_detalhados_preview: buildSharedDetailedEventPreview_(launches, 5, categoriesById || {}),
     categorias_gastos: summarizePilotSpendingCategories_(launches, categoriesById || {}, competencia),
     categorias_previsao: categoryForecast,
+    proactive_alerts: proactiveAlerts,
     categorias_detalhe: categoryDetails,
     health_check: healthCheck,
     caixa_saida_pagamento_fatura: summarizePilotCashOutByType_(launches, competencia, 'pagamento_fatura'),
@@ -1487,7 +1533,7 @@ function formatCopilotDecisionCards_(summary) {
 function formatCopilotDecisionCardsMaybeNarrated_(summary, config) {
   var deterministicText = formatCopilotDecisionCards_(summary);
   if (!config || config.copilotNarratorEnabled !== true) return deterministicText;
-  if (!config.openAiApiKey || !config.openAiModel) return deterministicText;
+  if (!config.openAiApiKey || !config.openAiNarratorModel) return deterministicText;
 
   var candidateText = fetchCopilotNarrationText_(summary, deterministicText, config);
   var safe = safeCopilotNarrationText_(summary, deterministicText, candidateText);
@@ -1515,7 +1561,8 @@ function fetchCopilotNarrationText_(summary, deterministicText, config) {
 
 function openAiCopilotNarratorPayload_(summary, deterministicText, config) {
   return {
-    model: config.openAiModel,
+    model: config.openAiNarratorModel,
+    store: false,
     input: [
       'You are an optional Telegram phrasing layer for a deterministic family finance copilot.',
       'Use only the provided facts, evidence, recommendation, and avoid rule.',
@@ -2242,7 +2289,7 @@ function formatCanSpendAnswer_(summary, text) {
   var simulation = parseSpendingSimulation_(text);
   if (!simulation.ok) {
     if (isSafeToSpendAmountQuestion_(text)) {
-      return formatSafeToSpendAnswer_(summary);
+      return appendPendingAttentionBlocker_(formatSafeToSpendAnswer_(summary), summary);
     }
     return [
       '🧭 Simulação conservadora',
@@ -2389,13 +2436,15 @@ function buildSafeToSpendFacts_(summary) {
     ? roundMoney_(numberFromSheetValue_(summary.reserva_total) - reserveTarget)
     : 0;
   var hasBalances = numberFromSheetValue_(summary.saldos_fontes_count) > 0;
-  var rawSafe = hasBalances ? roundMoney_(cashAvailable + reserveUsable - registeredPayments) : 0;
+  var dataQualityBlocked = Boolean(summary.pending_attention && summary.pending_attention.blocking);
+  var rawSafe = hasBalances && !dataQualityBlocked ? roundMoney_(cashAvailable + reserveUsable - registeredPayments) : 0;
   return {
     cash_available: cashAvailable,
     reserve_usable: reserveUsable,
     registered_payments: registeredPayments,
     safe_to_spend: Math.max(0, rawSafe),
     has_balances: hasBalances,
+    data_quality_blocked: dataQualityBlocked,
   };
 }
 
@@ -2555,6 +2604,9 @@ function buildMonthlyReviewDecision_(summary, opportunities) {
   var blockers = [];
   if (isCurrentOrFuture) blockers.push('Mes atual ainda aberto.');
   if (numberFromSheetValue_(summary.saldos_fontes_count) === 0) blockers.push('Falta saldo real das contas.');
+  if (summary.pending_attention && summary.pending_attention.primary_blocker) {
+    blockers.push('Qualidade dos dados: ' + summary.pending_attention.primary_blocker.label + '.');
+  }
   if (numberFromSheetValue_(summary.faturas_atuais) > 0) blockers.push('Faturas atuais: ' + formatMoney_(summary.faturas_atuais) + '.');
   if (numberFromSheetValue_(summary.obrigacoes_60d) > 0) blockers.push('Compromissos 60d: ' + formatMoney_(summary.obrigacoes_60d) + '.');
   if ((opportunities || []).length > 0) {
@@ -2576,6 +2628,55 @@ function filterActiveOptionalRows_(rows) {
   return (rows || []).filter(function(row) {
     return row.ativo !== false;
   });
+}
+
+function buildPendingAttentionResponse_(config) {
+  var result = readCurrentPilotFamilySummary_(config, '');
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    responseText: formatPendingAttention_(result.summary.pending_attention),
+    pending_attention: result.summary.pending_attention,
+    shouldApplyDomainMutation: false,
+  };
+}
+
+function buildAlertsPreviewResponse_(config) {
+  var result = readCurrentPilotFamilySummary_(config, '');
+  if (!result.ok) return result;
+  var alerts = result.summary.proactive_alerts || { alerts: [], hysteresis: {} };
+  alerts.enabled = config.copilotAlertsEnabled === true;
+  alerts.preview_only = true;
+  var lines = ['Preview de alertas', ''];
+  if (alerts.alerts.length === 0) lines.push('Nenhum alerta de limite em 85% ou 100%.');
+  alerts.alerts.forEach(function(alert) {
+    lines.push('- ' + alert.category + ': ' + alert.percent + '% [' + alert.severity + ']');
+  });
+  lines.push('');
+  lines.push('Envio imediato: desativado. Privacidade aplicada antes da exibicao.');
+  return { ok: true, responseText: lines.join('\n'), alerts: alerts, shouldApplyDomainMutation: false };
+}
+
+function formatPendingAttention_(pending) {
+  var data = pending || { items: [] };
+  var lines = ['Central de pendencias', ''];
+  if (!data.items || data.items.length === 0) {
+    lines.push('Nenhuma pendencia deterministica encontrada agora.');
+  } else {
+    data.items.forEach(function(item) {
+      lines.push('- ' + item.count + ' ' + item.label + (item.kind === 'blocking' ? ' [bloqueia decisao]' : ''));
+    });
+  }
+  lines.push('');
+  lines.push('Privacidade: somente contagens agregadas; nenhum lancamento privado foi aberto.');
+  lines.push('Confianca: alta');
+  return lines.join('\n');
+}
+
+function appendPendingAttentionBlocker_(text, summary) {
+  var pending = summary && summary.pending_attention;
+  if (!pending || !pending.primary_blocker) return text;
+  return text + '\n\nPendencia principal\n' + pending.primary_blocker.count + ' ' + pending.primary_blocker.label + '. Use /pendencias antes de decidir.';
 }
 
 function isReviewedOptionalRow_(row) {
@@ -2842,7 +2943,7 @@ function formatShortDate_(value) {
 function verifyFinancialRuntimeConfig_(config) {
   if (!config.spreadsheetId) return fail_('MISSING_SPREADSHEET_ID', 'spreadsheetId', GENERIC_RECORD_FAILURE);
   if (!config.openAiApiKey) return fail_('MISSING_OPENAI_API_KEY', 'openAiApiKey', GENERIC_RECORD_FAILURE);
-  if (!config.openAiModel) return fail_('MISSING_OPENAI_MODEL', 'openAiModel', GENERIC_RECORD_FAILURE);
+  if (!config.openAiParserModel) return fail_('MISSING_OPENAI_MODEL', 'openAiParserModel', GENERIC_RECORD_FAILURE);
   return { ok: true };
 }
 
@@ -3731,148 +3832,28 @@ function friendlyInvoiceName_(id, referenceData) {
 }
 
 function recordPilotExpense_(update, message, event, config, referenceData) {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  var idempotencySheetForFailure = null;
-  var idempotencyRowNumberForFailure = null;
-  var resultRefForFailure = '';
-  try {
-    var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
-    var request = mutationRequest_(update, message);
-    var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
-    var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
-    var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
-    idempotencySheetForFailure = idempotencySheet;
-    verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
-    verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
-    verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
-
-    var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-    if (existing && existing.status === 'completed') {
-      return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
-    }
-    if (existing && existing.status === 'processing') {
-      return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
-    }
-
-    var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
-    if (!periodCheck.ok) return periodCheck;
-
-    var now = isoNow_();
-    var resultRef = stableId_('LAN', request.idempotency_key + '|' + event.descricao + '|' + event.valor);
-    resultRefForFailure = resultRef;
-    if (existing && existing.rowNumber) {
-      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
-      idempotencyRowNumberForFailure = existing.rowNumber;
-    } else {
-      appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
-        idempotency_key: request.idempotency_key,
-        source: request.source,
-        external_update_id: request.external_update_id,
-        external_message_id: request.external_message_id,
-        chat_id: request.chat_id,
-        payload_hash: request.payload_hash,
-        status: 'processing',
-        result_ref: resultRef,
-        created_at: now,
-        updated_at: now,
-        error_code: '',
-        observacao: '',
-      });
-      existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-      idempotencyRowNumberForFailure = existing && existing.rowNumber;
-    }
-
-    appendRow_(launchSheet, SHEETS.LANCAMENTOS, {
-      id_lancamento: resultRef,
-      data: event.data,
-      competencia: event.competencia,
-      tipo_evento: event.tipo_evento,
-      id_categoria: event.id_categoria,
-      valor: event.valor,
-      id_fonte: event.id_fonte,
-      pessoa: event.pessoa,
-      escopo: event.escopo,
-      id_cartao: '',
-      id_fatura: '',
-      id_divida: '',
-      id_ativo: '',
-      afeta_dre: event.afeta_dre,
-      afeta_patrimonio: event.afeta_patrimonio,
-      afeta_caixa_familiar: event.afeta_caixa_familiar,
-      visibilidade: event.visibilidade,
-      status: event.status,
-      descricao: event.descricao,
-      parcelas: '',
-      created_at: now,
-    });
-    appendIncrementalSourceBalanceSnapshot_(sourceBalanceSheet, event, referenceData, resultRef, now);
-    updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-    return { ok: true, responseText: recordedEventText_(event, 'anotei gasto da familia.', referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
-  } catch (_err) {
-    if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
-      updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
-    }
-    return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
-  } finally {
-    lock.releaseLock();
-  }
+  return recordPilotLaunchWithMutationPlan_(update, message, event, config, referenceData, 'record_expense', 'anotei gasto da familia.');
 }
 
 function recordPilotGenericLaunch_(update, message, event, config, referenceData) {
+  return recordPilotLaunchWithMutationPlan_(update, message, event, config, referenceData, 'record_' + event.tipo_evento, actionLabelForGenericLaunch_(event));
+}
+
+function recordPilotLaunchWithMutationPlan_(update, message, event, config, referenceData, operation, actionLabel) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
-  var idempotencySheetForFailure = null;
-  var idempotencyRowNumberForFailure = null;
-  var resultRefForFailure = '';
   try {
     var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
     var request = mutationRequest_(update, message);
-    var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
-    var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
-    var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
-    idempotencySheetForFailure = idempotencySheet;
-    verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
-    verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
-    verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
-
-    var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-    if (existing && existing.status === 'completed') {
-      return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
-    }
-    if (existing && existing.status === 'processing') {
-      return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
-    }
-
     var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
     if (!periodCheck.ok) return periodCheck;
 
     var now = isoNow_();
-    var resultRef = stableId_('LAN', request.idempotency_key + '|' + event.tipo_evento + '|' + event.descricao + '|' + event.valor);
-    resultRefForFailure = resultRef;
-    if (existing && existing.rowNumber) {
-      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
-      idempotencyRowNumberForFailure = existing.rowNumber;
-    } else {
-      appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
-        idempotency_key: request.idempotency_key,
-        source: request.source,
-        external_update_id: request.external_update_id,
-        external_message_id: request.external_message_id,
-        chat_id: request.chat_id,
-        payload_hash: request.payload_hash,
-        status: 'processing',
-        result_ref: resultRef,
-        created_at: now,
-        updated_at: now,
-        error_code: '',
-        observacao: '',
-      });
-      existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-      idempotencyRowNumberForFailure = existing && existing.rowNumber;
-    }
-
-    appendRow_(launchSheet, SHEETS.LANCAMENTOS, {
+    var resultSeed = operation === 'record_expense'
+      ? request.idempotency_key + '|' + event.descricao + '|' + event.valor
+      : request.idempotency_key + '|' + event.tipo_evento + '|' + event.descricao + '|' + event.valor;
+    var resultRef = stableId_('LAN', resultSeed);
+    var launchRow = {
       id_lancamento: resultRef,
       data: event.data,
       competencia: event.competencia,
@@ -3894,18 +3875,79 @@ function recordPilotGenericLaunch_(update, message, event, config, referenceData
       descricao: event.descricao,
       parcelas: '',
       created_at: now,
+    };
+    var writes = [{ sheet: SHEETS.LANCAMENTOS, id_field: 'id_lancamento', id: resultRef, row: launchRow }];
+    var balanceWrite = buildIncrementalSourceBalanceMutationWrite_(spreadsheet, event, referenceData, resultRef, now);
+    if (balanceWrite) writes.push(balanceWrite);
+    var plan = createRuntimeMutationPlan_({
+      operation: operation,
+      idempotency_key: request.idempotency_key,
+      result_ref: resultRef,
+      writes: writes,
+      deletes: [],
     });
-    appendIncrementalSourceBalanceSnapshot_(sourceBalanceSheet, event, referenceData, resultRef, now);
-    updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-    return { ok: true, responseText: recordedEventText_(event, actionLabelForGenericLaunch_(event), referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
+    if (!plan.ok) return plan;
+    var applied = executeRuntimeMutationPlan_(spreadsheet, request, plan);
+    if (!applied.ok) return applied;
+    return {
+      ok: true,
+      status: applied.status,
+      responseText: applied.status === 'duplicate_completed' ? SUCCESS_TEXT : recordedEventText_(event, actionLabel, referenceData, spreadsheet),
+      shouldApplyDomainMutation: applied.shouldApplyDomainMutation,
+      result_ref: resultRef,
+      mutationPlan: mutationPlanPublicView_(plan),
+    };
   } catch (_err) {
-    if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
-      updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
-    }
     return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
   } finally {
     lock.releaseLock();
   }
+}
+
+function buildIncrementalSourceBalanceMutationWrite_(spreadsheet, event, referenceData, resultRef, now) {
+  var delta = cashDeltaForSourceBalance_(event);
+  if (!delta) return null;
+  var source = referenceData && referenceData.sourcesById && referenceData.sourcesById[stringValue_(event.id_fonte)];
+  if (!source || source.ativo === false || source.tipo === 'cartao_credito' || source.tipo === 'beneficio') return null;
+  var snapshotId = stableId_('SNAP', [resultRef, event.id_fonte, event.data, delta].join('|'));
+  var existing = findRuntimeMutationRow_(spreadsheet, SHEETS.SALDOS_FONTES, 'id_snapshot', snapshotId);
+  if (existing) {
+    return { sheet: SHEETS.SALDOS_FONTES, id_field: 'id_snapshot', id: snapshotId, row: existing.row };
+  }
+  var balanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
+  verifySheetHeaders_(balanceSheet, SHEETS.SALDOS_FONTES);
+  var balanceRows = readRowsAsObjects_(balanceSheet, SHEETS.SALDOS_FONTES);
+  var latest = latestSourceBalanceForEvent_(event, balanceRows);
+  if (!latest) return null;
+  var previous = numberFromSheetValue_(latest.saldo_disponivel !== undefined ? latest.saldo_disponivel : latest.saldo_final);
+  var next = roundMoney_(previous + delta);
+  return {
+    sheet: SHEETS.SALDOS_FONTES,
+    id_field: 'id_snapshot',
+    id: snapshotId,
+    row: {
+      id_snapshot: snapshotId,
+      competencia: event.competencia,
+      data_referencia: event.data,
+      id_fonte: event.id_fonte,
+      saldo_inicial: previous,
+      saldo_final: next,
+      saldo_disponivel: next,
+      observacao: 'automatico por lancamento ' + resultRef,
+      created_at: now,
+    },
+  };
+}
+
+function mutationPlanPublicView_(plan) {
+  return {
+    operation_id: plan.operation_id,
+    idempotency_key: plan.idempotency_key,
+    writes: plan.writes,
+    deletes: plan.deletes,
+    postconditions: plan.postconditions,
+    result_ref: plan.result_ref,
+  };
 }
 
 function actionLabelForGenericLaunch_(event) {
@@ -3919,63 +3961,50 @@ function actionLabelForGenericLaunch_(event) {
 function recordPilotCardPurchase_(update, message, event, config, referenceData) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
-  var idempotencySheetForFailure = null;
-  var idempotencyRowNumberForFailure = null;
-  var resultRefForFailure = '';
   try {
     var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
     var request = mutationRequest_(update, message);
-    var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
-    var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
-    var invoiceResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
-    var invoiceLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
-    idempotencySheetForFailure = idempotencySheet;
-    verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
-    verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
-    verifySheetHeaders_(invoiceResumoSheet, SHEETS.FATURAS_RESUMO);
-    verifySheetHeaders_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS);
-
-    var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-    if (existing && existing.status === 'completed') {
-      return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
-    }
-    if (existing && existing.status === 'processing') {
-      return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
-    }
-
     var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
     if (!periodCheck.ok) return periodCheck;
-
     var now = isoNow_();
     var parcelas = event.parcelas || 1;
     var card = referenceData.cardsById[event.id_cartao];
-    var invoice = assignPilotInvoiceCycle_(event.data, card);
-    event.id_fatura = invoice.id_fatura;
+    var firstInvoice = assignPilotInvoiceCycle_(event.data, card);
+    event.id_fatura = firstInvoice.id_fatura;
     var resultRef = stableId_('LAN', request.idempotency_key + '|' + event.descricao + '|' + event.valor + '|card');
-    resultRefForFailure = resultRef;
-    if (existing && existing.rowNumber) {
-      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
-      idempotencyRowNumberForFailure = existing.rowNumber;
-    } else {
-      appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
-        idempotency_key: request.idempotency_key,
-        source: request.source,
-        external_update_id: request.external_update_id,
-        external_message_id: request.external_message_id,
-        chat_id: request.chat_id,
-        payload_hash: request.payload_hash,
-        status: 'processing',
-        result_ref: resultRef,
-        created_at: now,
-        updated_at: now,
-        error_code: '',
-        observacao: '',
-      });
-      existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-      idempotencyRowNumberForFailure = existing && existing.rowNumber;
-    }
+    var writes = buildCardPurchaseMutationWrites_(spreadsheet, event, card, parcelas, resultRef, now);
+    var plan = createRuntimeMutationPlan_({
+      operation: 'record_card_purchase',
+      idempotency_key: request.idempotency_key,
+      result_ref: resultRef,
+      writes: writes,
+      deletes: [],
+    });
+    if (!plan.ok) return plan;
+    var applied = executeRuntimeMutationPlan_(spreadsheet, request, plan);
+    if (!applied.ok) return applied;
+    var responseMsg = parcelas > 1 ? 'anotei compra parcelada (' + parcelas + 'x) no cartao.' : 'anotei compra no cartao.';
+    return {
+      ok: true,
+      status: applied.status,
+      responseText: applied.status === 'duplicate_completed' ? SUCCESS_TEXT : recordedEventText_(event, responseMsg, referenceData, spreadsheet),
+      shouldApplyDomainMutation: applied.shouldApplyDomainMutation,
+      result_ref: resultRef,
+      mutationPlan: mutationPlanPublicView_(plan),
+    };
+  } catch (_err) {
+    return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+  } finally {
+    lock.releaseLock();
+  }
+}
 
-    appendRow_(launchSheet, SHEETS.LANCAMENTOS, {
+function buildCardPurchaseMutationWrites_(spreadsheet, event, card, parcelas, resultRef, now) {
+  var writes = [{
+    sheet: SHEETS.LANCAMENTOS,
+    id_field: 'id_lancamento',
+    id: resultRef,
+    row: {
       id_lancamento: resultRef,
       data: event.data,
       competencia: event.competencia,
@@ -3997,267 +4026,357 @@ function recordPilotCardPurchase_(update, message, event, config, referenceData)
       descricao: event.descricao,
       parcelas: parcelas > 1 ? parcelas : '',
       created_at: now,
-    });
+    },
+  }];
+  var totalCents = Math.round(event.valor * 100);
+  var baseCents = Math.floor(totalCents / parcelas);
+  var remainderCents = totalCents % parcelas;
+  var firstInvoice = assignPilotInvoiceCycle_(event.data, card);
+  var firstClosingDate = parseIsoDateUtc_(firstInvoice.data_fechamento);
+  var closingDay = numberFromSheetValue_(card.fechamento_dia);
+  var dueDay = numberFromSheetValue_(card.vencimento_dia);
+  var invoicesById = {};
 
-    if (parcelas > 1) {
-      var totalCents = Math.round(event.valor * 100);
-      var baseParcelaCents = Math.floor(totalCents / parcelas);
-      var remainderCents = totalCents % parcelas;
-      var reconciledInstallmentIds = {};
-
-      var firstInvoice = assignPilotInvoiceCycle_(event.data, card);
-      var firstClosingDate = parseIsoDateUtc_(firstInvoice.data_fechamento);
-      var closingDay = numberFromSheetValue_(card.fechamento_dia);
-      var dueDay = numberFromSheetValue_(card.vencimento_dia);
-
-      for (var pi = 0; pi < parcelas; pi += 1) {
-        var installmentInvoice;
-        if (pi === 0) {
-          installmentInvoice = firstInvoice;
-        } else {
-          var nextMonthDate = addUtcMonths_(firstClosingDate, pi);
-          var cDate = buildClampedUtcDate_(nextMonthDate.getUTCFullYear(), nextMonthDate.getUTCMonth(), closingDay);
-          var dueMonth = dueDay > closingDay ? cDate : addUtcMonths_(cDate, 1);
-          var dDate = buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay);
-          var comp = formatUtcCompetencia_(cDate);
-          installmentInvoice = {
-            id_fatura: 'FAT_' + card.id_cartao + '_' + comp.replace('-', '_'),
-            id_cartao: card.id_cartao,
-            competencia: comp,
-            data_fechamento: formatUtcDate_(cDate),
-            data_vencimento: formatUtcDate_(dDate),
-          };
-        }
-        findOrAppendInvoiceHeader_(invoiceResumoSheet, installmentInvoice);
-        var parcelaCents = baseParcelaCents + (pi < remainderCents ? 1 : 0);
-        var valorParcela = roundMoney_(parcelaCents / 100);
-        var id = stableId_('FATL', [installmentInvoice.id_fatura, event.id_cartao, installmentInvoice.competencia, valorParcela, 'compra_cartao', pi, isoNow_()].join('|'));
-        appendRow_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS, {
-          id_linha_fatura: id,
-          id_fatura: installmentInvoice.id_fatura,
-          id_cartao: event.id_cartao,
-          competencia: installmentInvoice.competencia,
-          valor_previsto: valorParcela,
-          status_origem: 'compra_cartao',
-          id_lancamento: resultRef,
-        });
-        reconciledInstallmentIds[installmentInvoice.id_fatura] = true;
-      }
-      var reconciledKeys = Object.keys(reconciledInstallmentIds);
-      for (var ri = 0; ri < reconciledKeys.length; ri += 1) {
-        reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, reconciledKeys[ri]);
-      }
-    } else {
-      findOrAppendInvoiceHeader_(invoiceResumoSheet, invoice);
-      var id = stableId_('FATL', [invoice.id_fatura, event.id_cartao, invoice.competencia, event.valor, 'compra_cartao', 0, isoNow_()].join('|'));
-      appendRow_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS, {
-        id_linha_fatura: id,
+  for (var index = 0; index < parcelas; index += 1) {
+    var invoice = index === 0
+      ? firstInvoice
+      : installmentInvoiceCycle_(firstClosingDate, index, card, closingDay, dueDay);
+    var amount = roundMoney_((baseCents + (index < remainderCents ? 1 : 0)) / 100);
+    var lineId = stableId_('FATL', [resultRef, invoice.id_fatura, index, amount].join('|'));
+    writes.push({
+      sheet: SHEETS.FATURAS_LINHAS,
+      id_field: 'id_linha_fatura',
+      id: lineId,
+      row: {
+        id_linha_fatura: lineId,
         id_fatura: invoice.id_fatura,
         id_cartao: event.id_cartao,
         competencia: invoice.competencia,
-        valor_previsto: event.valor,
+        valor_previsto: amount,
         status_origem: 'compra_cartao',
         id_lancamento: resultRef,
-      });
-      reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, invoice.id_fatura);
-    }
-    updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-    var responseMsg = parcelas > 1 ? 'anotei compra parcelada (' + parcelas + 'x) no cartao.' : 'anotei compra no cartao.';
-    return { ok: true, responseText: recordedEventText_(event, responseMsg, referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
-  } catch (_err) {
-    if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
-      updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
-    }
-    return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
-  } finally {
-    lock.releaseLock();
+      },
+    });
+    invoicesById[invoice.id_fatura] = invoice;
   }
+
+  Object.keys(invoicesById).sort().forEach(function(invoiceId) {
+    writes.push(buildInvoiceSummaryMutationWrite_(spreadsheet, invoicesById[invoiceId], writes));
+  });
+  return writes;
+}
+
+function installmentInvoiceCycle_(firstClosingDate, index, card, closingDay, dueDay) {
+  var nextMonthDate = addUtcMonths_(firstClosingDate, index);
+  var closingDate = buildClampedUtcDate_(nextMonthDate.getUTCFullYear(), nextMonthDate.getUTCMonth(), closingDay);
+  var dueMonth = dueDay > closingDay ? closingDate : addUtcMonths_(closingDate, 1);
+  var dueDate = buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay);
+  var competencia = formatUtcCompetencia_(closingDate);
+  return {
+    id_fatura: 'FAT_' + card.id_cartao + '_' + competencia.replace('-', '_'),
+    id_cartao: card.id_cartao,
+    competencia: competencia,
+    data_fechamento: formatUtcDate_(closingDate),
+    data_vencimento: formatUtcDate_(dueDate),
+  };
+}
+
+function buildInvoiceSummaryMutationWrite_(spreadsheet, invoice, plannedWrites) {
+  var found = findRuntimeMutationRow_(spreadsheet, SHEETS.FATURAS_RESUMO, 'id_fatura', invoice.id_fatura);
+  var current = found ? mutationPlanRowFromExisting_(SHEETS.FATURAS_RESUMO, found.row) : null;
+  var target = current ? mutationPlanRowFromExisting_(SHEETS.FATURAS_RESUMO, current) : {
+    id_fatura: invoice.id_fatura,
+    id_cartao: invoice.id_cartao,
+    competencia: invoice.competencia,
+    data_fechamento: invoice.data_fechamento,
+    data_vencimento: invoice.data_vencimento,
+    valor_previsto_total: '',
+    valor_fechado: '',
+    valor_pago: '',
+    valor_aberto: '',
+    status: 'prevista',
+    authority_count: 1,
+  };
+  var status = stringValue_(target.status);
+  if (['prevista', 'parcialmente_paga', ''].indexOf(status) !== -1 && numberFromSheetValue_(target.valor_fechado) <= 0) {
+    var lineSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
+    verifySheetHeaders_(lineSheet, SHEETS.FATURAS_LINHAS);
+    var currentLines = readRowsAsObjects_(lineSheet, SHEETS.FATURAS_LINHAS);
+    var amountsById = {};
+    currentLines.forEach(function(line) {
+      if (stringValue_(line.id_fatura) !== invoice.id_fatura || stringValue_(line.status_origem) === 'paga') return;
+      amountsById[stringValue_(line.id_linha_fatura)] = numberFromSheetValue_(line.valor_previsto);
+    });
+    plannedWrites.forEach(function(write) {
+      if (write.sheet !== SHEETS.FATURAS_LINHAS || stringValue_(write.row.id_fatura) !== invoice.id_fatura) return;
+      amountsById[write.id] = numberFromSheetValue_(write.row.valor_previsto);
+    });
+    var total = Object.keys(amountsById).reduce(function(sum, id) { return roundMoney_(sum + amountsById[id]); }, 0);
+    var paid = numberFromSheetValue_(target.valor_pago);
+    target.valor_previsto_total = total;
+    target.valor_aberto = roundMoney_(Math.max(0, total - paid));
+    if (!status) target.status = 'prevista';
+  }
+  return {
+    sheet: SHEETS.FATURAS_RESUMO,
+    id_field: 'id_fatura',
+    id: invoice.id_fatura,
+    row: target,
+    ...(current ? { expected: current } : {}),
+  };
+}
+
+function mutationPlanRowFromExisting_(sheetName, row) {
+  return HEADERS[sheetName].reduce(function(result, header) {
+    var value = row[header];
+    result[header] = Object.prototype.toString.call(value) === '[object Date]' ? formatSheetDate_(value) : value;
+    return result;
+  }, {});
 }
 
 function recordPilotInvoicePayment_(update, message, event, config, referenceData) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
-  var idempotencySheetForFailure = null;
-  var idempotencyRowNumberForFailure = null;
-  var resultRefForFailure = '';
   try {
     var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
     var request = mutationRequest_(update, message);
-    var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
-    var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
-    var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
-    var invoiceResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
-    var invoiceLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
-    idempotencySheetForFailure = idempotencySheet;
-    verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
-    verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
-    verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
-    verifySheetHeaders_(invoiceResumoSheet, SHEETS.FATURAS_RESUMO);
-    verifySheetHeaders_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS);
-
-    var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-    if (existing && existing.status === 'completed') {
-      return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
-    }
-    if (existing && existing.status === 'processing') {
-      return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
-    }
-
     var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
     if (!periodCheck.ok) return periodCheck;
-
-    var invoice = findInvoicePaymentTarget_(invoiceResumoSheet, event.id_fatura);
+    var journal = findIdempotencyJournalEntry_(spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG), request.idempotency_key);
+    var correctionTargetId = stringValue_(message && message.__correction_target_id);
+    var invoice = buildInvoicePaymentMutationTarget_(spreadsheet, event.id_fatura, correctionTargetId);
     if (!invoice.found) return fail_('PILOT_INVOICE_NOT_FOUND', 'id_fatura', GENERIC_RECORD_FAILURE);
-    if (!invoice.payableRows.length) return fail_('PILOT_INVOICE_ALREADY_PAID', 'id_fatura', GENERIC_RECORD_FAILURE);
-    var expectedAmount = invoice.expectedAmount;
+    if (!invoice.payableRows.length && !journal) return fail_('PILOT_INVOICE_ALREADY_PAID', 'id_fatura', GENERIC_RECORD_FAILURE);
+    var expectedAmount = invoice.payableRows.length ? invoice.expectedAmount : event.valor;
     var reconciliationAmount = invoicePaymentReconciliationAmount_(event, expectedAmount);
-    if (reconciliationAmount < 0) {
-      return fail_('PILOT_INVOICE_AMOUNT_MISMATCH', 'valor', GENERIC_RECORD_FAILURE);
-    }
+    if (reconciliationAmount < 0) return fail_('PILOT_INVOICE_AMOUNT_MISMATCH', 'valor', GENERIC_RECORD_FAILURE);
 
     var now = isoNow_();
     var resultRef = stableId_('LAN', request.idempotency_key + '|' + event.id_fatura + '|' + event.valor + '|invoice_payment');
-    resultRefForFailure = resultRef;
-    if (existing && existing.rowNumber) {
-      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
-      idempotencyRowNumberForFailure = existing.rowNumber;
-    } else {
-      appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
-        idempotency_key: request.idempotency_key,
-        source: request.source,
-        external_update_id: request.external_update_id,
-        external_message_id: request.external_message_id,
-        chat_id: request.chat_id,
-        payload_hash: request.payload_hash,
-        status: 'processing',
-        result_ref: resultRef,
+    var writes = [{
+      sheet: SHEETS.LANCAMENTOS,
+      id_field: 'id_lancamento',
+      id: resultRef,
+      row: {
+        id_lancamento: resultRef,
+        data: event.data,
+        competencia: event.competencia,
+        tipo_evento: event.tipo_evento,
+        id_categoria: '',
+        valor: event.valor,
+        id_fonte: event.id_fonte,
+        pessoa: event.pessoa,
+        escopo: event.escopo,
+        id_cartao: '',
+        id_fatura: event.id_fatura,
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: event.afeta_dre,
+        afeta_patrimonio: event.afeta_patrimonio,
+        afeta_caixa_familiar: event.afeta_caixa_familiar,
+        visibilidade: event.visibilidade,
+        status: event.status,
+        descricao: event.descricao,
+        parcelas: '',
         created_at: now,
-        updated_at: now,
-        error_code: '',
-        observacao: '',
-      });
-      existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-      idempotencyRowNumberForFailure = existing && existing.rowNumber;
-    }
-
-    appendRow_(launchSheet, SHEETS.LANCAMENTOS, {
-      id_lancamento: resultRef,
-      data: event.data,
-      competencia: event.competencia,
-      tipo_evento: event.tipo_evento,
-      id_categoria: '',
-      valor: event.valor,
-      id_fonte: event.id_fonte,
-      pessoa: event.pessoa,
-      escopo: event.escopo,
-      id_cartao: '',
-      id_fatura: event.id_fatura,
-      id_divida: '',
-      id_ativo: '',
-      afeta_dre: event.afeta_dre,
-      afeta_patrimonio: event.afeta_patrimonio,
-      afeta_caixa_familiar: event.afeta_caixa_familiar,
-      visibilidade: event.visibilidade,
-      status: event.status,
-      descricao: event.descricao,
-      parcelas: '',
-      created_at: now,
+      },
+    }];
+    invoice.summaryWrites.forEach(function(write) { writes.push(write); });
+    var paymentMarkerId = stableId_('FATL', [resultRef, event.id_fatura, expectedAmount, 'pagamento'].join('|'));
+    writes.push({
+      sheet: SHEETS.FATURAS_LINHAS,
+      id_field: 'id_linha_fatura',
+      id: paymentMarkerId,
+      row: {
+        id_linha_fatura: paymentMarkerId,
+        id_fatura: invoice.meta.id_fatura,
+        id_cartao: invoice.meta.id_cartao,
+        competencia: invoice.meta.competencia,
+        valor_previsto: expectedAmount,
+        status_origem: 'paga',
+        id_lancamento: resultRef,
+      },
     });
     if (reconciliationAmount > 0) {
-      appendInvoicePaymentReconciliation_(invoiceLinhasSheet, invoice, reconciliationAmount);
+      var lineId = stableId_('FATL', [resultRef, event.id_fatura, reconciliationAmount, 'ajuste_pagamento'].join('|'));
+      writes.push({
+        sheet: SHEETS.FATURAS_LINHAS,
+        id_field: 'id_linha_fatura',
+        id: lineId,
+        row: {
+          id_linha_fatura: lineId,
+          id_fatura: invoice.meta.id_fatura,
+          id_cartao: invoice.meta.id_cartao,
+          competencia: invoice.meta.competencia,
+          valor_previsto: reconciliationAmount,
+          status_origem: 'fatura_prevista',
+          id_lancamento: resultRef,
+        },
+      });
     }
-    appendIncrementalSourceBalanceSnapshot_(sourceBalanceSheet, event, referenceData, resultRef, now);
-    updateInvoicePayments_(invoiceResumoSheet, invoice.payableRows, 'paga');
-    updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-    return { ok: true, responseText: recordedEventText_(event, 'anotei pagamento da fatura.', referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
+    var balanceWrite = buildIncrementalSourceBalanceMutationWrite_(spreadsheet, event, referenceData, resultRef, now);
+    if (balanceWrite) writes.push(balanceWrite);
+    var plan = createRuntimeMutationPlan_({
+      operation: 'record_invoice_payment',
+      idempotency_key: request.idempotency_key,
+      result_ref: resultRef,
+      writes: writes,
+      deletes: [],
+    });
+    if (!plan.ok) return plan;
+    var applied = executeRuntimeMutationPlan_(spreadsheet, request, plan);
+    if (!applied.ok) return applied;
+    return {
+      ok: true,
+      status: applied.status,
+      responseText: applied.status === 'duplicate_completed' ? SUCCESS_TEXT : recordedEventText_(event, 'anotei pagamento da fatura.', referenceData, spreadsheet),
+      shouldApplyDomainMutation: applied.shouldApplyDomainMutation,
+      result_ref: resultRef,
+      mutationPlan: mutationPlanPublicView_(plan),
+    };
   } catch (_err) {
-    if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
-      updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
-    }
     return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
   } finally {
     lock.releaseLock();
   }
 }
 
+function buildInvoicePaymentMutationTarget_(spreadsheet, invoiceId, correctionTargetId) {
+  var sheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
+  verifySheetHeaders_(sheet, SHEETS.FATURAS_RESUMO);
+  var headers = HEADERS[SHEETS.FATURAS_RESUMO];
+  var rows = sheet.getLastRow() >= 2 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues() : [];
+  var correction = correctionTargetId ? findInvoicePaymentCorrectionMarker_(spreadsheet, correctionTargetId, invoiceId) : null;
+  var correctionAmountRemaining = correction ? correction.amount : 0;
+  var result = { found: false, payableRows: [], expectedAmount: 0, meta: null, summaryWrites: [], correction: correction };
+  for (var index = 0; index < rows.length; index += 1) {
+    var current = mutationPlanRowFromExisting_(SHEETS.FATURAS_RESUMO, rowToObject_(headers, rows[index]));
+    if (stringValue_(current.id_fatura) !== invoiceId) continue;
+    result.found = true;
+    if (!result.meta) {
+      result.meta = {
+        id_fatura: stringValue_(current.id_fatura),
+        id_cartao: stringValue_(current.id_cartao),
+        competencia: normalizeSheetCompetencia_(current.competencia),
+      };
+    }
+    var status = stringValue_(current.status);
+    var virtualPaid = numberFromSheetValue_(current.valor_pago);
+    if (correctionAmountRemaining > 0) {
+      var restoredAmount = Math.min(virtualPaid, correctionAmountRemaining);
+      virtualPaid = roundMoney_(virtualPaid - restoredAmount);
+      correctionAmountRemaining = roundMoney_(correctionAmountRemaining - restoredAmount);
+    }
+    var invoiceTotal = numberFromSheetValue_(current.valor_fechado) > 0
+      ? numberFromSheetValue_(current.valor_fechado)
+      : numberFromSheetValue_(current.valor_previsto_total);
+    var openAmount = correction
+      ? roundMoney_(Math.max(0, invoiceTotal - virtualPaid))
+      : numberFromSheetValue_(current.valor_aberto);
+    if (correction) {
+      status = openAmount <= 0
+        ? 'paga'
+        : (virtualPaid > 0 ? 'parcialmente_paga' : (numberFromSheetValue_(current.valor_fechado) > 0 ? 'fechada' : 'prevista'));
+    }
+    var payable = ['prevista', 'fechada', 'parcialmente_paga'].indexOf(status) !== -1 && openAmount > 0;
+    var target = mutationPlanRowFromExisting_(SHEETS.FATURAS_RESUMO, current);
+    if (payable) {
+      result.expectedAmount = roundMoney_(result.expectedAmount + openAmount);
+      result.payableRows.push(index + 2);
+      target.valor_pago = roundMoney_(virtualPaid + openAmount);
+      target.valor_aberto = 0;
+      target.status = 'paga';
+    }
+    var rowId = String(index + 2);
+    target.__row_number = rowId;
+    current.__row_number = rowId;
+    result.summaryWrites.push({
+      sheet: SHEETS.FATURAS_RESUMO,
+      id_field: '__row_number',
+      id: rowId,
+      row: target,
+      expected: current,
+    });
+  }
+  return result;
+}
+
+function findInvoicePaymentCorrectionMarker_(spreadsheet, targetId, invoiceId) {
+  var launch = findRuntimeMutationRow_(spreadsheet, SHEETS.LANCAMENTOS, 'id_lancamento', targetId);
+  if (!launch || stringValue_(launch.row.tipo_evento) !== 'pagamento_fatura' || stringValue_(launch.row.id_fatura) !== stringValue_(invoiceId)) return null;
+  var lineSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
+  verifySheetHeaders_(lineSheet, SHEETS.FATURAS_LINHAS);
+  var lines = readRowsAsObjects_(lineSheet, SHEETS.FATURAS_LINHAS);
+  var amount = 0;
+  var markerCount = 0;
+  var hasReconciliation = false;
+  lines.forEach(function(line) {
+    if (stringValue_(line.id_lancamento) !== stringValue_(targetId)) return;
+    if (stringValue_(line.status_origem) === 'paga') {
+      amount = roundMoney_(amount + numberFromSheetValue_(line.valor_previsto));
+      markerCount += 1;
+    } else if (stringValue_(line.status_origem) === 'fatura_prevista') {
+      hasReconciliation = true;
+    }
+  });
+  if (markerCount !== 1 || amount <= 0 || hasReconciliation) return null;
+  return { amount: amount, id_lancamento: targetId };
+}
+
 function recordPilotInvoiceExposure_(update, message, event, config, referenceData) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
-  var idempotencySheetForFailure = null;
-  var idempotencyRowNumberForFailure = null;
-  var resultRefForFailure = '';
   try {
     var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
     var request = mutationRequest_(update, message);
-    var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
-    var invoiceResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
-    var invoiceLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
-    idempotencySheetForFailure = idempotencySheet;
-    verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
-    verifySheetHeaders_(invoiceResumoSheet, SHEETS.FATURAS_RESUMO);
-    verifySheetHeaders_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS);
-
-    var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-    if (existing && existing.status === 'completed') {
-      return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
-    }
-    if (existing && existing.status === 'processing') {
-      return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
-    }
-
     var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
     if (!periodCheck.ok) return periodCheck;
-
     var now = isoNow_();
     var card = referenceData.cardsById[event.id_cartao];
-    var invoiceCycle = invoiceCycleForCompetencia_(event.competencia, card);
+    var cycle = invoiceCycleForCompetencia_(event.competencia, card);
+    var invoice = {
+      id_fatura: event.id_fatura,
+      id_cartao: event.id_cartao,
+      competencia: event.competencia,
+      data_fechamento: cycle.data_fechamento,
+      data_vencimento: cycle.data_vencimento,
+    };
     var resultRef = stableId_('FAT', request.idempotency_key + '|' + event.id_fatura + '|' + event.valor + '|invoice_exposure');
-    resultRefForFailure = resultRef;
-    if (existing && existing.rowNumber) {
-      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
-      idempotencyRowNumberForFailure = existing.rowNumber;
-    } else {
-      appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
-        idempotency_key: request.idempotency_key,
-        source: request.source,
-        external_update_id: request.external_update_id,
-        external_message_id: request.external_message_id,
-        chat_id: request.chat_id,
-        payload_hash: request.payload_hash,
-        status: 'processing',
-        result_ref: resultRef,
-        created_at: now,
-        updated_at: now,
-        error_code: '',
-        observacao: '',
-      });
-      existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-      idempotencyRowNumberForFailure = existing && existing.rowNumber;
-    }
-
-    findOrAppendInvoiceHeader_(invoiceResumoSheet, {
-      id_fatura: event.id_fatura,
-      id_cartao: event.id_cartao,
-      competencia: event.competencia,
-      data_fechamento: invoiceCycle.data_fechamento,
-      data_vencimento: invoiceCycle.data_vencimento,
+    var lineId = stableId_('FATL', [resultRef, event.id_fatura, event.valor, 'fatura_prevista'].join('|'));
+    var writes = [{
+      sheet: SHEETS.FATURAS_LINHAS,
+      id_field: 'id_linha_fatura',
+      id: lineId,
+      row: {
+        id_linha_fatura: lineId,
+        id_fatura: event.id_fatura,
+        id_cartao: event.id_cartao,
+        competencia: event.competencia,
+        valor_previsto: event.valor,
+        status_origem: 'fatura_prevista',
+        id_lancamento: '',
+      },
+    }];
+    writes.push(buildInvoiceSummaryMutationWrite_(spreadsheet, invoice, writes));
+    var plan = createRuntimeMutationPlan_({
+      operation: 'record_invoice_exposure',
+      idempotency_key: request.idempotency_key,
+      result_ref: resultRef,
+      writes: writes,
+      deletes: [],
     });
-    var id = stableId_('FATL', [event.id_fatura, event.id_cartao, event.competencia, event.valor, 'fatura_prevista', isoNow_()].join('|'));
-    appendRow_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS, {
-      id_linha_fatura: id,
-      id_fatura: event.id_fatura,
-      id_cartao: event.id_cartao,
-      competencia: event.competencia,
-      valor_previsto: event.valor,
-      status_origem: 'fatura_prevista',
-    });
-    reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, event.id_fatura);
-    updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-    return { ok: true, responseText: SUCCESS_TEXT, shouldApplyDomainMutation: true, result_ref: resultRef };
+    if (!plan.ok) return plan;
+    var applied = executeRuntimeMutationPlan_(spreadsheet, request, plan);
+    if (!applied.ok) return applied;
+    return {
+      ok: true,
+      status: applied.status,
+      responseText: SUCCESS_TEXT,
+      shouldApplyDomainMutation: applied.shouldApplyDomainMutation,
+      result_ref: resultRef,
+      mutationPlan: mutationPlanPublicView_(plan),
+    };
   } catch (_err) {
-    if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
-      updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
-    }
     return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
   } finally {
     lock.releaseLock();
@@ -4267,26 +4386,9 @@ function recordPilotInvoiceExposure_(update, message, event, config, referenceDa
 function recordPilotInternalTransfer_(update, message, event, config, referenceData) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
-  var idempotencySheetForFailure = null;
-  var idempotencyRowNumberForFailure = null;
-  var resultRefForFailure = '';
   try {
     var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
     var request = mutationRequest_(update, message);
-    var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
-    var transferSheet = spreadsheet.getSheetByName(SHEETS.TRANSFERENCIAS_INTERNAS);
-    idempotencySheetForFailure = idempotencySheet;
-    verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
-    verifySheetHeaders_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS);
-
-    var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-    if (existing && existing.status === 'completed') {
-      return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
-    }
-    if (existing && existing.status === 'processing') {
-      return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
-    }
-
     var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
     if (!periodCheck.ok) return periodCheck;
 
@@ -4294,50 +4396,44 @@ function recordPilotInternalTransfer_(update, message, event, config, referenceD
     var transferSources = resolveInternalTransferSources_(event, referenceData);
     if (!transferSources.ok) return transferSources;
     var resultRef = stableId_('TRF', request.idempotency_key + '|' + event.pessoa + '|' + event.valor + '|family_cash_entry');
-    resultRefForFailure = resultRef;
-    if (existing && existing.rowNumber) {
-      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
-      idempotencyRowNumberForFailure = existing.rowNumber;
-    } else {
-      appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
-        idempotency_key: request.idempotency_key,
-        source: request.source,
-        external_update_id: request.external_update_id,
-        external_message_id: request.external_message_id,
-        chat_id: request.chat_id,
-        payload_hash: request.payload_hash,
-        status: 'processing',
-        result_ref: resultRef,
-        created_at: now,
-        updated_at: now,
-        error_code: '',
-        observacao: '',
-      });
-      existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-      idempotencyRowNumberForFailure = existing && existing.rowNumber;
-    }
-
-    appendRow_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS, {
-      id_transferencia: resultRef,
-      data: event.data,
-      competencia: event.competencia,
-      valor: event.valor,
-      fonte_origem: transferSources.fonte_origem,
-      fonte_destino: transferSources.fonte_destino,
-      pessoa_origem: transferSources.pessoa_origem || event.pessoa,
-      pessoa_destino: transferSources.pessoa_destino || 'Familiar',
-      escopo: event.escopo,
-      direcao_caixa_familiar: event.direcao_caixa_familiar,
-      descricao: event.descricao,
-      created_at: now,
+    var plan = createRuntimeMutationPlan_({
+      operation: 'record_internal_transfer',
+      idempotency_key: request.idempotency_key,
+      result_ref: resultRef,
+      writes: [{
+        sheet: SHEETS.TRANSFERENCIAS_INTERNAS,
+        id_field: 'id_transferencia',
+        id: resultRef,
+        row: {
+          id_transferencia: resultRef,
+          data: event.data,
+          competencia: event.competencia,
+          valor: event.valor,
+          fonte_origem: transferSources.fonte_origem,
+          fonte_destino: transferSources.fonte_destino,
+          pessoa_origem: transferSources.pessoa_origem || event.pessoa,
+          pessoa_destino: transferSources.pessoa_destino || 'Familiar',
+          escopo: event.escopo,
+          direcao_caixa_familiar: event.direcao_caixa_familiar,
+          descricao: event.descricao,
+          created_at: now,
+        },
+      }],
+      deletes: [],
     });
-    updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
+    if (!plan.ok) return plan;
+    var applied = executeRuntimeMutationPlan_(spreadsheet, request, plan);
+    if (!applied.ok) return applied;
     var actionLabel = event.direcao_caixa_familiar === 'interna' ? 'anotei movimentacao interna.' : 'anotei transferencia para a familia.';
-    return { ok: true, responseText: recordedEventText_(event, actionLabel, referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
+    return {
+      ok: true,
+      status: applied.status,
+      responseText: applied.status === 'duplicate_completed' ? SUCCESS_TEXT : recordedEventText_(event, actionLabel, referenceData, spreadsheet),
+      shouldApplyDomainMutation: applied.shouldApplyDomainMutation,
+      result_ref: resultRef,
+      mutationPlan: mutationPlanPublicView_(plan),
+    };
   } catch (_err) {
-    if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
-      updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
-    }
     return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
   } finally {
     lock.releaseLock();

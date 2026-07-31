@@ -9,6 +9,10 @@
     await require('./event-planner.test');
     await require('./idempotency.test');
     await require('./write-adapter.test');
+    await require('./mutation-plan.test');
+    await require('./pending-attention.test');
+    await require('./proactive-alerts.test');
+    await require('./import-parser.test');
     await require('./telegram-ui.test');
     await require('./telegram-handler.test');
     await require('./telegram-webhook.test');
@@ -19,6 +23,7 @@
     await require('./smoke-script.test');
     await require('./invoice-ledger.test');
     await require('./apps-script-runtime.test');
+    await require('./gas-bundle.test');
     await require('./val-town-proxy.test');
     await require('./domain.test');
     await require('./reporting.test');

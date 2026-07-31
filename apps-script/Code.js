@@ -31,6 +31,9 @@ var HELP_TEXT = [
   '- /agenda: faturas e compromissos por data',
   '- /metas: progresso de metas financeiras configuradas',
   '- /compromissos: compromissos recorrentes configurados',
+  '- /pendencias: qualidade dos dados e revisoes necessarias',
+  '- /importar: importar OFX/CSV com preview e confirmacao',
+  '- /pendencias_importacao: itens excluidos do ultimo preview',
   '- /revisar_mes: checklist antes de fechamento',
   '- /limpar_contexto: apaga a conversa pendente deste chat',
   '- /ajuda: exemplos'
@@ -57,6 +60,7 @@ var SHEETS = {
 var OPTIONAL_V56_SHEETS = {
   METAS_FINANCEIRAS: 'Metas_Financeiras',
   COMPROMISSOS_RECORRENTES: 'Compromissos_Recorrentes',
+  REGRAS_IMPORTACAO: 'Regras_Importacao',
 };
 var HEADERS = {
   Cartoes: ['id_cartao', 'id_fonte', 'nome', 'titular', 'fechamento_dia', 'vencimento_dia', 'limite', 'ativo'],
@@ -76,6 +80,7 @@ var HEADERS = {
 var OPTIONAL_V56_HEADERS = {
   Metas_Financeiras: ['id_meta', 'nome', 'tipo', 'escopo', 'valor_alvo', 'valor_atual_manual', 'data_alvo', 'contribuicao_mensal_planejada', 'prioridade', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'],
   Compromissos_Recorrentes: ['id_compromisso', 'nome', 'tipo', 'escopo', 'valor_estimado', 'dia_vencimento', 'id_categoria', 'id_fonte', 'prioridade', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'],
+  Regras_Importacao: ['id_regra', 'assinatura_descricao', 'tipo_evento', 'id_categoria', 'id_fonte', 'id_cartao', 'escopo', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'],
 };
 var PARSED_EVENT_FIELDS = ['tipo_evento', 'data', 'competencia', 'valor', 'descricao', 'id_categoria', 'id_fonte', 'pessoa', 'escopo', 'visibilidade', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'direcao_caixa_familiar', 'status', 'parcelas'];
 
@@ -126,6 +131,15 @@ function doGet(e) {
   if (action === 'commitments_preview') {
     return json_(buildCommitmentsResponse_(config));
   }
+  if (action === 'pending_attention_preview') {
+    return json_(buildPendingAttentionResponse_(config));
+  }
+  if (action === 'alerts_preview') {
+    return json_(buildAlertsPreviewResponse_(config));
+  }
+  if (action === 'import_selftest') {
+    return json_(runImportSelfTestV56());
+  }
   if (action === 'optional_v56_template') {
     return json_(exportOptionalV56Template());
   }
@@ -155,9 +169,6 @@ function doGet(e) {
   }
   if (action === 'sheet_audit') {
     return json_(exportSheetAuditV55());
-  }
-  if (action === 'reconcile_faturas') {
-    return json_(reconcileAllFaturas());
   }
   if (action === 'schema_upgrade_dry_run') {
     return json_(upgradeSchemaV56({ dryRun: true }));
@@ -267,7 +278,7 @@ function exportSafeToSpendV56(competencia) {
   if (!result.ok) return result;
   return {
     ok: true,
-    responseText: formatSafeToSpendAnswer_(result.summary),
+    responseText: appendPendingAttentionBlocker_(formatSafeToSpendAnswer_(result.summary), result.summary),
     summary: {
       competencia: result.summary.competencia,
       saldos_fontes_disponivel: result.summary.saldos_fontes_disponivel,
@@ -305,6 +316,7 @@ function runCopilotWeeklyDigestDeliveryV56(competencia) {
   var chatIds;
   var sentCount = 0;
   var failedCount = 0;
+  var skippedCount = 0;
 
   if (!config.copilotDigestEnabled) {
     return {
@@ -329,12 +341,30 @@ function runCopilotWeeklyDigestDeliveryV56(competencia) {
   summaryResult = readCurrentPilotFamilySummary_(config, competencia);
   if (!summaryResult.ok) return summaryResult;
   digest = buildCopilotWeeklyDigest_(summaryResult.summary);
-
-  chatIds.forEach(function(chatId) {
-    var result = sendTelegramDigestMessage_(config.telegramBotToken, chatId, formatCopilotWeeklyDigest_(digest));
-    if (result.ok) sentCount += 1;
-    else failedCount += 1;
-  });
+  var digestText = formatCopilotWeeklyDigest_(digest);
+  var digestHash = stableId_('DIGEST', digestText);
+  var weekKey = isoWeekKey_(todaySaoPaulo_());
+  var properties = PropertiesService.getScriptProperties();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    chatIds.forEach(function(chatId) {
+      var dedupKey = stableId_('BFF_DIGEST', String(chatId) + '|' + weekKey + '|' + digestHash);
+      if (properties.getProperty(dedupKey) === 'sent') {
+        skippedCount += 1;
+        return;
+      }
+      var result = sendTelegramDigestMessage_(config.telegramBotToken, chatId, digestText);
+      if (result.ok) {
+        sentCount += 1;
+        properties.setProperty(dedupKey, 'sent');
+      } else {
+        failedCount += 1;
+      }
+    });
+  } finally {
+    lock.releaseLock();
+  }
 
   return {
     ok: failedCount === 0,
@@ -342,6 +372,7 @@ function runCopilotWeeklyDigestDeliveryV56(competencia) {
     enabled: true,
     sent_count: sentCount,
     failed_count: failedCount,
+    skipped_count: skippedCount,
     digest_kind: digest.kind,
     competencia: digest.competencia,
     shouldApplyDomainMutation: false,
@@ -745,6 +776,7 @@ function exportSheetAuditV55() {
   auditDuplicateInvoices_(findings, rows[SHEETS.FATURAS_RESUMO]);
   auditOptionalV56Goals_(findings, optionalRows[OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS]);
   auditOptionalV56Commitments_(findings, optionalRows[OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES], categories, sources);
+  auditOptionalV56ImportRules_(findings, optionalRows[OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO], categories, sources, cards);
 
   var summary = summarizeSheetAuditFindings_(findings);
   return {
@@ -846,6 +878,50 @@ function auditOptionalV56Goals_(findings, goals) {
   });
 }
 
+function isoWeekKey_(isoDate) {
+  var parts = String(isoDate || '').split('-').map(Number);
+  var date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+  var day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - day);
+  var yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  var week = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+  return date.getUTCFullYear() + '-W' + ('0' + week).slice(-2);
+}
+
+function ensureCopilotWeeklyDigestTriggerV56() {
+  var handler = 'runCopilotWeeklyDigestDeliveryV56';
+  var existing = ScriptApp.getProjectTriggers().filter(function(trigger) {
+    return trigger.getHandlerFunction() === handler;
+  });
+  if (existing.length > 0) {
+    existing.slice(1).forEach(function(trigger) { ScriptApp.deleteTrigger(trigger); });
+    return { ok: true, created: false, existing_count: 1, duplicates_removed: Math.max(0, existing.length - 1), timezone: 'America/Sao_Paulo', hour: 8, weekday: 'MONDAY' };
+  }
+  ScriptApp.newTrigger(handler)
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.MONDAY)
+    .atHour(8)
+    .inTimezone('America/Sao_Paulo')
+    .create();
+  return { ok: true, created: true, existing_count: 0, timezone: 'America/Sao_Paulo', hour: 8, weekday: 'MONDAY' };
+}
+
+function activateCopilotDigestAfterApprovalV56() {
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('COPILOT_DIGEST_ENABLED', 'YES');
+  props.setProperty('COPILOT_ALERTS_ENABLED', 'NO');
+  if (!props.getProperty('BALANCE_FRESHNESS_DAYS')) props.setProperty('BALANCE_FRESHNESS_DAYS', '7');
+  var trigger = ensureCopilotWeeklyDigestTriggerV56();
+  return {
+    ok: trigger.ok === true,
+    digest_enabled: true,
+    alerts_enabled: false,
+    balance_freshness_days: Number(props.getProperty('BALANCE_FRESHNESS_DAYS') || 7),
+    trigger: trigger,
+    digest_sent: false,
+  };
+}
+
 function auditOptionalV56Commitments_(findings, commitments, categories, sources) {
   (commitments || []).forEach(function(row) {
     var active = row.ativo !== false;
@@ -866,6 +942,29 @@ function auditOptionalV56Commitments_(findings, commitments, categories, sources
     var day = Number(row.dia_vencimento || 0);
     if (day && (day < 1 || day > 31)) {
       addSheetAuditFinding_(findings, 'INVALID_DUE_DAY', 'error', OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'dia_vencimento', 1, 'dia_vencimento must be 1..31');
+    }
+  });
+}
+
+function auditOptionalV56ImportRules_(findings, rules, categories, sources, cards) {
+  (rules || []).forEach(function(row) {
+    var active = row.ativo !== false;
+    var reviewed = isReviewedOptionalAuditRow_(row);
+    if (active && !reviewed) {
+      addSheetAuditFinding_(findings, 'UNREVIEWED_ACTIVE_OPTIONAL_ROW', 'warning', OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'status_revisao', 1, 'active import rules must be reviewed before automatic inclusion');
+      return;
+    }
+    if (!active || !reviewed) return;
+    auditOptionalRequiredFields_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, row, ['id_regra', 'assinatura_descricao', 'tipo_evento', 'id_categoria', 'escopo', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo']);
+    auditOptionalEnumField_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'tipo_evento', row.tipo_evento, ['despesa', 'receita', 'compra_cartao']);
+    auditOptionalEnumField_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'escopo', row.escopo, ['Familiar', 'Gustavo', 'Luana']);
+    auditOptionalEnumField_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'visibilidade', row.visibilidade, ['detalhada', 'privada']);
+    auditOptionalIsoDate_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'revisado_em', row.revisado_em, false);
+    checkOptionalSheetAuditReference_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'id_categoria', row.id_categoria, categories, true);
+    checkOptionalSheetAuditReference_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'id_fonte', row.id_fonte, sources, true);
+    checkOptionalSheetAuditReference_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'id_cartao', row.id_cartao, cards, true);
+    if ((!stringValue_(row.id_fonte) && !stringValue_(row.id_cartao)) || (stringValue_(row.id_fonte) && stringValue_(row.id_cartao))) {
+      addSheetAuditFinding_(findings, 'INVALID_IMPORT_ORIGIN', 'error', OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'id_fonte', 1, 'reviewed import rule requires exactly one source or card');
     }
   });
 }
@@ -1004,31 +1103,6 @@ function summarizeSheetAuditFindings_(findings) {
   }, { total: 0, error: 0, warning: 0 });
 }
 
-function reconcileAllFaturas() {
-  var config = readConfig_();
-  if (!config.spreadsheetId) return { ok: false, error: 'MISSING_SPREADSHEET_ID' };
-  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
-  var invoiceResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
-  var invoiceLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
-  if (!invoiceResumoSheet || !invoiceLinhasSheet) {
-    return { ok: false, error: 'MISSING_SHEETS' };
-  }
-  var resumoHeaders = HEADERS[SHEETS.FATURAS_RESUMO];
-  var resumoLastRow = invoiceResumoSheet.getLastRow();
-  if (resumoLastRow < 2) return { ok: true, reconciled: 0 };
-
-  var resumoRows = invoiceResumoSheet.getRange(2, 1, resumoLastRow - 1, resumoHeaders.length).getValues();
-  var resumoIdIndex = resumoHeaders.indexOf('id_fatura');
-  var reconciledCount = 0;
-  for (var i = 0; i < resumoRows.length; i += 1) {
-    var invoiceId = String(resumoRows[i][resumoIdIndex]);
-    if (!invoiceId) continue;
-    reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, invoiceId);
-    reconciledCount += 1;
-  }
-  return { ok: true, reconciled: reconciledCount };
-}
-
 function upgradeSchemaV56(options) {
   options = options || {};
   var config = readConfig_();
@@ -1079,6 +1153,7 @@ function upgradeSchemaV56(options) {
 function exportOptionalV56Template() {
   var goalHeaders = OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS];
   var commitmentHeaders = OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES];
+  var importRuleHeaders = OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO];
   var goalRow = {
     id_meta: 'META_<SLUG_APROVADO>',
     nome: '<NOME_DA_META_APROVADA>',
@@ -1111,6 +1186,20 @@ function exportOptionalV56Template() {
     ativo: true,
     observacao: '<OPCIONAL_CONTEXTO_REVISADO>',
   };
+  var importRuleRow = {
+    id_regra: 'REGIMP_<SLUG_APROVADO>',
+    assinatura_descricao: '<DESCRICAO_NORMALIZADA_REVISADA>',
+    tipo_evento: '<despesa|receita|compra_cartao>',
+    id_categoria: '<ID_CATEGORIA_ATIVA>',
+    id_fonte: '<ID_FONTE_OU_VAZIO>',
+    id_cartao: '<ID_CARTAO_OU_VAZIO>',
+    escopo: 'Familiar',
+    visibilidade: 'detalhada',
+    status_revisao: 'revisado',
+    revisado_em: '<YYYY-MM-DD>',
+    ativo: true,
+    observacao: '<ORIGEM_E_CONFIRMACAO_INDIVIDUAL>',
+  };
   return {
     ok: true,
     shouldApplyDomainMutation: false,
@@ -1141,6 +1230,10 @@ function exportOptionalV56Template() {
       Compromissos_Recorrentes: {
         headers: commitmentHeaders.slice(),
         rows: [commitmentRow],
+      },
+      Regras_Importacao: {
+        headers: importRuleHeaders.slice(),
+        rows: [importRuleRow],
       },
     },
   };

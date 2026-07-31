@@ -1,10 +1,13 @@
 function readConfig_() {
   var props = PropertiesService.getScriptProperties();
+  var legacyOpenAiModel = props.getProperty('OPENAI_MODEL') || DEFAULT_OPENAI_MODEL;
   var essentialCostOfLife = Number(props.getProperty('ESSENTIAL_COST_OF_LIFE'));
   if (isNaN(essentialCostOfLife) || essentialCostOfLife <= 0) essentialCostOfLife = 5000;
   
   var reserveMonths = Number(props.getProperty('RESERVE_MONTHS'));
   if (isNaN(reserveMonths) || reserveMonths <= 0) reserveMonths = 3;
+  var balanceFreshnessDays = Number(props.getProperty('BALANCE_FRESHNESS_DAYS'));
+  if (!isFinite(balanceFreshnessDays) || balanceFreshnessDays < 0) balanceFreshnessDays = 7;
 
   return {
     webhookSecret: props.getProperty('WEBHOOK_SECRET') || '',
@@ -13,12 +16,16 @@ function readConfig_() {
     pilotFinancialMutationEnabled: props.getProperty('PILOT_FINANCIAL_MUTATION_ENABLED') === 'YES',
     spreadsheetId: props.getProperty('SPREADSHEET_ID') || '',
     openAiApiKey: props.getProperty('OPENAI_API_KEY') || '',
-    openAiModel: props.getProperty('OPENAI_MODEL') || DEFAULT_OPENAI_MODEL,
+    openAiModel: legacyOpenAiModel,
+    openAiParserModel: props.getProperty('OPENAI_PARSER_MODEL') || legacyOpenAiModel,
+    openAiNarratorModel: props.getProperty('OPENAI_NARRATOR_MODEL') || legacyOpenAiModel,
     telegramBotToken: props.getProperty('TELEGRAM_BOT_TOKEN') || '',
     copilotDigestEnabled: props.getProperty('COPILOT_DIGEST_ENABLED') === 'YES',
+    copilotAlertsEnabled: props.getProperty('COPILOT_ALERTS_ENABLED') === 'YES',
     copilotNarratorEnabled: props.getProperty('COPILOT_NARRATOR_ENABLED') === 'YES',
     essentialCostOfLife: essentialCostOfLife,
     reserveMonths: reserveMonths,
+    balanceFreshnessDays: balanceFreshnessDays,
   };
 }
 
@@ -153,8 +160,9 @@ function pad2_(value) {
 
 function isAuthorized_(config, chatId, userId) {
   if (config.authorizedUserIds.length === 0 && config.authorizedChatIds.length === 0) return false;
-  return contains_(config.authorizedUserIds, String(userId || '')) ||
-    contains_(config.authorizedChatIds, String(chatId || ''));
+  if (config.authorizedUserIds.length > 0 && !contains_(config.authorizedUserIds, String(userId || ''))) return false;
+  if (config.authorizedChatIds.length > 0 && !contains_(config.authorizedChatIds, String(chatId || ''))) return false;
+  return true;
 }
 
 function contains_(items, value) {
