@@ -27,10 +27,12 @@ Operational authority for Bot Financeiro Familiar V56.
 - VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 241 is published.
 - VERIFIED: owner OAuth consent covers Spreadsheet, Properties, external requests and Apps Script trigger management.
 - VERIFIED: quick/full remote smoke pass; sheet audit has zero findings and the redacted snapshot is current.
-- VERIFIED: the idempotent migration created `Regras_Importacao` with header only; no financial row was created or deleted.
+- VERIFIED: on 2026-07-31 the owner-authorized clean restart removed every data row from all 16 live sheets while preserving their schema headers; a private Drive recovery copy was created first.
+- VERIFIED: all 16 remaining sheets have a current runtime/schema/test consumer (13 required V55 plus 3 optional V56); no historical or orphan sheet remains safe to delete.
 - VERIFIED: pending-attention uses the 7-day default; alerts/import/digest previews pass and immediate alerts remain disabled.
 - VERIFIED: exactly one Monday 08:00 weekly digest trigger exists; digest delivery is enabled without an immediate deploy-time send.
 - VERIFIED: GitHub variable `VAL_TOWN_VAL` and secret name `VAL_TOWN_API_KEY` are configured; no secret value was read or stored locally.
+- TODO: rebuild categories, sources, cards, recurring income, obligations, balances, assets and debts through the guided clean-base onboarding before relying on financial recommendations.
 - TODO: owner reviews and merges the draft PR; the main-branch workflow then publishes the versioned Val Town proxy.
 
 ## Remaining release order
@@ -50,6 +52,6 @@ GitHub-only: `VAL_TOWN_API_KEY` secret and `VAL_TOWN_VAL` variable. Never commit
 ## Safety rules
 
 - Deterministic code owns financial values, limits and recommendations; the LLM parses or phrases/suggests only.
-- No destructive real-sheet repair/reset/migration without explicit scope; this rollout only adds an optional header-only sheet.
+- No destructive real-sheet repair/reset/migration without explicit owner scope and a recovery path.
 - No raw statements, secrets, IDs, URLs or full financial dumps in Git, logs, docs or properties.
 - Always validate before deploy; stop publication if checks fail.
