@@ -4070,7 +4070,7 @@ function installmentInvoiceCycle_(firstClosingDate, index, card, closingDay, due
   var nextMonthDate = addUtcMonths_(firstClosingDate, index);
   var closingDate = buildClampedUtcDate_(nextMonthDate.getUTCFullYear(), nextMonthDate.getUTCMonth(), closingDay);
   var dueMonth = dueDay > closingDay ? closingDate : addUtcMonths_(closingDate, 1);
-  var dueDate = buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay);
+  var dueDate = BFFCore.nextBrazilBankingBusinessDay(buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay));
   var competencia = formatUtcCompetencia_(closingDate);
   return {
     id_fatura: 'FAT_' + card.id_cartao + '_' + competencia.replace('-', '_'),
@@ -4450,7 +4450,7 @@ function assignPilotInvoiceCycle_(purchaseDateValue, card) {
   var closingDay = numberFromSheetValue_(card.fechamento_dia);
   var dueDay = numberFromSheetValue_(card.vencimento_dia);
   var dueMonth = dueDay > closingDay ? closingDate : addUtcMonths_(closingDate, 1);
-  var dueDate = buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay);
+  var dueDate = BFFCore.nextBrazilBankingBusinessDay(buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay));
   var competencia = formatUtcCompetencia_(closingDate);
   return {
     id_fatura: 'FAT_' + card.id_cartao + '_' + competencia.replace('-', '_'),
@@ -4470,7 +4470,7 @@ function invoiceCycleForCompetencia_(competencia, card) {
   var dueDay = numberFromSheetValue_(card.vencimento_dia);
   var closingDate = buildClampedUtcDate_(year, monthIndex, closingDay);
   var dueMonth = dueDay > closingDay ? closingDate : addUtcMonths_(closingDate, 1);
-  var dueDate = buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay);
+  var dueDate = BFFCore.nextBrazilBankingBusinessDay(buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay));
   return {
     data_fechamento: formatUtcDate_(closingDate),
     data_vencimento: formatUtcDate_(dueDate),

@@ -47,6 +47,7 @@ Public `doGet` read-only actions include `summary`, `cut_first`, `safe_to_spend`
 | `schema.js` | Required V55 and optional V56 sheet/header contracts. |
 | `domain.js`, `validator.js` | Financial calculations and deterministic event invariants. |
 | `card-cycle.js`, `invoice-ledger.js` | Invoice assignment and exposure helpers. |
+| `brazil-business-day.js` | Deterministic weekend and national banking-holiday adjustment for nominal card due dates. |
 | `parser-*`, `event-planner.js`, `idempotency.js`, `write-adapter.js` | Existing pure parser/planner/write contracts preserved during vertical migration. |
 
 ## Edge and automation

@@ -3385,6 +3385,18 @@ test('Apps Script pilot mutation blocks closed competencia unless it is an adjus
     assert.strictEqual(allowed.sheets.Lancamentos.rows.length, 2);
 });
 
+test('Apps Script invoice cycle advances September 7 holiday to the next banking day', () => {
+    const { context } = createAppsScriptHarness();
+    const cycle = context.assignPilotInvoiceCycle_('2026-08-03', {
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        fechamento_dia: 2,
+        vencimento_dia: 7,
+    });
+
+    assert.strictEqual(cycle.data_fechamento, '2026-09-02');
+    assert.strictEqual(cycle.data_vencimento, '2026-09-08');
+});
+
 test('Apps Script pilot card purchase writes launch and expected invoice rows', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'compra_cartao',

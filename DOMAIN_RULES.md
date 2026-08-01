@@ -39,6 +39,7 @@ Every event answers:
 
 - Card invoice payment is not an expense.
 - Card purchase is the expense event.
+- Card due dates use the configured nominal day and advance to the next Brazilian banking business day for weekends and national banking holidays; an authoritative invoice date always prevails.
 - Internal movement is not revenue, not expense, and not debt.
 - Internal movement must name explicit source and destination in the planned sheet row.
 - Private personal detail is filtered out of shared detailed reports.

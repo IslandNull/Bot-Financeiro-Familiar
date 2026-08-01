@@ -2,7 +2,7 @@
 
 Operational authority for Bot Financeiro Familiar V56.
 
-## Current State (2026-07-31)
+## Current State (2026-08-01)
 
 ### VERIFIED locally
 
@@ -21,10 +21,11 @@ Operational authority for Bot Financeiro Familiar V56.
 - Telegram import accepts synthetic-tested OFX 1.x/2.x and CSV UTF-8/Windows-1252 up to 5 MB and 200 transactions, re-downloads on confirmation, checks hash/token/expiry and never persists the raw file.
 - Only active reviewed deterministic import rules can enter a batch. AI suggestions use strict/store-false output and require individual Telegram confirmation before saving a reviewed rule.
 - Optional `Regras_Importacao` schema and idempotent header migration are implemented with audit coverage.
+- Nominal card due dates advance through weekends and Brazilian national banking holidays; authoritative invoice dates still prevail.
 
 ### Remote rollout state
 
-- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 241 is published.
+- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 242 is published.
 - VERIFIED: owner OAuth consent covers Spreadsheet, Properties, external requests and Apps Script trigger management.
 - VERIFIED: quick/full remote smoke pass; sheet audit has zero findings and the redacted snapshot is current.
 - VERIFIED: on 2026-07-31 the owner-authorized clean restart removed every data row from all 16 live sheets while preserving their schema headers; a private Drive recovery copy was created first.
@@ -32,7 +33,8 @@ Operational authority for Bot Financeiro Familiar V56.
 - VERIFIED: pending-attention uses the 7-day default; alerts/import/digest previews pass and immediate alerts remain disabled.
 - VERIFIED: exactly one Monday 08:00 weekly digest trigger exists; digest delivery is enabled without an immediate deploy-time send.
 - VERIFIED: GitHub variable `VAL_TOWN_VAL` and secret name `VAL_TOWN_API_KEY` are configured; no secret value was read or stored locally.
-- TODO: rebuild categories, sources, cards, recurring income, obligations, balances, assets and debts through the guided clean-base onboarding before relying on financial recommendations.
+- VERIFIED: the clean base now contains four active Gustavo sources (two accounts and two card sources) plus Nubank and Mercado Pago card configuration; no financial event or invoice row was inserted.
+- TODO: rebuild categories, recurring income, obligations, opening balances, assets and debts through the guided clean-base onboarding before relying on financial recommendations.
 - TODO: owner reviews and merges the draft PR; the main-branch workflow then publishes the versioned Val Town proxy.
 
 ## Remaining release order

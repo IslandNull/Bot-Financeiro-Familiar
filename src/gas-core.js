@@ -1,6 +1,7 @@
 'use strict';
 
 module.exports = {
+    ...require('./brazil-business-day'),
     ...require('./card-cycle'),
     ...require('./copilot-insights'),
     ...require('./copilot-narrator'),
