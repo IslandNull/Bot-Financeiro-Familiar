@@ -33,7 +33,8 @@ Operational authority for Bot Financeiro Familiar V56.
 - VERIFIED: pending-attention uses the 7-day default; alerts/import/digest previews pass and immediate alerts remain disabled.
 - VERIFIED: exactly one Monday 08:00 weekly digest trigger exists; digest delivery is enabled without an immediate deploy-time send.
 - VERIFIED: GitHub variable `VAL_TOWN_VAL` and secret name `VAL_TOWN_API_KEY` are configured; no secret value was read or stored locally.
-- VERIFIED: the clean base now contains four active Gustavo sources (two accounts and two card sources) plus Nubank and Mercado Pago card configuration; no financial event or invoice row was inserted.
+- VERIFIED: the clean base starts on 2026-08-01 with four active Gustavo sources (two accounts and two card sources) plus Nubank and Mercado Pago card configuration.
+- VERIFIED: the Nubank invoice closed on 2026-07-30 and due on 2026-08-07 is registered as an opening authority obligation of BRL 1,013.90; no pre-cutoff purchase was recreated in `Lancamentos` or counted in the August DRE.
 - TODO: rebuild categories, recurring income, obligations, opening balances, assets and debts through the guided clean-base onboarding before relying on financial recommendations.
 - TODO: owner reviews and merges the draft PR; the main-branch workflow then publishes the versioned Val Town proxy.
 
