@@ -6891,6 +6891,9 @@ test('Apps Script import validates file before download and keeps group preview 
 
 test('Apps Script AI import suggestion uses strict store-false output and saves only after individual confirmation', () => {
     const { context, sheets } = createAppsScriptHarness(null, { properties: { TELEGRAM_BOT_TOKEN: '123456:test_token', OPENAI_PARSER_MODEL: 'parser-model' } });
+    const marketRow = sheets.Config_Categorias.rows.find((row) => row[configCategoriasHeaders.indexOf('id_categoria')] === 'OPEX_MERCADO_SEMANA');
+    marketRow[configCategoriasHeaders.indexOf('tipo_evento_padrao')] = 'compra_cartao';
+    marketRow[configCategoriasHeaders.indexOf('afeta_caixa_familiar_padrao')] = true;
     appendFakeImportRule(sheets, { id_regra: 'DRAFT_UNUSED', assinatura_descricao: 'unused', status_revisao: 'sugerido', ativo: false });
     const csv = 'data;descricao;valor\n30/04/2026;Loja desconhecida;-15,00';
     const bytes = Array.from(Buffer.from(csv, 'utf8'));
@@ -6913,6 +6916,7 @@ test('Apps Script AI import suggestion uses strict store-false output and saves 
     assert.strictEqual(aiPayload.store, false);
     assert.strictEqual(aiPayload.text.format.type, 'json_schema');
     assert.strictEqual(aiPayload.text.format.strict, true);
+    assert.ok(aiPayload.input.includes('OPEX_MERCADO_SEMANA'));
     assert.match(suggestion.responseText, /ainda nao salva/);
     assert.strictEqual(sheets.Regras_Importacao.rows.length, 2);
     const saveData = suggestion.reply_markup.inline_keyboard.flat().find(button => button.callback_data.startsWith('imp:save:')).callback_data;

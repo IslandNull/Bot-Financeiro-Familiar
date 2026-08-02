@@ -2,7 +2,7 @@
 
 Operational authority for Bot Financeiro Familiar V56.
 
-## Current State (2026-08-01)
+## Current State (2026-08-02)
 
 ### VERIFIED locally
 
@@ -20,12 +20,13 @@ Operational authority for Bot Financeiro Familiar V56.
 - High-signal budget alerts use preview-only 85%/100% thresholds; immediate delivery stays disabled.
 - Telegram import accepts synthetic-tested OFX 1.x/2.x and CSV UTF-8/Windows-1252 up to 5 MB and 200 transactions, re-downloads on confirmation, checks hash/token/expiry and never persists the raw file.
 - Only active reviewed deterministic import rules can enter a batch. AI suggestions use strict/store-false output and require individual Telegram confirmation before saving a reviewed rule.
+- Purpose-based spending categories are compatible with both account expenses and card purchases; import-rule suggestions no longer require duplicate categories by payment medium.
 - Optional `Regras_Importacao` schema and idempotent header migration are implemented with audit coverage.
 - Nominal card due dates advance through weekends and Brazilian national banking holidays; authoritative invoice dates still prevail.
 
 ### Remote rollout state
 
-- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 242 is published.
+- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 243 is published.
 - VERIFIED: owner OAuth consent covers Spreadsheet, Properties, external requests and Apps Script trigger management.
 - VERIFIED: quick/full remote smoke pass; sheet audit has zero findings and the redacted snapshot is current.
 - VERIFIED: on 2026-07-31 the owner-authorized clean restart removed every data row from all 16 live sheets while preserving their schema headers; a private Drive recovery copy was created first.
@@ -35,7 +36,10 @@ Operational authority for Bot Financeiro Familiar V56.
 - VERIFIED: GitHub variable `VAL_TOWN_VAL` and secret name `VAL_TOWN_API_KEY` are configured; no secret value was read or stored locally.
 - VERIFIED: the clean base starts on 2026-08-01 with four active Gustavo sources (two accounts and two card sources) plus Nubank and Mercado Pago card configuration.
 - VERIFIED: the Nubank invoice closed on 2026-07-30 and due on 2026-08-07 is registered as an opening authority obligation of BRL 1,013.90; no pre-cutoff purchase was recreated in `Lancamentos` or counted in the August DRE.
-- TODO: rebuild categories, recurring income, obligations, opening balances, assets and debts through the guided clean-base onboarding before relying on financial recommendations.
+- VERIFIED: July 2026 is closed as the technical pre-cutoff period, so the runtime cannot import or register pre-2026-08-01 purchases as new expenses.
+- VERIFIED: the live base has 28 purpose-based active categories with no invented monthly limits and 23 reviewed high-confidence card import rules; generic marketplaces and the unidentified `Evertonsantosde` purchase have no automatic rule.
+- VERIFIED: opening invoice exposure also covers Mercado Pago August BRL 2,943.03, Nubank September BRL 399.41 and Mercado Pago September BRL 1,825.25 without adding pre-cutoff launches. The three remain `prevista` until authoritative closing values are supplied.
+- TODO: rebuild recurring income, commitments, opening balances, assets and debts through the guided clean-base onboarding before relying on financial recommendations.
 - TODO: owner reviews and merges the draft PR; the main-branch workflow then publishes the versioned Val Town proxy.
 
 ## Remaining release order

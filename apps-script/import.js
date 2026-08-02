@@ -205,7 +205,9 @@ function fetchImportRuleSuggestion_(transaction, originType, config, referenceDa
   if (!config.openAiApiKey || !config.openAiParserModel) return fail_('MISSING_OPENAI_API_KEY', 'openai', GENERIC_REQUEST_FAILURE);
   var allowedTypes = originType === 'card' ? ['compra_cartao'] : (transaction.signed_amount < 0 ? ['despesa'] : ['receita']);
   var categories = (referenceData.categories || []).filter(function(category) {
-    return category.ativo !== false && allowedTypes.indexOf(stringValue_(category.tipo_evento_padrao)) !== -1;
+    return category.ativo !== false && allowedTypes.some(function(eventType) {
+      return !!categoryForEvent_(referenceData, category.id_categoria, eventType);
+    });
   });
   if (!categories.length) return fail_('IMPORT_AI_NO_ALLOWED_CATEGORY', 'id_categoria', GENERIC_REQUEST_FAILURE);
   var categoryIds = categories.map(function(category) { return stringValue_(category.id_categoria); });
@@ -261,7 +263,7 @@ function saveTelegramImportRule_(update, message, config, state, ambiguousIndex,
   if (prepared.originType === 'source' && eventType === 'compra_cartao') return fail_('IMPORT_RULE_EVENT_INVALID', 'tipo_evento', GENERIC_REQUEST_FAILURE);
   if (transaction.signed_amount < 0 && eventType === 'receita') return fail_('IMPORT_RULE_SIGN_INVALID', 'tipo_evento', GENERIC_REQUEST_FAILURE);
   if (transaction.signed_amount > 0 && eventType !== 'receita') return fail_('IMPORT_RULE_SIGN_INVALID', 'tipo_evento', GENERIC_REQUEST_FAILURE);
-  if (stringValue_(category.tipo_evento_padrao) !== eventType) return fail_('IMPORT_RULE_CATEGORY_INVALID', 'id_categoria', GENERIC_REQUEST_FAILURE);
+  if (!categoryForEvent_(referenceData, category.id_categoria, eventType)) return fail_('IMPORT_RULE_CATEGORY_INVALID', 'id_categoria', GENERIC_REQUEST_FAILURE);
   var ruleId = stableId_('REGIMP', [state.origin, transaction.normalized_description, eventType, category.id_categoria].join('|'));
   var originId = String(state.origin).split(':')[1];
   var row = {
