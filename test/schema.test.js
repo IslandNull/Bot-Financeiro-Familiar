@@ -109,6 +109,11 @@ test('decision-capacity sheets exist before Telegram phase', () => {
         'beneficio_restrito',
         'ativo',
         'observacao',
+        'dia_recebimento',
+        'regra_dia_util',
+        'id_fonte',
+        'revisao_mensal',
+        'revisado_em',
     ]);
     assert.deepStrictEqual(HEADERS[SHEETS.SALDOS_FONTES], [
         'id_snapshot',

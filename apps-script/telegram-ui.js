@@ -1,10 +1,12 @@
 var TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64;
 var TELEGRAM_CALLBACKS = {
   home: 'nav:home',
+  more: 'nav:more',
   help: 'nav:help',
   examples: 'nav:examples',
   launch: 'nav:launch',
   settings: 'nav:settings',
+  configure: 'nav:configure',
   summary: 'act:summary_current',
   agenda: 'act:agenda_current',
   reviewMonth: 'act:review_month_current',
@@ -14,6 +16,7 @@ var TELEGRAM_CALLBACKS = {
   pendingAttention: 'act:pending_attention',
   importHelp: 'nav:import',
   copilot: 'act:copilot_today',
+  explainCopilot: 'act:copilot_explain',
   cutFirst: 'act:cut_first',
   safeToSpend: 'act:safe_to_spend',
   clearContext: 'act:clear_context',
@@ -51,29 +54,58 @@ function buildTelegramHomeView_() {
   return telegramView_([
     'Bot financeiro familiar',
     '',
-    'Voce pode tocar nos botoes ou escrever direto.',
+    'Toque em uma ação. Você também pode escrever direto.',
     '',
     'Exemplos rapidos:',
     '- mercado 42 hoje no Nubank',
     '- paguei fatura Nubank 300',
     '- posso comprar 900 em 3x?',
     '',
-    'O que voce quer fazer?',
+    'O que você quer fazer?',
   ].join('\n'), [
     telegramCallbackButton_('Copiloto', TELEGRAM_CALLBACKS.copilot),
-    telegramCallbackButton_('Onde cortar', TELEGRAM_CALLBACKS.cutFirst),
-    telegramCallbackButton_('Gasto seguro', TELEGRAM_CALLBACKS.safeToSpend),
+    telegramCallbackButton_('Lançar', TELEGRAM_CALLBACKS.launch),
     telegramCallbackButton_('Resumo', TELEGRAM_CALLBACKS.summary),
     telegramCallbackButton_('Agenda', TELEGRAM_CALLBACKS.agenda),
+    telegramCallbackButton_('Pendências', TELEGRAM_CALLBACKS.pendingAttention),
+    telegramCallbackButton_('Mais', TELEGRAM_CALLBACKS.more),
+  ]);
+}
+
+function buildTelegramMoreView_() {
+  return telegramView_('Mais opções', [
+    telegramCallbackButton_('Gasto seguro', TELEGRAM_CALLBACKS.safeToSpend),
+    telegramCallbackButton_('Onde cortar', TELEGRAM_CALLBACKS.cutFirst),
     telegramCallbackButton_('Orçamento', TELEGRAM_CALLBACKS.budget),
     telegramCallbackButton_('Metas', TELEGRAM_CALLBACKS.goals),
     telegramCallbackButton_('Compromissos', TELEGRAM_CALLBACKS.commitments),
-    telegramCallbackButton_('Pendencias', TELEGRAM_CALLBACKS.pendingAttention),
+    telegramCallbackButton_('Revisar mês', TELEGRAM_CALLBACKS.reviewMonth),
     telegramCallbackButton_('Importar', TELEGRAM_CALLBACKS.importHelp),
-    telegramCallbackButton_('Lancar', TELEGRAM_CALLBACKS.launch),
-    telegramCallbackButton_('Revisar mes', TELEGRAM_CALLBACKS.reviewMonth),
-    telegramCallbackButton_('Ajuda', TELEGRAM_CALLBACKS.help),
     telegramCallbackButton_('Corrigir', TELEGRAM_CALLBACKS.correction),
+    telegramCallbackButton_('Configurar', TELEGRAM_CALLBACKS.configure),
+    telegramCallbackButton_('Ajuda', TELEGRAM_CALLBACKS.help),
+    telegramCallbackButton_('Início', TELEGRAM_CALLBACKS.home),
+  ]);
+}
+
+function buildTelegramConfigureView_(statusText) {
+  return telegramView_([
+    'Configuração guiada',
+    '',
+    statusText || 'Escolha o próximo dado que deseja revisar.',
+    '',
+    'Cada alteração estrutural mostra uma prévia antes de salvar.',
+  ].join('\n'), [
+    telegramCallbackButton_('Nova conta', 'flow:setup_source'),
+    telegramCallbackButton_('Novo cartão', 'flow:setup_card'),
+    telegramCallbackButton_('Saldo de conta', 'flow:source_balance'),
+    telegramCallbackButton_('Saldo de patrimônio', 'flow:asset_balance'),
+    telegramCallbackButton_('Novo patrimônio', 'flow:setup_asset'),
+    telegramCallbackButton_('Nova dívida', 'flow:setup_debt'),
+    telegramCallbackButton_('Renda recorrente', 'flow:setup_income'),
+    telegramCallbackButton_('Compromisso', 'flow:setup_commitment'),
+    telegramCallbackButton_('Meta', 'flow:setup_goal'),
+    telegramCallbackButton_('Início', TELEGRAM_CALLBACKS.home),
   ]);
 }
 
@@ -84,7 +116,7 @@ function buildTelegramHelpView_() {
     'Voce pode escrever direto ou usar botoes.',
     '',
     'Comandos preservados:',
-    '/resumo, /agenda, /revisar_mes, /orcamento, /metas, /compromissos, /pendencias, /limpar_contexto.',
+    '/resumo, /agenda, /revisar_mes, /orcamento, /metas, /compromissos, /pendencias, /configurar e /limpar_contexto.',
     '',
     'Se faltar fonte, cartao, categoria ou fatura, eu pergunto antes de anotar.',
   ].join('\n'), [
@@ -165,16 +197,12 @@ function buildTelegramPendingTextView_(title, hint) {
 
 function buildTelegramReadOnlyView_(text) {
   return telegramView_(text, [
-    telegramCallbackButton_('Copiloto', TELEGRAM_CALLBACKS.copilot),
-    telegramCallbackButton_('Onde cortar', TELEGRAM_CALLBACKS.cutFirst),
+    telegramCallbackButton_('Explicar melhor', TELEGRAM_CALLBACKS.explainCopilot),
     telegramCallbackButton_('Gasto seguro', TELEGRAM_CALLBACKS.safeToSpend),
     telegramCallbackButton_('Resumo', TELEGRAM_CALLBACKS.summary),
     telegramCallbackButton_('Agenda', TELEGRAM_CALLBACKS.agenda),
-    telegramCallbackButton_('Orçamento', TELEGRAM_CALLBACKS.budget),
-    telegramCallbackButton_('Metas', TELEGRAM_CALLBACKS.goals),
-    telegramCallbackButton_('Compromissos', TELEGRAM_CALLBACKS.commitments),
-    telegramCallbackButton_('Lancar', TELEGRAM_CALLBACKS.launch),
-    telegramCallbackButton_('Inicio', TELEGRAM_CALLBACKS.home),
+    telegramCallbackButton_('Lançar', TELEGRAM_CALLBACKS.launch),
+    telegramCallbackButton_('Início', TELEGRAM_CALLBACKS.home),
   ]);
 }
 

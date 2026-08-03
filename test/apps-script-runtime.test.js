@@ -56,6 +56,19 @@ const {
     regrasImportacaoHeaders,
 } = require('./support/harness');
 
+function postPilotMessageConfirmingIfRequested(context, text, options = {}) {
+    const preview = postPilotMessage(context, text, options);
+    if (!preview.ok || !preview.reply_markup || !Array.isArray(preview.reply_markup.inline_keyboard)) return preview;
+    const confirmation = preview.reply_markup.inline_keyboard.flat().find((button) => String(button.callback_data || '').startsWith('confirm:'));
+    if (!confirmation) return preview;
+    return postTelegramCallback(context, confirmation.callback_data, {
+        chatId: options.chatId,
+        userId: options.userId,
+        updateId: `${options.updateId || 'update_1'}_confirmation`,
+        callbackId: `${options.messageId || 'message_1'}_confirmation`,
+    });
+}
+
 function appendFakeCategory(sheets, overrides = {}) {
     const category = {
         id_categoria: 'OPEX_ALIMENTACAO_FORA',
@@ -193,11 +206,10 @@ test('Apps Script /start and /help return Home with inline keyboard', () => {
     assert.ok(help.reply_markup.inline_keyboard.length > 0);
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:summary_current'));
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:copilot_today'));
-    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:cut_first'));
-    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:safe_to_spend'));
-    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:goals_current'));
-    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:commitments_current'));
-    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.text === 'Orçamento' && button.callback_data === 'act:budget_current'));
+    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:pending_attention'));
+    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'nav:launch'));
+    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'nav:more'));
+    assert.ok(start.reply_markup.inline_keyboard.flat().length <= 6);
 });
 
 test('Apps Script callback home edits menu and answers callback', () => {
@@ -245,12 +257,12 @@ test('Apps Script read-only callbacks reuse summary agenda and review without mu
         assert.strictEqual(result.telegramActions[0].method, 'answerCallbackQuery');
         assert.strictEqual(result.telegramActions[1].method, 'editMessageText');
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'nav:home'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:copilot_today'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:cut_first'));
+        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:copilot_explain'));
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:safe_to_spend'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:goals_current'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:commitments_current'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.text === 'Orçamento' && button.callback_data === 'act:budget_current'));
+        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:summary_current'));
+        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:agenda_current'));
+        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'nav:launch'));
+        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().length <= 6);
     }
     assert.match(summary.telegramActions[1].text, /Resumo/);
     assert.match(copilot.telegramActions[1].text, /Copiloto financeiro/);
@@ -705,7 +717,7 @@ test('Apps Script optional IA narrator uses structured output and accepts only d
     appendFakeInvoice(sheets, { valor_previsto: 1200, valor_pago: '', status: 'prevista' });
     appendFakeDebt(sheets, { valor_parcela: 400 });
 
-    const result = postPilotMessage(context, '/copiloto');
+    const result = postTelegramCallback(context, 'act:copilot_explain');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     assert.strictEqual(result.shouldApplyDomainMutation, false);
@@ -744,7 +756,7 @@ test('Apps Script optional IA narrator falls back when the model invents money o
     appendFakeInvoice(sheets, { valor_previsto: 1200, valor_pago: '', status: 'prevista' });
     appendFakeDebt(sheets, { valor_parcela: 400 });
 
-    const result = postPilotMessage(context, '/copiloto');
+    const result = postTelegramCallback(context, 'act:copilot_explain');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     assert.match(result.responseText, /Copiloto financeiro de abril/);
@@ -3999,7 +4011,12 @@ test('Apps Script pilot invoice payment writes cash launch and marks invoice pai
     });
     appendFakeInvoice(sheets);
 
-    const result = postPilotMessage(context, 'pagar fatura nubank 42,50');
+    const preview = postPilotMessage(context, 'pagar fatura nubank 42,50');
+    assert.strictEqual(preview.ok, true);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    const confirmData = preview.reply_markup.inline_keyboard.flat().find((button) => button.callback_data.startsWith('confirm:')).callback_data;
+    const result = postTelegramCallback(context, confirmData);
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
@@ -4050,7 +4067,7 @@ test('Apps Script pilot invoice payment infers Nubank April invoice and cash sou
     })[header] ?? ''));
     appendFakeInvoice(sheets, { valor_previsto: 1997.73 });
 
-    const result = postPilotMessage(context, 'Paguei a fatura Nubank Gustavo de abril no valor de 1997,73 em 07/05 pela Conta Nubank Gustavo. Nao e despesa nova, e pagamento de fatura.');
+    const result = postPilotMessageConfirmingIfRequested(context, 'Paguei a fatura Nubank Gustavo de abril no valor de 1997,73 em 07/05 pela Conta Nubank Gustavo. Nao e despesa nova, e pagamento de fatura.');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -4110,7 +4127,7 @@ test('Apps Script invoice payment source uses explicit paying account instead of
     ].forEach((row) => sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => row[header] === undefined ? '' : row[header])));
     appendFakeInvoice(sheets, { valor_previsto: 1997.73 });
 
-    const result = postPilotMessage(context, 'Paguei a fatura Nubank Gustavo de abril no valor de 1997,73 em 07/05 pela Conta Mercado Pago Gustavo. Nao e despesa nova, e pagamento de fatura.');
+    const result = postPilotMessageConfirmingIfRequested(context, 'Paguei a fatura Nubank Gustavo de abril no valor de 1997,73 em 07/05 pela Conta Mercado Pago Gustavo. Nao e despesa nova, e pagamento de fatura.');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -4177,7 +4194,7 @@ test('Apps Script pilot invoice payment infers Mercado Pago invoice and account 
         valor_previsto: 4219.93,
     });
 
-    const result = postPilotMessage(context, 'Paguei a fatura Mercado Pago Gustavo de abril no valor de 4219,93 em 05/05 pela Conta Mercado Pago Gustavo. Nao e despesa nova, e pagamento de fatura.');
+    const result = postPilotMessageConfirmingIfRequested(context, 'Paguei a fatura Mercado Pago Gustavo de abril no valor de 4219,93 em 05/05 pela Conta Mercado Pago Gustavo. Nao e despesa nova, e pagamento de fatura.');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -4220,7 +4237,7 @@ test('Apps Script pilot invoice payment reconciles small reviewed invoice overag
     appendFakeInvoice(sheets, { valor_previsto: 1773.11 });
     appendFakeInvoice(sheets, { valor_previsto: 203.64 });
 
-    const result = postPilotMessage(context, 'Paguei a fatura Nubank Gustavo de abril no valor de 1997,73 em 07/05 pela Conta Nubank Gustavo. Nao e despesa nova, e pagamento de fatura.');
+    const result = postPilotMessageConfirmingIfRequested(context, 'Paguei a fatura Nubank Gustavo de abril no valor de 1997,73 em 07/05 pela Conta Nubank Gustavo. Nao e despesa nova, e pagamento de fatura.');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -4264,7 +4281,7 @@ test('Apps Script pilot invoice payment can pay a historical invoice split into 
     appendFakeInvoice(sheets, { valor_previsto: 70 });
     appendFakeInvoice(sheets, { valor_previsto: 50 });
 
-    const result = postPilotMessage(context, 'paguei fatura historica 120');
+    const result = postPilotMessageConfirmingIfRequested(context, 'paguei fatura historica 120');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const firstInvoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
@@ -4307,7 +4324,7 @@ test('Apps Script pilot invoice payment charges only outstanding amount on parti
         status: 'parcialmente_paga',
     });
 
-    const result = postPilotMessage(context, 'paguei restante fatura nubank 70');
+    const result = postPilotMessageConfirmingIfRequested(context, 'paguei restante fatura nubank 70');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
@@ -4459,7 +4476,7 @@ test('Apps Script pilot internal transfer writes family cash entry only', () => 
         status: '',
     });
 
-    const result = postPilotMessage(context, 'Luana mandou 300 para caixa familiar');
+    const result = postPilotMessageConfirmingIfRequested(context, 'Luana mandou 300 para caixa familiar');
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
@@ -4506,7 +4523,7 @@ test('Apps Script pilot internal transfer moves money between own active sources
         { id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU', nome: 'Conta Mercado Pago Gustavo', tipo: 'conta_corrente', titular: 'Gustavo', moeda: 'BRL', ativo: true },
     ].forEach((row) => sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => row[header] === undefined ? '' : row[header])));
 
-    const result = postPilotMessage(context, 'Transferi 1675 do Nubank Gustavo para Mercado Pago Gustavo em 08/05.');
+    const result = postPilotMessageConfirmingIfRequested(context, 'Transferi 1675 do Nubank Gustavo para Mercado Pago Gustavo em 08/05.');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result));
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
@@ -4721,7 +4738,7 @@ test('Apps Script conversation context persists a rolling 5-message window and c
         assert.strictEqual(result.ok, true);
     }
 
-    const state = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1);
+    const state = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1);
     assert.strictEqual(state.messages.length, 10);
     assert.strictEqual(state.messages[0].text, '/ajuda');
     assert.strictEqual(state.messages[0].role, 'user');
@@ -4735,7 +4752,7 @@ test('Apps Script conversation context persists a rolling 5-message window and c
 
     assert.strictEqual(cleared.ok, true);
     assert.match(cleared.responseText, /Contexto limpo/);
-    assert.strictEqual(context.__scriptProperties.BFF_CONVERSATION_chat_1, undefined);
+    assert.strictEqual(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1, undefined);
 });
 
 test('Apps Script conversation context stores user and bot messages', () => {
@@ -4765,7 +4782,7 @@ test('Apps Script conversation context stores user and bot messages', () => {
     const result = postPilotMessage(context, 'farmacia 18 no nubank');
     assert.strictEqual(result.ok, true);
 
-    const state = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1);
+    const state = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1);
     assert.strictEqual(state.messages.length, 2);
     assert.strictEqual(state.messages[0].role, 'user');
     assert.strictEqual(state.messages[0].text, 'farmacia 18 no nubank');
@@ -4814,7 +4831,7 @@ test('Apps Script guided registration resumes pending expense when user replies 
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_FAMILIA');
-    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1).pending_intent, null);
+    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent, null);
 });
 
 test('Apps Script guided registration resumes pending card purchase when user replies with card only', () => {
@@ -5394,6 +5411,100 @@ test('Apps Script MutationPlan resumes a failed expense without duplicating the 
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
 });
 
+test('Apps Script conversation state is isolated by user inside the same chat', () => {
+    const { context } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: { AUTHORIZED_USER_IDS: 'user_1,user_2' },
+    });
+
+    postPilotMessage(context, '/ajuda', { userId: 'user_1', updateId: 'user_1_update', messageId: 'user_1_message' });
+    postPilotMessage(context, '/start', { userId: 'user_2', updateId: 'user_2_update', messageId: 'user_2_message' });
+
+    const first = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1);
+    const second = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_2);
+    assert.strictEqual(first.messages[0].text, '/ajuda');
+    assert.strictEqual(second.messages[0].text, '/start');
+
+    postPilotMessage(context, '/limpar_contexto', { userId: 'user_1', updateId: 'user_1_clear', messageId: 'user_1_clear_message' });
+    assert.strictEqual(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1, undefined);
+    assert.ok(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_2);
+});
+
+test('Apps Script conversation state expires after 24 hours', () => {
+    const { context } = createAppsScriptHarness(null, { failOnFetch: true });
+    context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1 = JSON.stringify({
+        messages: [{ role: 'user', text: 'stale context' }],
+        pending_action: { type: 'launch_text' },
+        updated_at: '2026-04-29T14:59:59Z',
+    });
+
+    const state = context.readConversationState_('chat_1', 'user_1');
+    assert.deepStrictEqual(Array.from(state.messages), []);
+    assert.strictEqual(state.pending_action, null);
+    assert.strictEqual(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1, undefined);
+});
+
+test('Apps Script /configurar creates a reviewed source only after preview confirmation', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const status = postPilotMessage(context, '/configurar');
+    assert.strictEqual(status.ok, true, JSON.stringify(status.errors));
+    assert.match(status.responseText, /Progresso atual/);
+    assert.ok(status.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'flow:setup_source'));
+
+    const prompt = postTelegramCallback(context, 'flow:setup_source');
+    assert.match(prompt.responseText, /Pessoa.*Nome da conta.*Tipo/s);
+    const preview = postPilotMessage(context, 'Luana | Nubank Luana | conta corrente', {
+        updateId: 'setup_source_preview', messageId: 'setup_source_preview_message',
+    });
+    assert.strictEqual(preview.ok, true, JSON.stringify(preview.errors));
+    assert.match(preview.responseText, /Confirmar nova conta/);
+    assert.strictEqual(sheets.Config_Fontes.rows.filter((row) => row[configFontesHeaders.indexOf('nome')] === 'Nubank Luana').length, 0);
+
+    const confirm = preview.reply_markup.inline_keyboard.flat().find((button) => button.callback_data.startsWith('confirm:'));
+    const saved = postTelegramCallback(context, confirm.callback_data, {
+        updateId: 'setup_source_confirm', callbackId: 'setup_source_confirm_callback',
+    });
+    assert.strictEqual(saved.ok, true, JSON.stringify(saved.errors));
+    const row = sheets.Config_Fontes.rows.find((candidate) => candidate[configFontesHeaders.indexOf('nome')] === 'Nubank Luana');
+    assert.ok(row);
+    assert.strictEqual(row[configFontesHeaders.indexOf('titular')], 'Luana');
+    assert.strictEqual(row[configFontesHeaders.indexOf('tipo')], 'conta_corrente');
+});
+
+test('Apps Script recurring-income setup replaces an existing incomplete row without duplication', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    sheets.Rendas_Recorrentes.appendRow(rendasRecorrentesHeaders.map((header) => ({
+        id_renda: 'RENDA_SALARIO_GUSTAVO',
+        pessoa: 'Gustavo',
+        descricao: 'Salário',
+        valor_planejado: 3442.43,
+        tipo_renda: 'salario',
+        beneficio_restrito: false,
+        ativo: true,
+        observacao: 'Base limpa',
+    })[header] ?? ''));
+
+    postPilotMessage(context, '/configurar');
+    const prompt = postTelegramCallback(context, 'flow:setup_income');
+    assert.match(prompt.responseText, /Pessoa.*Descrição.*Fonte/s);
+    const preview = postPilotMessage(context, 'Gustavo | Salário | 3442,43 | dia 5 | Mercado Pago | fixa', {
+        updateId: 'setup_income_preview', messageId: 'setup_income_preview_message',
+    });
+    assert.strictEqual(preview.ok, true, JSON.stringify(preview.errors));
+    assert.match(preview.responseText, /configuração ativa anterior será substituída/i);
+
+    const confirm = preview.reply_markup.inline_keyboard.flat().find((button) => button.callback_data.startsWith('confirm:'));
+    const saved = postTelegramCallback(context, confirm.callback_data, {
+        updateId: 'setup_income_confirm', callbackId: 'setup_income_confirm_callback',
+    });
+    assert.strictEqual(saved.ok, true, JSON.stringify(saved.errors));
+    const rows = sheets.Rendas_Recorrentes.rows.slice(1);
+    assert.strictEqual(rows.length, 1);
+    assert.notStrictEqual(rows[0][rendasRecorrentesHeaders.indexOf('id_renda')], 'RENDA_SALARIO_GUSTAVO');
+    assert.strictEqual(rows[0][rendasRecorrentesHeaders.indexOf('dia_recebimento')], 5);
+    assert.strictEqual(rows[0][rendasRecorrentesHeaders.indexOf('id_fonte')], 'FONTE_CONTA_MERCADO_PAGO_GU');
+});
+
 test('Apps Script parser sends strict schema, store false, and parser-specific model', () => {
     let payload;
     const { context } = createAppsScriptHarness(null, {
@@ -5415,6 +5526,36 @@ test('Apps Script parser sends strict schema, store false, and parser-specific m
     assert.strictEqual(payload.text.format.strict, true);
     assert.deepStrictEqual(Array.from(payload.text.format.schema.required), Array.from(context.PARSED_EVENT_FIELDS));
     assert.strictEqual(payload.text.format.schema.additionalProperties, false);
+});
+
+test('Apps Script OpenAI boundary retries transient failures once and never retries authentication errors', () => {
+    const { context } = createAppsScriptHarness(null);
+    let calls = 0;
+    context.UrlFetchApp.fetch = function() {
+        calls += 1;
+        const status = calls === 1 ? 429 : 200;
+        return {
+            getResponseCode: () => status,
+            getContentText: () => '{}',
+            getAllHeaders: () => ({ 'Retry-After': '0' }),
+        };
+    };
+    const recovered = context.fetchOpenAIResponseWithRetry_({ model: 'test' }, { openAiApiKey: 'test' }, 'retry_test');
+    assert.strictEqual(recovered.getResponseCode(), 200);
+    assert.strictEqual(calls, 2);
+
+    calls = 0;
+    context.UrlFetchApp.fetch = function() {
+        calls += 1;
+        return {
+            getResponseCode: () => 401,
+            getContentText: () => '{}',
+            getAllHeaders: () => ({}),
+        };
+    };
+    const rejected = context.fetchOpenAIResponseWithRetry_({ model: 'test' }, { openAiApiKey: 'test' }, 'auth_test');
+    assert.strictEqual(rejected.getResponseCode(), 401);
+    assert.strictEqual(calls, 1);
 });
 
 test('Apps Script installment purchase recovers after every sheet boundary without duplicates', () => {
@@ -5688,7 +5829,7 @@ test('Apps Script correction using last_success_ref rolls back purchase and rewr
 
     // Setup conversation state with last_success_ref
     context.PropertiesService.getScriptProperties().setProperty(
-        'BFF_CONVERSATION_chat_1',
+        'BFF_CONVERSATION_chat_1_user_1',
         JSON.stringify({
             messages: [{ role: 'user', text: 'mercado 39.46', at: '2026-04-30T15:00:00Z' }],
             pending_intent: null,
@@ -5696,66 +5837,50 @@ test('Apps Script correction using last_success_ref rolls back purchase and rewr
         })
     );
 
-    // Mock OpenAI fetch responses in sequence
+    // A correção explícita é interpretada em uma única chamada estruturada.
     let callCount = 0;
     context.UrlFetchApp.fetch = function(url) {
         callCount += 1;
-        if (callCount === 1) {
-            // First call: parse "nao, e farmacia" -> correcao_transacao
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'correcao_transacao',
-                                valor: 0,
-                                data: '',
-                                descricao: '39.46 farmacia no nubank',
-                            }),
-                        }],
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+                output: [{
+                    content: [{
+                        text: JSON.stringify({
+                            target_valor: '0',
+                            target_data: '',
+                            tipo_evento: 'compra_cartao',
+                            data: '2026-04-30',
+                            competencia: '2026-04',
+                            valor: '39.46',
+                            descricao: '39.46 farmacia no nubank',
+                            id_categoria: 'OPEX_FARMACIA',
+                            id_fonte: 'FONTE_NUBANK_GU',
+                            pessoa: 'Gustavo',
+                            escopo: 'Familiar',
+                            visibilidade: 'detalhada',
+                            id_cartao: 'CARD_NUBANK_GU',
+                            id_fatura: '',
+                            id_divida: '',
+                            id_ativo: '',
+                            afeta_dre: true,
+                            afeta_patrimonio: false,
+                            afeta_caixa_familiar: false,
+                            direcao_caixa_familiar: '',
+                            status: '',
+                            parcelas: 1,
+                        }),
                     }],
-                }),
-            };
-        } else {
-            // Second call: parse the new command
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'compra_cartao',
-                                data: '2026-04-30',
-                                competencia: '2026-04',
-                                valor: 39.46,
-                                descricao: '39.46 farmacia no nubank',
-                                id_categoria: 'OPEX_FARMACIA',
-                                id_fonte: 'FONTE_NUBANK_GU',
-                                pessoa: 'Gustavo',
-                                escopo: 'Familiar',
-                                visibilidade: 'detalhada',
-                                id_cartao: 'CARD_NUBANK_GU',
-                                id_fatura: '',
-                                id_divida: '',
-                                id_ativo: '',
-                                afeta_dre: true,
-                                afeta_patrimonio: false,
-                                afeta_caixa_familiar: false,
-                                direcao_caixa_familiar: '',
-                                status: '',
-                            }),
-                        }],
-                    }],
-                }),
-            };
-        }
+                }],
+            }),
+        };
     };
 
     const result = postPilotMessage(context, 'nao, e farmacia');
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Lan.amento corrigido/);
-    assert.match(result.responseText, /Deletado: "mercado/);
+    assert.match(result.responseText, /Substitu.do: "mercado|Deletado: "mercado/);
+    assert.strictEqual(callCount, 1);
 
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     const finalLaunch = sheets.Lancamentos.rows[1];
@@ -5790,65 +5915,51 @@ test('Apps Script tardio correction lookup by value and date successfully delete
         descricao: 'outro lanche',
     });
 
-    // Mock OpenAI fetch responses
+    // Uma única resposta contém o alvo e o lançamento substituto.
     let callCount = 0;
     context.UrlFetchApp.fetch = function(url) {
         callCount += 1;
-        if (callCount === 1) {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'correcao_transacao',
-                                valor: 70.36,
-                                data: '2026-04-23',
-                                descricao: '70.36 lanche casal categoria OPEX_FARMACIA',
-                            }),
-                        }],
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+                output: [{
+                    content: [{
+                        text: JSON.stringify({
+                            target_valor: '70.36',
+                            target_data: '2026-04-23',
+                            tipo_evento: 'despesa',
+                            data: '2026-04-23',
+                            competencia: '2026-04',
+                            valor: '70.36',
+                            descricao: '70.36 lanche casal categoria OPEX_FARMACIA',
+                            id_categoria: 'OPEX_FARMACIA',
+                            id_fonte: 'FONTE_CONTA_FAMILIA',
+                            pessoa: 'Gustavo',
+                            escopo: 'Familiar',
+                            visibilidade: 'detalhada',
+                            id_cartao: '',
+                            id_fatura: '',
+                            id_divida: '',
+                            id_ativo: '',
+                            afeta_dre: true,
+                            afeta_patrimonio: false,
+                            afeta_caixa_familiar: true,
+                            direcao_caixa_familiar: 'saida',
+                            status: 'efetivado',
+                            parcelas: 1,
+                        }),
                     }],
-                }),
-            };
-        } else {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'despesa',
-                                data: '2026-04-23',
-                                competencia: '2026-04',
-                                valor: 70.36,
-                                descricao: '70.36 lanche casal categoria OPEX_FARMACIA',
-                                id_categoria: 'OPEX_FARMACIA',
-                                id_fonte: 'FONTE_CONTA_FAMILIA',
-                                pessoa: 'Gustavo',
-                                escopo: 'Familiar',
-                                visibilidade: 'detalhada',
-                                id_cartao: '',
-                                id_fatura: '',
-                                id_divida: '',
-                                id_ativo: '',
-                                afeta_dre: true,
-                                afeta_patrimonio: false,
-                                afeta_caixa_familiar: true,
-                                direcao_caixa_familiar: 'saida',
-                                status: 'efetivado',
-                            }),
-                        }],
-                    }],
-                }),
-            };
-        }
+                }],
+            }),
+        };
     };
 
     const result = postPilotMessage(context, 'corrigir a de 70.36 de ontem para lazer');
 
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Lan.amento corrigido/);
-    assert.match(result.responseText, /Deletado: "lanche casal/);
+    assert.match(result.responseText, /Substitu.do: "lanche casal|Deletado: "lanche casal/);
+    assert.strictEqual(callCount, 1);
 
     assert.strictEqual(sheets.Lancamentos.rows.length, 3);
     const remainingIds = sheets.Lancamentos.rows.slice(1).map(r => r[lancamentosHeaders.indexOf('id_lancamento')]);
@@ -5880,7 +5991,7 @@ test('Apps Script correction fails when target transaction is in a closed period
     });
 
     context.PropertiesService.getScriptProperties().setProperty(
-        'BFF_CONVERSATION_chat_1',
+        'BFF_CONVERSATION_chat_1_user_1',
         JSON.stringify({
             messages: [{ role: 'user', text: 'mercado 39.46', at: '2026-04-30T15:00:00Z' }],
             pending_intent: null,
@@ -5891,60 +6002,46 @@ test('Apps Script correction fails when target transaction is in a closed period
     let callCount = 0;
     context.UrlFetchApp.fetch = function(url) {
         callCount += 1;
-        if (callCount === 1) {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'correcao_transacao',
-                                valor: 0,
-                                data: '',
-                                descricao: '39.46 farmacia no nubank',
-                            }),
-                        }],
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+                output: [{
+                    content: [{
+                        text: JSON.stringify({
+                            target_valor: '0',
+                            target_data: '',
+                            tipo_evento: 'compra_cartao',
+                            data: '2026-05-01',
+                            competencia: '2026-05',
+                            valor: '39.46',
+                            descricao: '39.46 farmacia no nubank',
+                            id_categoria: 'OPEX_FARMACIA',
+                            id_fonte: 'FONTE_NUBANK_GU',
+                            pessoa: 'Gustavo',
+                            escopo: 'Familiar',
+                            visibilidade: 'detalhada',
+                            id_cartao: 'CARD_NUBANK_GU',
+                            id_fatura: '',
+                            id_divida: '',
+                            id_ativo: '',
+                            afeta_dre: true,
+                            afeta_patrimonio: false,
+                            afeta_caixa_familiar: false,
+                            direcao_caixa_familiar: '',
+                            status: '',
+                            parcelas: 1,
+                        }),
                     }],
-                }),
-            };
-        } else {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'compra_cartao',
-                                data: '2026-05-01',
-                                competencia: '2026-05',
-                                valor: 39.46,
-                                descricao: '39.46 farmacia no nubank',
-                                id_categoria: 'OPEX_FARMACIA',
-                                id_fonte: 'FONTE_NUBANK_GU',
-                                pessoa: 'Gustavo',
-                                escopo: 'Familiar',
-                                visibilidade: 'detalhada',
-                                id_cartao: 'CARD_NUBANK_GU',
-                                id_fatura: '',
-                                id_divida: '',
-                                id_ativo: '',
-                                afeta_dre: true,
-                                afeta_patrimonio: false,
-                                afeta_caixa_familiar: false,
-                                direcao_caixa_familiar: '',
-                                status: '',
-                            }),
-                        }],
-                    }],
-                }),
-            };
-        }
+                }],
+            }),
+        };
     };
 
     const result = postPilotMessage(context, 'nao, e farmacia');
 
     assert.strictEqual(result.ok, false);
     assert.match(result.responseText, /N.o . permitido corrigir lan.amentos de compet.ncias fechadas/);
+    assert.strictEqual(callCount, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
 });
 
@@ -5990,7 +6087,7 @@ test('Apps Script guided registration resumes pending expense when user taps sou
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_FAMILIA');
-    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1).pending_intent, null);
+    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent, null);
 });
 
 test('Apps Script guided correction selects an open launch and requires confirmation before replacing it', () => {
@@ -6009,7 +6106,10 @@ test('Apps Script guided correction selects an open launch and requires confirma
         afeta_patrimonio: false,
         afeta_caixa_familiar: true,
     };
-    const { context, sheets } = createAppsScriptHarness(replacementEvent);
+    let openAiCalls = 0;
+    const { context, sheets } = createAppsScriptHarness(replacementEvent, {
+        onOpenAiRequest() { openAiCalls += 1; },
+    });
     appendFakeLaunch(sheets, {
         id_lancamento: 'LAN_TO_FIX',
         descricao: 'mercado errado',
@@ -6032,6 +6132,7 @@ test('Apps Script guided correction selects an open launch and requires confirma
     assert.strictEqual(parsed.ok, true, JSON.stringify(parsed.errors));
     assert.strictEqual(parsed.shouldApplyDomainMutation, false);
     assert.match(parsed.responseText, /Confirmar correcao/);
+    assert.strictEqual(openAiCalls, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
 
     const stateKey = Object.keys(context.__scriptProperties).find((key) => key.startsWith('BFF_CONVERSATION_'));
@@ -6194,6 +6295,7 @@ test('Apps Script validation alerts when category is over budget', () => {
         status: 'efetivado',
     });
 
+    postPilotMessage(context, '/limpar_contexto', { updateId: 'up_bud_clear', messageId: 'msg_bud_clear' });
     result = postPilotMessage(context, 'lanche casal 30', { updateId: 'up_bud_2', messageId: 'msg_bud_2' });
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Categoria Alimentacao fora est. pr.xima do limite do or.amento mensal \(87% consumido\)\./);
@@ -6520,7 +6622,7 @@ test('Apps Script correction fails and keeps original transaction intact if new 
     });
 
     context.PropertiesService.getScriptProperties().setProperty(
-        'BFF_CONVERSATION_chat_1',
+        'BFF_CONVERSATION_chat_1_user_1',
         JSON.stringify({
             messages: [{ role: 'user', text: 'mercado 50.00', at: '2026-05-15T10:00:00Z' }],
             pending_intent: null,
@@ -6528,55 +6630,43 @@ test('Apps Script correction fails and keeps original transaction intact if new 
         })
     );
 
-    // Mock OpenAI fetch responses:
-    // First call parses to correcao_transacao
-    // Second call parses to an invalid event (e.g., negative money)
+    // A única resposta contém um substituto inválido (fonte ausente).
     let callCount = 0;
     context.UrlFetchApp.fetch = function(url) {
         callCount += 1;
-        if (callCount === 1) {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'correcao_transacao',
-                                valor: 0,
-                                data: '',
-                                descricao: 'invalid event description',
-                            }),
-                        }],
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+                output: [{
+                    content: [{
+                        text: JSON.stringify({
+                            target_valor: '0',
+                            target_data: '',
+                            tipo_evento: 'despesa',
+                            data: '2026-05-15',
+                            competencia: '2026-05',
+                            valor: '50.00',
+                            descricao: 'invalid event description',
+                            id_categoria: 'OPEX_MERCADO_SEMANA',
+                            id_fonte: '',
+                            pessoa: 'Gustavo',
+                            escopo: 'Familiar',
+                            visibilidade: 'detalhada',
+                            id_cartao: '', id_fatura: '', id_divida: '', id_ativo: '',
+                            afeta_dre: true, afeta_patrimonio: false, afeta_caixa_familiar: true,
+                            direcao_caixa_familiar: 'saida', status: 'efetivado', parcelas: 1,
+                        }),
                     }],
-                }),
-            };
-        } else {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'despesa',
-                                data: '2026-05-15',
-                                competencia: '2026-05',
-                                valor: 50.00,
-                                id_categoria: 'OPEX_MERCADO_SEMANA',
-                                id_fonte: '', // Invalid/missing source, will fail validation
-                                pessoa: 'Gustavo',
-                                escopo: 'Familiar',
-                            }),
-                        }],
-                    }],
-                }),
-            };
-        }
+                }],
+            }),
+        };
     };
 
     const result = postPilotMessage(context, 'nao, e farmacia');
 
     assert.strictEqual(result.ok, false);
     assert.match(result.responseText, /A correção informada é inválida/);
+    assert.strictEqual(callCount, 1);
     
     // Assert original launch is still in the database (2 rows = header + 1 launch)
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
@@ -6602,7 +6692,7 @@ test('Apps Script correction fails and keeps original transaction intact if muta
     });
 
     context.PropertiesService.getScriptProperties().setProperty(
-        'BFF_CONVERSATION_chat_1',
+        'BFF_CONVERSATION_chat_1_user_1',
         JSON.stringify({
             messages: [{ role: 'user', text: 'mercado 50.00', at: '2026-05-15T10:00:00Z' }],
             pending_intent: null,
@@ -6613,49 +6703,30 @@ test('Apps Script correction fails and keeps original transaction intact if muta
     let callCount = 0;
     context.UrlFetchApp.fetch = function(url, options) {
         callCount += 1;
-        if (callCount === 1) {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'correcao_transacao',
-                                valor: 0,
-                                data: '',
-                                descricao: 'invalid event description',
-                            }),
-                        }],
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+                output: [{
+                    content: [{
+                        text: JSON.stringify({
+                            target_valor: '0', target_data: '',
+                            tipo_evento: 'despesa', data: '2026-05-15', competencia: '2026-05', valor: '50.00',
+                            descricao: 'mercado da semana 50', id_categoria: 'OPEX_MERCADO_SEMANA', id_fonte: 'FONTE_CONTA_FAMILIA',
+                            pessoa: 'Gustavo', escopo: 'Familiar', visibilidade: 'detalhada', id_cartao: '', id_fatura: '', id_divida: '', id_ativo: '',
+                            afeta_dre: true, afeta_patrimonio: false, afeta_caixa_familiar: true,
+                            direcao_caixa_familiar: 'saida', status: 'efetivado', parcelas: 1,
+                        }),
                     }],
-                }),
-            };
-        } else {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'despesa',
-                                data: '2026-05-15',
-                                competencia: '2026-05',
-                                valor: 50.00,
-                                id_categoria: 'OPEX_MERCADO_SEMANA',
-                                id_fonte: 'CASH_NUBANK_GU',
-                                pessoa: 'Gustavo',
-                                escopo: 'Familiar',
-                            }),
-                        }],
-                    }],
-                }),
-            };
-        }
+                }],
+            }),
+        };
     };
 
     const result = postPilotMessage(context, 'nao, mercado da semana');
 
     assert.strictEqual(result.ok, false);
     assert.match(result.responseText, /Piloto financeiro ainda nao habilitado/);
+    assert.strictEqual(callCount, 1);
     
     // Assert original launch is still in the database (2 rows = header + 1 launch)
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);

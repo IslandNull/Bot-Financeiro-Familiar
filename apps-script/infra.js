@@ -89,6 +89,13 @@ function verifyReportingRuntimeConfig_(config) {
 }
 
 function readRuntimeReferenceData_(config) {
+  var startedAt = new Date().getTime();
+  var result = readRuntimeReferenceDataInternal_(config);
+  logRuntimeTiming_('sheets_reference_read', startedAt, { ok: Boolean(result && result.ok) });
+  return result;
+}
+
+function readRuntimeReferenceDataInternal_(config) {
   try {
     var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
     var categorySheet = spreadsheet.getSheetByName(SHEETS.CONFIG_CATEGORIAS);
@@ -99,18 +106,27 @@ function readRuntimeReferenceData_(config) {
     var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
     var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
     var closingSheet = spreadsheet.getSheetByName(SHEETS.FECHAMENTO_FAMILIAR);
-    verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
-    verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
-    verifySheetHeaders_(cardSheet, SHEETS.CARTOES);
+    var staticReferences = readStaticReferenceCache_();
+    if (!staticReferences) {
+      verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
+      verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
+      verifySheetHeaders_(cardSheet, SHEETS.CARTOES);
+      staticReferences = {
+        categories: readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS).filter(function(row) { return row.ativo === true; }),
+        sources: readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES).filter(function(row) { return row.ativo === true; }),
+        cards: readRowsAsObjects_(cardSheet, SHEETS.CARTOES).filter(function(row) { return row.ativo === true; }),
+      };
+      writeStaticReferenceCache_(staticReferences);
+    }
     verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS_RESUMO);
     verifySheetHeaders_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
     verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
     verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
     verifySheetHeaders_(closingSheet, SHEETS.FECHAMENTO_FAMILIAR);
 
-    var categories = readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS).filter(function(row) { return row.ativo === true; });
-    var sources = readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES).filter(function(row) { return row.ativo === true; });
-    var cards = readRowsAsObjects_(cardSheet, SHEETS.CARTOES).filter(function(row) { return row.ativo === true; });
+    var categories = staticReferences.categories || [];
+    var sources = staticReferences.sources || [];
+    var cards = staticReferences.cards || [];
     var invoices = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS_RESUMO).filter(function(row) {
       return ['prevista', 'fechada', 'parcialmente_paga'].indexOf(row.status) !== -1;
     });
@@ -149,6 +165,32 @@ function readRuntimeReferenceData_(config) {
   }
 }
 
+function readStaticReferenceCache_() {
+  try {
+    var raw = CacheService.getScriptCache().get('BFF_STATIC_REFERENCE_V1');
+    var parsed = raw ? JSON.parse(raw) : null;
+    return parsed && Array.isArray(parsed.categories) && Array.isArray(parsed.sources) && Array.isArray(parsed.cards) ? parsed : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function writeStaticReferenceCache_(value) {
+  try {
+    CacheService.getScriptCache().put('BFF_STATIC_REFERENCE_V1', JSON.stringify(value), 60);
+  } catch (_err) {
+    // Cache is an optimization only.
+  }
+}
+
+function invalidateStaticReferenceCache_() {
+  try {
+    CacheService.getScriptCache().remove('BFF_STATIC_REFERENCE_V1');
+  } catch (_err) {
+    // Cache is an optimization only.
+  }
+}
+
 function indexBy_(rows, idField) {
   return rows.reduce(function(result, row) {
     var id = stringValue_(row[idField]);
@@ -166,6 +208,55 @@ function isAuthorized_(config, chatId, userId) {
   if (config.authorizedUserIds.length > 0 && !contains_(config.authorizedUserIds, String(userId || ''))) return false;
   if (config.authorizedChatIds.length > 0 && !contains_(config.authorizedChatIds, String(chatId || ''))) return false;
   return true;
+}
+
+function fetchOpenAIResponseWithRetry_(payload, config, stage) {
+  var startedAt = new Date().getTime();
+  var attempts = 0;
+  var lastResponse = null;
+  var lastError = null;
+  while (attempts < 2) {
+    attempts += 1;
+    try {
+      lastResponse = UrlFetchApp.fetch(OPENAI_RESPONSES_URL, {
+        method: 'post',
+        contentType: 'application/json',
+        headers: { Authorization: 'Bearer ' + config.openAiApiKey },
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true,
+      });
+      var code = lastResponse.getResponseCode();
+      if (code >= 200 && code < 300) break;
+      if (attempts >= 2 || [429, 500, 502, 503, 504].indexOf(code) === -1) break;
+      Utilities.sleep(openAiRetryDelayMs_(lastResponse, attempts));
+    } catch (err) {
+      lastError = err;
+      if (attempts >= 2 || !/timed out|timeout|connection|address unavailable|could not fetch|dns/i.test(String(err && err.message ? err.message : err))) break;
+      Utilities.sleep(250 + Math.floor(Math.random() * 200));
+    }
+  }
+  logRuntimeTiming_('openai_' + stringValue_(stage || 'request'), startedAt, {
+    attempts: attempts,
+    status: lastResponse ? lastResponse.getResponseCode() : 0,
+    ok: Boolean(lastResponse && lastResponse.getResponseCode() >= 200 && lastResponse.getResponseCode() < 300),
+  });
+  if (lastResponse) return lastResponse;
+  throw lastError || new Error('OPENAI_FETCH_FAILED');
+}
+
+function openAiRetryDelayMs_(response, attempt) {
+  var headers = response && typeof response.getAllHeaders === 'function' ? response.getAllHeaders() : {};
+  var retryAfter = headers['Retry-After'] || headers['retry-after'];
+  var seconds = Number(retryAfter);
+  if (isFinite(seconds) && seconds >= 0) return Math.min(1500, Math.max(100, Math.round(seconds * 1000)));
+  return Math.min(1500, 250 * Math.pow(2, Math.max(0, attempt - 1)) + Math.floor(Math.random() * 200));
+}
+
+function logRuntimeTiming_(stage, startedAt, detail) {
+  var payload = detail || {};
+  payload.stage = stringValue_(stage).replace(/[^a-z0-9_]/gi, '_').slice(0, 60);
+  payload.duration_ms = Math.max(0, new Date().getTime() - Number(startedAt || new Date().getTime()));
+  console.log('BFF_TIMING ' + JSON.stringify(payload));
 }
 
 function contains_(items, value) {

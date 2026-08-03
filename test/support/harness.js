@@ -13,7 +13,10 @@ const cartoesHeaders = ['id_cartao', 'id_fonte', 'nome', 'titular', 'fechamento_
 const faturasHeaders = ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'];
 const faturasResumoHeaders = ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto_total', 'valor_fechado', 'valor_pago', 'valor_aberto', 'status', 'authority_count'];
 const faturasLinhasHeaders = ['id_linha_fatura', 'id_fatura', 'id_cartao', 'competencia', 'valor_previsto', 'status_origem', 'id_lancamento'];
-const rendasRecorrentesHeaders = ['id_renda', 'pessoa', 'descricao', 'valor_planejado', 'tipo_renda', 'beneficio_restrito', 'ativo', 'observacao'];
+const rendasRecorrentesHeaders = [
+    'id_renda', 'pessoa', 'descricao', 'valor_planejado', 'tipo_renda', 'beneficio_restrito', 'ativo', 'observacao',
+    'dia_recebimento', 'regra_dia_util', 'id_fonte', 'revisao_mensal', 'revisado_em',
+];
 const saldosFontesHeaders = ['id_snapshot', 'competencia', 'data_referencia', 'id_fonte', 'saldo_inicial', 'saldo_final', 'saldo_disponivel', 'observacao', 'created_at'];
 const patrimonioAtivosHeaders = ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'];
 const dividasHeaders = ['id_divida', 'nome', 'credor', 'tipo', 'escopo', 'saldo_devedor', 'parcela_atual', 'parcelas_total', 'valor_parcela', 'taxa_juros', 'sistema_amortizacao', 'data_atualizacao', 'status', 'observacao'];
@@ -39,6 +42,9 @@ function createFakeSheet(headers) {
         },
         getLastRow() {
             return rows.length;
+        },
+        getLastColumn() {
+            return rows.reduce((maximum, row) => Math.max(maximum, (row || []).length), 0);
         },
         getRange(row, column, rowCount = 1, columnCount = 1) {
             return {
@@ -188,6 +194,7 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
             getScriptLock() {
                 return {
                     waitLock() {},
+                    tryLock() { return true; },
                     releaseLock() {},
                 };
             },
@@ -199,6 +206,7 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
                 const input = Array.isArray(value) || ArrayBuffer.isView(value) ? Buffer.from(value) : Buffer.from(String(value), 'utf8');
                 return Array.from(crypto.createHash('sha256').update(input).digest()).map((byte) => byte > 127 ? byte - 256 : byte);
             },
+            sleep() {},
             formatDate(_date, timezone, pattern) {
                 if (timezone === 'America/Sao_Paulo' && pattern === 'yyyy-MM-dd') return '2026-04-30';
                 if (timezone === 'America/Sao_Paulo' && pattern === 'yyyy-MM') return '2026-04';
@@ -659,6 +667,11 @@ function appendFakeRecurringIncome(sheets, overrides = {}) {
         beneficio_restrito: false,
         ativo: true,
         observacao: '',
+        dia_recebimento: 5,
+        regra_dia_util: 'dia_fixo_anterior_util',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        revisao_mensal: false,
+        revisado_em: '2026-04-30',
         ...overrides,
     };
     sheets.Rendas_Recorrentes.appendRow(rendasRecorrentesHeaders.map((header) => income[header] === undefined ? '' : income[header]));

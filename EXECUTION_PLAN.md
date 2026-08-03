@@ -23,10 +23,15 @@ Operational authority for Bot Financeiro Familiar V56.
 - Purpose-based spending categories are compatible with both account expenses and card purchases; import-rule suggestions no longer require duplicate categories by payment medium.
 - Optional `Regras_Importacao` schema and idempotent header migration are implemented with audit coverage.
 - Nominal card due dates advance through weekends and Brazilian national banking holidays; authoritative invoice dates still prevail.
+- Telegram UX uses a compact home plus secondary menu, immediate processing feedback, chunked long replies, guided `/configurar` onboarding and explicit previews for high-risk or recently duplicated events.
+- Conversation context is isolated by chat and user, expires after 24 hours, and deterministic read questions bypass OpenAI when no contextual resolution is needed.
+- Standard copilot output is deterministic; narration is opt-in. OpenAI calls use bounded transient retry, while static reference data uses a short cache and every slow boundary emits redacted timing telemetry.
+- Recurring-income projections respect receipt day/business-day rule and require competence-level review for variable income.
 
 ### Remote rollout state
 
-- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 243 is published.
+- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 245 is published.
+- VERIFIED: `Rendas_Recorrentes` was migrated append-only from 8 to 13 columns; the post-deploy dry-run reports `no_change` and the sheet audit has zero findings.
 - VERIFIED: owner OAuth consent covers Spreadsheet, Properties, external requests and Apps Script trigger management.
 - VERIFIED: quick/full remote smoke pass; sheet audit has zero findings and the redacted snapshot is current.
 - VERIFIED: on 2026-07-31 the owner-authorized clean restart removed every data row from all 16 live sheets while preserving their schema headers; a private Drive recovery copy was created first.
@@ -43,6 +48,7 @@ Operational authority for Bot Financeiro Familiar V56.
 - VERIFIED: opening account balances on 2026-08-01 are Mercado Pago BRL 132.16 and Nubank BRL 1.00, totaling BRL 133.16 of informed liquidity; both active cash sources now satisfy the initial balance requirement.
 - VERIFIED: planned cash income for 2026-08-05 totals BRL 4,476.90 in the Mercado Pago account: BRL 3,442.43 salary plus BRL 1,034.47 variable compensation. The variable amount is explicitly marked for monthly review and neither item is counted as current cash before receipt confirmation.
 - TODO: rebuild commitments, assets and debts through the guided clean-base onboarding before relying on financial recommendations.
+- TODO: use `/configurar` to confirm day, business-day rule and Mercado Pago destination for the two existing recurring incomes; the safe replacement flow prevents duplicate rows.
 - TODO: owner reviews and merges the draft PR; the main-branch workflow then publishes the versioned Val Town proxy.
 
 ## Remaining release order

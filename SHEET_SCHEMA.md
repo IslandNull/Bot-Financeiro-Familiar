@@ -37,7 +37,9 @@ For the current redacted state of the real spreadsheet, use `docs/SPREADSHEET_SN
 
 ### Rendas_Recorrentes
 
-`id_renda | pessoa | descricao | valor_planejado | tipo_renda | beneficio_restrito | ativo | observacao`
+`id_renda | pessoa | descricao | valor_planejado | tipo_renda | beneficio_restrito | ativo | observacao | dia_recebimento | regra_dia_util | id_fonte | revisao_mensal | revisado_em`
+
+`regra_dia_util` aceita `sem_ajuste`, `dia_fixo_anterior_util`, `dia_fixo_proximo_util` ou `quinto_dia_util`. Rendas variáveis usam `revisao_mensal=true` e devem atualizar `revisado_em` na competência vigente antes de entrarem na projeção confiante.
 
 ### Saldos_Fontes
 

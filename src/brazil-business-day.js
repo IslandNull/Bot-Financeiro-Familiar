@@ -75,9 +75,33 @@ function nextBrazilBankingBusinessDay(value) {
     return date;
 }
 
+function previousBrazilBankingBusinessDay(value) {
+    let date = cloneUtcDate(value);
+    while (!isBrazilBankingBusinessDay(date)) date = addUtcDays(date, -1);
+    return date;
+}
+
+function nthBrazilBankingBusinessDay(year, monthIndex, ordinal) {
+    if (!Number.isInteger(ordinal) || ordinal < 1 || ordinal > 23) {
+        throw new Error('ordinal must be an integer between 1 and 23');
+    }
+    let date = utcDate(year, monthIndex, 1);
+    let count = 0;
+    while (date.getUTCMonth() === monthIndex) {
+        if (isBrazilBankingBusinessDay(date)) {
+            count += 1;
+            if (count === ordinal) return date;
+        }
+        date = addUtcDays(date, 1);
+    }
+    throw new Error('business day ordinal is outside the month');
+}
+
 module.exports = {
     easterSundayUtc,
     isBrazilBankingBusinessDay,
     isBrazilBankingHoliday,
     nextBrazilBankingBusinessDay,
+    previousBrazilBankingBusinessDay,
+    nthBrazilBankingBusinessDay,
 };

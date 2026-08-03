@@ -16,6 +16,10 @@ const {
     summarizeDre,
     validateParsedEvent,
 } = require('../src');
+const {
+    nthBrazilBankingBusinessDay,
+    previousBrazilBankingBusinessDay,
+} = require('../src/brazil-business-day');
 
 function test(name, fn) {
     fn();
@@ -297,6 +301,11 @@ test('invoice cycle advances nominal due date through Brazilian banking non-busi
         fechamento_dia: 2,
         vencimento_dia: 7,
     }).data_vencimento, '2026-08-07');
+});
+
+test('recurring income calendar finds previous and fifth Brazilian banking business days', () => {
+    assert.strictEqual(previousBrazilBankingBusinessDay(new Date(Date.UTC(2026, 8, 7))).toISOString().slice(0, 10), '2026-09-04');
+    assert.strictEqual(nthBrazilBankingBusinessDay(2026, 7, 5).toISOString().slice(0, 10), '2026-08-07');
 });
 
 test('invoice cycle clamps leap-year February closing and due dates', () => {

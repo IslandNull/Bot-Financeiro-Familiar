@@ -12,6 +12,7 @@ const TELEGRAM_SAFE_TEXT_LENGTH = 3900;
 const MAX_REQUEST_BYTES = 1024 * 1024;
 
 export default async function (req: Request): Promise<Response> {
+  const startedAt = Date.now();
   const ingress = await validateIngressRequest(req);
   if (!ingress.ok) return ingress.response;
   const body = ingress.body;
@@ -21,34 +22,41 @@ export default async function (req: Request): Promise<Response> {
     return new Response("forbidden", { status: 403 });
   }
 
-  const preflightActions = telegramCallbackPreflightActions(body);
+  const preflightStartedAt = Date.now();
+  const preflightActions = telegramPreflightActions(body);
   const preflightResults = preflightActions.length > 0 && hasTelegramBotToken()
     ? await dispatchTelegramActions(preflightActions, { timeoutMs: TELEGRAM_PREFLIGHT_TIMEOUT_MS })
     : [];
   const preflightAnsweredCallbackId = firstSuccessfulCallbackAnswerId(preflightActions, preflightResults);
-  const preflightHadLoadingEdit = preflightResults.some((result) => result.method === "editMessageText" && result.ok);
 
-  const appsScriptResult = await forwardToAppsScript(body);
+  const appsScriptStartedAt = Date.now();
+  const forwarded = await forwardToAppsScript(body);
+  const appsScriptFinishedAt = Date.now();
+  if (!forwarded.ok) {
+    logEdgeTiming(startedAt, preflightStartedAt, appsScriptStartedAt, appsScriptFinishedAt, Date.now(), "upstream_retry", forwarded.reason);
+    return new Response("upstream unavailable", { status: forwarded.status });
+  }
+  const appsScriptResult = forwarded.value;
   let actions = telegramActions(body, appsScriptResult);
   if (preflightAnsweredCallbackId) {
     actions = filterAnsweredCallbackActions(actions, preflightAnsweredCallbackId);
   }
+  if (actions.length === 0) actions = telegramResponseActions(body, appsScriptResult);
   if (actions.length === 1 && canUseTelegramWebhookResponse(actions[0])) {
+    logEdgeTiming(startedAt, preflightStartedAt, appsScriptStartedAt, appsScriptFinishedAt, Date.now(), "webhook_reply", "ok");
     return telegramActionWebhookReply(actions[0]);
   }
   if (actions.length > 0) {
-    await dispatchTelegramActions(actions);
+    const dispatchResults = await dispatchTelegramActions(actions);
+    if (dispatchResults.some((result) => !result.ok)) {
+      logEdgeTiming(startedAt, preflightStartedAt, appsScriptStartedAt, appsScriptFinishedAt, Date.now(), "telegram_retry", "dispatch_failed");
+      return new Response("telegram dispatch unavailable", { status: 502 });
+    }
+    logEdgeTiming(startedAt, preflightStartedAt, appsScriptStartedAt, appsScriptFinishedAt, Date.now(), "telegram_dispatch", "ok");
     return new Response("ok", { status: 200 });
   }
-  const telegramReply = telegramWebhookReply(body, appsScriptResult);
-  if (telegramReply) return telegramReply;
-
-  if (preflightHadLoadingEdit) {
-    const fallbackAction = telegramCallbackFailureEditAction(body);
-    if (fallbackAction) await dispatchTelegramActions([fallbackAction]);
-  }
-
-  return new Response("ok", { status: 200 });
+  logEdgeTiming(startedAt, preflightStartedAt, appsScriptStartedAt, appsScriptFinishedAt, Date.now(), "invalid_upstream_result", "missing_user_response");
+  return new Response("invalid upstream result", { status: 502 });
 }
 
 type IngressValidation =
@@ -106,11 +114,15 @@ export function authorizeTelegramUpdate(update: unknown): AuthorizationDecision 
   return { ok: true };
 }
 
-async function forwardToAppsScript(body: string): Promise<unknown> {
+type AppsScriptForwardResult =
+  | { ok: true; value: unknown }
+  | { ok: false; reason: string; status: number };
+
+async function forwardToAppsScript(body: string): Promise<AppsScriptForwardResult> {
   const appsScriptUrl = Deno.env.get(APPS_SCRIPT_WEBAPP_URL_ENV);
   if (!appsScriptUrl) {
     console.error("Missing APPS_SCRIPT_WEBAPP_URL");
-    return null;
+    return { ok: false, reason: "missing_url", status: 503 };
   }
 
   const webhookSecret = stringOrEmpty(Deno.env.get(WEBHOOK_SECRET_ENV));
@@ -127,50 +139,20 @@ async function forwardToAppsScript(body: string): Promise<unknown> {
       redirect: "follow",
     }, APPS_SCRIPT_TIMEOUT_MS);
     console.log("Apps Script response:", response.status);
+    if (response.status < 200 || response.status >= 300) {
+      return { ok: false, reason: "upstream_http_" + response.status, status: 503 };
+    }
     const appsScriptBody = await response.text();
     const result = parseJson(appsScriptBody);
-    if (!result) console.error("Apps Script response JSON parse failed");
-    return result;
+    if (!result || typeof result !== "object") {
+      console.error("Apps Script response JSON parse failed");
+      return { ok: false, reason: "invalid_json", status: 502 };
+    }
+    return { ok: true, value: result };
   } catch (error) {
     console.error("Apps Script fetch error:", redactedError(error));
-    return null;
+    return { ok: false, reason: "fetch_failed", status: 503 };
   }
-}
-
-function telegramWebhookReply(updateBody: string, appsScriptResult: unknown): Response | null {
-  const update = parseJson(updateBody);
-  if (!update) {
-    console.error("Telegram update JSON parse failed");
-    return null;
-  }
-  const sendDecision = telegramSendDecision(appsScriptResult);
-  if (!sendDecision.shouldSend) {
-    console.log("Telegram response skipped:", JSON.stringify(sendDecision.summary));
-    return null;
-  }
-  if (!sendDecision.summary.ok) {
-    console.log("Apps Script non-ok response:", JSON.stringify(sendDecision.summary));
-  }
-
-  const chatId = telegramChatId(update);
-  if (!chatId) {
-    console.error("Missing Telegram chat id for response");
-    return null;
-  }
-
-  console.log("Telegram webhook sendMessage response prepared");
-  const resultValue = appsScriptResult as { responseText?: unknown; reply_markup?: unknown };
-  const payload: Record<string, unknown> = {
-    method: "sendMessage",
-    chat_id: chatId,
-    text: telegramText((appsScriptResult as { responseText?: unknown }).responseText),
-    disable_web_page_preview: true,
-  };
-  if (isTelegramReplyMarkup(resultValue.reply_markup)) payload.reply_markup = resultValue.reply_markup;
-  return new Response(JSON.stringify(payload), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
 }
 
 type TelegramAction = {
@@ -179,6 +161,7 @@ type TelegramAction = {
   message_id?: unknown;
   callback_query_id?: unknown;
   text?: unknown;
+  action?: unknown;
   reply_markup?: unknown;
   disable_web_page_preview?: unknown;
   show_alert?: unknown;
@@ -194,7 +177,7 @@ type TelegramDispatchOptions = {
   timeoutMs?: number;
 };
 
-function telegramCallbackPreflightActions(updateBody: string): TelegramAction[] {
+function telegramPreflightActions(updateBody: string): TelegramAction[] {
   const update = parseJson(updateBody);
   if (!update || typeof update !== "object") return [];
 
@@ -207,7 +190,11 @@ function telegramCallbackPreflightActions(updateBody: string): TelegramAction[] 
       };
     };
   }).callback_query;
-  if (!callback) return [];
+  if (!callback) {
+    if (!shouldShowTypingPreflight(update)) return [];
+    const chatId = telegramChatId(update);
+    return chatId ? [{ method: "sendChatAction", chat_id: chatId, action: "typing" }] : [];
+  }
 
   const callbackId = stringOrEmpty(callback.id);
   const chatId = stringOrEmpty(callback.message?.chat?.id);
@@ -230,7 +217,7 @@ function telegramCallbackPreflightActions(updateBody: string): TelegramAction[] 
       method: "editMessageText",
       chat_id: chatId,
       message_id: messageId,
-      text: "⏳ Carregando...\n\nEstou processando sua ação.",
+      text: "⏳ Processando...\n\nSe demorar, o Telegram tentará novamente com segurança.",
       disable_web_page_preview: true,
     });
   }
@@ -238,35 +225,17 @@ function telegramCallbackPreflightActions(updateBody: string): TelegramAction[] 
   return actions;
 }
 
-function telegramCallbackTrustedForPreflight(update: unknown): boolean {
-  return authorizeTelegramUpdate(update).ok;
+function shouldShowTypingPreflight(update: unknown): boolean {
+  if (!update || typeof update !== "object") return false;
+  const value = update as { message?: { text?: unknown; document?: unknown } };
+  if (value.message?.document) return true;
+  const command = stringOrEmpty(value.message?.text).trim().toLowerCase().split(/\s+/)[0];
+  if (!command) return false;
+  return !["/start", "/help", "/ajuda", "/exemplos", "/limpar_contexto"].includes(command);
 }
 
-function telegramCallbackFailureEditAction(updateBody: string): TelegramAction | null {
-  const update = parseJson(updateBody);
-  if (!update || typeof update !== "object") return null;
-  const callback = (update as {
-    callback_query?: {
-      message?: {
-        message_id?: unknown;
-        chat?: { id?: unknown };
-      };
-    };
-  }).callback_query;
-  const chatId = stringOrEmpty(callback?.message?.chat?.id);
-  const messageId = stringOrEmpty(callback?.message?.message_id);
-  if (!chatId || !messageId) return null;
-
-  return {
-    method: "editMessageText",
-    chat_id: chatId,
-    message_id: messageId,
-    text: "⚠️ Não consegui concluir.\n\nTente novamente em alguns segundos.",
-    disable_web_page_preview: true,
-    reply_markup: {
-      inline_keyboard: [[{ text: "🏠 Início", callback_data: "nav:home" }]],
-    },
-  };
+function telegramCallbackTrustedForPreflight(update: unknown): boolean {
+  return authorizeTelegramUpdate(update).ok;
 }
 
 function telegramActions(updateBody: string, appsScriptResult: unknown): TelegramAction[] {
@@ -280,7 +249,25 @@ function telegramActions(updateBody: string, appsScriptResult: unknown): Telegra
   if (!Array.isArray(value.telegramActions)) return [];
   return value.telegramActions
     .map((action) => normalizeTelegramAction(action, update))
-    .filter((action): action is TelegramAction => Boolean(action));
+    .filter((action): action is TelegramAction => Boolean(action))
+    .flatMap((action) => expandTelegramAction(action));
+}
+
+function telegramResponseActions(updateBody: string, appsScriptResult: unknown): TelegramAction[] {
+  const update = parseJson(updateBody);
+  if (!update) return [];
+  const decision = telegramSendDecision(appsScriptResult);
+  if (!decision.shouldSend) return [];
+  const chatId = telegramChatId(update);
+  if (!chatId) return [];
+  const value = appsScriptResult as { responseText?: unknown; reply_markup?: unknown };
+  return expandTelegramAction({
+    method: "sendMessage",
+    chat_id: chatId,
+    text: stringOrEmpty(value.responseText),
+    reply_markup: isTelegramReplyMarkup(value.reply_markup) ? value.reply_markup : undefined,
+    disable_web_page_preview: true,
+  });
 }
 
 function normalizeTelegramAction(action: unknown, update: unknown): TelegramAction | null {
@@ -298,13 +285,30 @@ function normalizeTelegramAction(action: unknown, update: unknown): TelegramActi
   }
 
   normalized.chat_id = stringOrEmpty(value.chat_id) || telegramChatId(update);
-  normalized.text = telegramText(value.text);
+  normalized.text = stringOrEmpty(value.text).trim();
   normalized.disable_web_page_preview = value.disable_web_page_preview !== false;
   if (isTelegramReplyMarkup(value.reply_markup)) normalized.reply_markup = value.reply_markup;
   if (method === "editMessageText") normalized.message_id = stringOrEmpty(value.message_id);
   if (!normalized.chat_id || !normalized.text) return null;
   if (method === "editMessageText" && !normalized.message_id) return null;
   return normalized;
+}
+
+function expandTelegramAction(action: TelegramAction): TelegramAction[] {
+  const method = String(action.method || "");
+  if (method === "answerCallbackQuery") return [action];
+  const chunks = splitTelegramText(action.text);
+  if (chunks.length <= 1) return [{ ...action, text: chunks[0] || "" }];
+  return chunks.map((chunk, index) => {
+    const last = index === chunks.length - 1;
+    return {
+      ...action,
+      method: index === 0 ? method : "sendMessage",
+      message_id: index === 0 ? action.message_id : undefined,
+      text: chunk,
+      reply_markup: last ? action.reply_markup : undefined,
+    };
+  });
 }
 
 function canUseTelegramWebhookResponse(action: TelegramAction): boolean {
@@ -387,6 +391,11 @@ function filterAnsweredCallbackActions(actions: TelegramAction[], callbackId: st
 function actionPayload(action: TelegramAction): Record<string, unknown> {
   const method = String(action.method || "");
   const payload: Record<string, unknown> = { method };
+  if (method === "sendChatAction") {
+    payload.chat_id = stringOrEmpty(action.chat_id);
+    payload.action = stringOrEmpty(action.action) || "typing";
+    return payload;
+  }
   if (method === "answerCallbackQuery") {
     payload.callback_query_id = stringOrEmpty(action.callback_query_id);
     if (stringOrEmpty(action.text)) payload.text = telegramCallbackText(action.text);
@@ -463,9 +472,22 @@ function parseJson(value: string): unknown {
 }
 
 function telegramText(value: unknown): string {
-  const text = String(value || "").trim();
-  if (text.length <= TELEGRAM_MAX_TEXT_LENGTH) return text;
-  return text.slice(0, TELEGRAM_SAFE_TEXT_LENGTH) + "\n\n[resposta truncada]";
+  return String(value || "").trim().slice(0, TELEGRAM_MAX_TEXT_LENGTH);
+}
+
+function splitTelegramText(value: unknown): string[] {
+  let remaining = String(value || "").trim();
+  if (!remaining) return [];
+  const chunks: string[] = [];
+  while (remaining.length > TELEGRAM_MAX_TEXT_LENGTH) {
+    const window = remaining.slice(0, TELEGRAM_SAFE_TEXT_LENGTH);
+    const breakAt = Math.max(window.lastIndexOf("\n\n"), window.lastIndexOf("\n"), window.lastIndexOf(" "));
+    const splitAt = breakAt > TELEGRAM_SAFE_TEXT_LENGTH * 0.6 ? breakAt : TELEGRAM_SAFE_TEXT_LENGTH;
+    chunks.push(remaining.slice(0, splitAt).trim());
+    remaining = remaining.slice(splitAt).trim();
+  }
+  if (remaining) chunks.push(remaining);
+  return chunks;
 }
 
 function telegramCallbackText(value: unknown): string {
@@ -560,4 +582,25 @@ function redactedError(error: unknown): string {
     .replace(/webhook_secret=[^&\s]+/gi, "webhook_secret=[REDACTED]")
     .replace(/https?:\/\/\S+/g, "[REDACTED_URL]")
     .slice(0, 200);
+}
+
+function logEdgeTiming(
+  startedAt: number,
+  preflightStartedAt: number,
+  appsScriptStartedAt: number,
+  appsScriptFinishedAt: number,
+  finishedAt: number,
+  outcome: string,
+  reason: string,
+): void {
+  console.log("BFF_TIMING", JSON.stringify({
+    stage: "edge",
+    total_ms: finishedAt - startedAt,
+    ingress_ms: preflightStartedAt - startedAt,
+    preflight_ms: appsScriptStartedAt - preflightStartedAt,
+    apps_script_ms: appsScriptFinishedAt - appsScriptStartedAt,
+    telegram_ms: finishedAt - appsScriptFinishedAt,
+    outcome,
+    reason,
+  }));
 }

@@ -35,6 +35,7 @@ var HELP_TEXT = [
   '- /importar: importar OFX/CSV com preview e confirmacao',
   '- /pendencias_importacao: itens excluidos do ultimo preview',
   '- /revisar_mes: checklist antes de fechamento',
+  '- /configurar: onboarding guiado de contas, cartões, renda e planejamento',
   '- /limpar_contexto: apaga a conversa pendente deste chat',
   '- /ajuda: exemplos'
 ].join('\n');
@@ -72,7 +73,7 @@ var HEADERS = {
   Faturas_Linhas: ['id_linha_fatura', 'id_fatura', 'id_cartao', 'competencia', 'valor_previsto', 'status_origem', 'id_lancamento'],
   Lancamentos: ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'parcelas', 'created_at'],
   Patrimonio_Ativos: ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'],
-  Rendas_Recorrentes: ['id_renda', 'pessoa', 'descricao', 'valor_planejado', 'tipo_renda', 'beneficio_restrito', 'ativo', 'observacao'],
+  Rendas_Recorrentes: ['id_renda', 'pessoa', 'descricao', 'valor_planejado', 'tipo_renda', 'beneficio_restrito', 'ativo', 'observacao', 'dia_recebimento', 'regra_dia_util', 'id_fonte', 'revisao_mensal', 'revisado_em'],
   Saldos_Fontes: ['id_snapshot', 'competencia', 'data_referencia', 'id_fonte', 'saldo_inicial', 'saldo_final', 'saldo_disponivel', 'observacao', 'created_at'],
   Transferencias_Internas: ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'],
   Idempotency_Log: ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'],
@@ -86,16 +87,29 @@ var PARSED_EVENT_FIELDS = ['tipo_evento', 'data', 'competencia', 'valor', 'descr
 
 // SECTION: INFRA - HTTP entry points and Apps Script wrappers.
 function doPost(e) {
-  var config = readConfig_();
-  var secret = headerValue_(e, 'x-telegram-bot-api-secret-token') || parameterValue_(e, 'secret');
-  var secretCheck = verifyWebhookSecret_(config, secret);
-  if (!secretCheck.ok) return json_(secretCheck);
+  var startedAt = new Date().getTime();
+  var outcome = 'error';
+  try {
+    var config = readConfig_();
+    var secret = headerValue_(e, 'x-telegram-bot-api-secret-token') || parameterValue_(e, 'secret');
+    var secretCheck = verifyWebhookSecret_(config, secret);
+    if (!secretCheck.ok) {
+      outcome = 'secret_rejected';
+      return json_(secretCheck);
+    }
 
-  var update = parseUpdate_(e);
-  if (!update.ok) return json_(update);
+    var update = parseUpdate_(e);
+    if (!update.ok) {
+      outcome = 'invalid_update';
+      return json_(update);
+    }
 
-  var result = handleTelegramUpdate_(update.value, config);
-  return json_(result);
+    var result = handleTelegramUpdate_(update.value, config);
+    outcome = result && result.ok ? 'ok' : 'handled_error';
+    return json_(result);
+  } finally {
+    logRuntimeTiming_('do_post', startedAt, { outcome: outcome });
+  }
 }
 
 function doGet(e) {
@@ -1112,6 +1126,8 @@ function upgradeSchemaV56(options) {
   var changes = [];
   var errors = [];
 
+  upgradeRecurringIncomeHeaders_(spreadsheet, dryRun, changes, errors);
+
   objectValues_(OPTIONAL_V56_SHEETS).forEach(function(sheetName) {
     var expected = OPTIONAL_V56_HEADERS[sheetName];
     var sheet = spreadsheet.getSheetByName(sheetName);
@@ -1148,6 +1164,59 @@ function upgradeSchemaV56(options) {
     changes: changes,
     errors: errors,
   };
+}
+
+function upgradeRecurringIncomeHeaders_(spreadsheet, dryRun, changes, errors) {
+  var sheetName = SHEETS.RENDAS_RECORRENTES;
+  var sheet = spreadsheet.getSheetByName(sheetName);
+  var expected = HEADERS[sheetName];
+  var legacy = expected.slice(0, 8);
+  if (!sheet || sheet.getLastRow() < 1) {
+    errors.push({ sheet: sheetName, error: 'MISSING_REQUIRED_SHEET', message: 'required recurring income sheet/header is missing' });
+    return;
+  }
+  var actualWidth = Math.max(1, sheet.getLastColumn());
+  var actual = sheet.getRange(1, 1, 1, actualWidth).getValues()[0].map(function(value) { return String(value || '').trim(); });
+  while (actual.length && !actual[actual.length - 1]) actual.pop();
+  if (JSON.stringify(actual) === JSON.stringify(expected)) return;
+  var compatiblePrefix = JSON.stringify(actual) === JSON.stringify(expected.slice(0, actual.length));
+  if (!compatiblePrefix || actual.length < legacy.length) {
+    errors.push({ sheet: sheetName, error: 'HEADER_MISMATCH', message: 'Rendas_Recorrentes is not an append-only compatible schema' });
+    return;
+  }
+
+  changes.push({ sheet: sheetName, action: 'append_headers', fromColumns: actual.length, toColumns: expected.length });
+  if (dryRun) return;
+  sheet.getRange(1, actual.length + 1, 1, expected.length - actual.length).setValues([expected.slice(actual.length)]);
+  if (sheet.getLastRow() < 2) return;
+
+  var sourceSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_FONTES);
+  verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
+  var sources = readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES).filter(function(row) {
+    return row.ativo === true && row.tipo !== 'cartao_credito';
+  });
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, expected.length).getValues();
+  var today = todaySaoPaulo_();
+  rows.forEach(function(row) {
+    var person = String(row[1] || '').trim();
+    var type = normalizeAliasText_(row[4]);
+    var observation = normalizeAliasText_([row[2], row[7]].join(' '));
+    var dayMatch = observation.match(/\bdia\s+(\d{1,2})\b/);
+    var sourceId = '';
+    var candidates = sources.filter(function(source) {
+      return !person || normalizeAliasText_(source.titular) === normalizeAliasText_(person);
+    });
+    candidates.forEach(function(source) {
+      if (!sourceId && observation.indexOf(normalizeAliasText_(source.nome)) !== -1) sourceId = source.id_fonte;
+    });
+    if (!sourceId && candidates.length === 1) sourceId = candidates[0].id_fonte;
+    row[8] = row[8] || (dayMatch ? Number(dayMatch[1]) : 5);
+    row[9] = row[9] || 'dia_fixo_anterior_util';
+    row[10] = row[10] || sourceId;
+    row[11] = row[11] === true || type.indexOf('variavel') !== -1;
+    row[12] = row[12] || today;
+  });
+  sheet.getRange(2, 1, rows.length, expected.length).setValues(rows);
 }
 
 function exportOptionalV56Template() {

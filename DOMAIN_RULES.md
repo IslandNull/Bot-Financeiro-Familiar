@@ -43,6 +43,8 @@ Every event answers:
 - Reviewed reimbursable advances and their reimbursements are cash movements with `afeta_dre=false`; only the non-reimbursed family portion is an expense.
 - Generic multi-purpose merchants such as marketplaces do not receive automatic import rules from the merchant name alone. Product context or explicit review is required.
 - Card due dates use the configured nominal day and advance to the next Brazilian banking business day for weekends and national banking holidays; an authoritative invoice date always prevails.
+- Recurring income uses its configured receipt day and business-day rule. A scheduled receipt is projected only for its applicable month; a passed occurrence moves to the next month instead of remaining available cash.
+- Variable recurring income requires monthly review for the projected competence. Without that review it is evidence missing, not confident future cash.
 - Internal movement is not revenue, not expense, and not debt.
 - Internal movement must name explicit source and destination in the planned sheet row.
 - Private personal detail is filtered out of shared detailed reports.
@@ -54,6 +56,7 @@ Every event answers:
 - Closed monthly records are not changed silently; use `ajuste`.
 - Financial writes are deterministic `MutationPlan` upserts. Missing IDs are inserted, identical rows are ignored, and divergent rows with the same ID fail with `MUTATION_CONFLICT`.
 - Corrections validate and persist the replacement before physically deleting the original and its dependent invoice lines. Closed periods remain blocked.
+- Invoice payments and internal transfers require an explicit preview confirmation. A semantically identical event repeated within two minutes also requires confirmation before mutation.
 - Safe spending, investment and amortization are blocked when an active non-card source has no balance, its latest balance is older than `BALANCE_FRESHNESS_DAYS` (default 7), or an upcoming invoice has no authority value. Exactly 7 days is valid; 8 days is stale.
 - Every copilot insight or pending-attention item carries evidence, confidence and privacy level. Missing evidence produces a blocker, not a guessed recommendation.
 - Statement imports never treat transfers, invoice payments, card refunds/reversals, closed periods or ambiguous signs as safe automatic events.
@@ -61,3 +64,4 @@ Every event answers:
 - Only active import rules with `status_revisao=revisado` may include a transaction automatically. An AI category suggestion is non-binding and must be confirmed individually before a reviewed rule is saved.
 - Raw OFX/CSV bytes are transient: they are not written to Sheets, logs or Script Properties.
 - The LLM may parse text, phrase deterministic facts or suggest an import category. It never invents values, creates financial rules or authorizes spending/investment/amortization.
+- Standard copilot answers remain deterministic. Friendly LLM narration runs only after an explicit user action and may not introduce numbers or private details outside the deterministic payload.

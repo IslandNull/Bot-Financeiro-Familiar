@@ -117,6 +117,11 @@ const HEADERS = {
         'beneficio_restrito',
         'ativo',
         'observacao',
+        'dia_recebimento',
+        'regra_dia_util',
+        'id_fonte',
+        'revisao_mensal',
+        'revisado_em',
     ],
     [SHEETS.SALDOS_FONTES]: [
         'id_snapshot',

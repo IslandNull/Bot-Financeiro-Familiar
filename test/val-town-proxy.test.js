@@ -193,4 +193,70 @@ module.exports = (async function runValTownProxyTests() {
         configure({ AUTHORIZED_USER_IDS: undefined, AUTHORIZED_CHAT_IDS: undefined });
         assert.strictEqual(proxyModule.authorizeTelegramUpdate(JSON.parse(telegramBody())).ok, false);
     });
+
+    await test('upstream HTTP, invalid JSON, and network failures are retryable webhook errors', async () => {
+        configure();
+        const previousFetch = globalThis.fetch;
+        try {
+            globalThis.fetch = async () => new Response('temporary', { status: 500 });
+            assert.strictEqual((await handler(request())).status, 503);
+
+            globalThis.fetch = async () => new Response('not json', { status: 200 });
+            assert.strictEqual((await handler(request())).status, 502);
+
+            globalThis.fetch = async () => { throw new Error('connection timeout'); };
+            assert.strictEqual((await handler(request())).status, 503);
+        } finally {
+            globalThis.fetch = previousFetch;
+        }
+    });
+
+    await test('slow commands send typing before Apps Script without changing the final webhook response', async () => {
+        configure({ TELEGRAM_BOT_TOKEN: '123:test-token' });
+        const slowBody = telegramBody({
+            message: { message_id: 2, from: { id: 101 }, chat: { id: -202, type: 'group' }, text: '/resumo' },
+        });
+        const previousFetch = globalThis.fetch;
+        const calls = [];
+        globalThis.fetch = async (url, options) => {
+            calls.push({ url: String(url), options });
+            if (String(url).includes('api.telegram.org')) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+            return new Response(JSON.stringify({ ok: true, responseText: 'Resumo pronto.' }), { status: 200 });
+        };
+        try {
+            const response = await handler(request(slowBody));
+            assert.strictEqual(response.status, 200);
+            assert.strictEqual(calls.length, 2);
+            assert.match(calls[0].url, /sendChatAction$/);
+            assert.ok(calls[1].url.startsWith('https://script.google.com/'));
+            assert.strictEqual(JSON.parse(calls[0].options.body).action, 'typing');
+            assert.strictEqual(JSON.parse(await response.text()).method, 'sendMessage');
+        } finally {
+            globalThis.fetch = previousFetch;
+        }
+    });
+
+    await test('long Apps Script messages are delivered in chunks instead of being truncated', async () => {
+        configure({ TELEGRAM_BOT_TOKEN: '123:test-token' });
+        const longText = Array.from({ length: 900 }, (_, index) => `Linha ${index + 1} com conteúdo financeiro agregado.`).join('\n');
+        const previousFetch = globalThis.fetch;
+        const telegramPayloads = [];
+        globalThis.fetch = async (url, options) => {
+            if (String(url).startsWith('https://script.google.com/')) {
+                return new Response(JSON.stringify({ ok: true, responseText: longText }), { status: 200 });
+            }
+            telegramPayloads.push(JSON.parse(options.body));
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        };
+        try {
+            const response = await handler(request());
+            assert.strictEqual(response.status, 200);
+            assert.ok(telegramPayloads.length > 1);
+            assert.ok(telegramPayloads.every((payload) => payload.text.length <= 4096));
+            assert.match(telegramPayloads[0].text, /Linha 1 /);
+            assert.match(telegramPayloads[telegramPayloads.length - 1].text, /Linha 900 /);
+        } finally {
+            globalThis.fetch = previousFetch;
+        }
+    });
 })();

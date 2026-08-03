@@ -234,10 +234,7 @@ function fetchImportRuleSuggestion_(transaction, originType, config, referenceDa
     } },
   };
   try {
-    var response = UrlFetchApp.fetch(OPENAI_RESPONSES_URL, {
-      method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + config.openAiApiKey },
-      payload: JSON.stringify(payload), muteHttpExceptions: true,
-    });
+    var response = fetchOpenAIResponseWithRetry_(payload, config, 'import_rule');
     if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) return fail_('IMPORT_AI_REJECTED', 'openai', GENERIC_REQUEST_FAILURE);
     var output = parseJsonSafe_(extractOpenAIOutputText_(parseJsonSafe_(response.getContentText())));
     if (!output || allowedTypes.indexOf(output.tipo_evento) === -1 || categoryIds.indexOf(output.id_categoria) === -1) {

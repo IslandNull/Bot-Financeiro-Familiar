@@ -22,12 +22,12 @@ OpenAI Responses API
 | Path | Responsibility |
 |---|---|
 | `apps-script/Code.js` | Public entrypoints, constants, protected remote actions, schema migration/audit, digest delivery and trigger wrappers. |
-| `apps-script/infra.js` | Script Properties, authorization, webhook/request parsing, shared normalization and sheet utilities. |
-| `apps-script/parser.js` | Telegram routing, callbacks, conversation context and strict OpenAI event parser boundary. |
-| `apps-script/reporting.js` | Read-only summaries, deterministic insights, freshness blockers, alert/digest payloads, canonicalization and event validation. |
+| `apps-script/infra.js` | Script Properties, authorization, webhook/request parsing, short-lived static-reference cache, bounded OpenAI retry and timing instrumentation. |
+| `apps-script/parser.js` | Telegram routing, per-user expiring context, guided onboarding, risk/duplicate confirmations and strict OpenAI event/correction boundary. |
+| `apps-script/reporting.js` | Read-only summaries, deterministic insights, recurring-income projections, freshness blockers, alert/digest payloads and explicit optional narration. |
 | `apps-script/mutation.js` | `MutationPlan` runtime adapter, journal reconciliation, batched upserts/deletes, correction flow, balances/assets and other writes. |
 | `apps-script/import.js` | OFX/CSV Telegram lifecycle: validation, origin choice, re-download/hash, preview, rule suggestion/confirmation and batch MutationPlan. |
-| `apps-script/telegram-ui.js` | Inline keyboard constants, views and Telegram actions. |
+| `apps-script/telegram-ui.js` | Compact home/secondary menus, guided configuration views, inline keyboards and Telegram actions. |
 | `apps-script/generated-core.js` | Generated ignored bundle exposing `BFFCore`; build with `npm run build:gas`. |
 | `apps-script/appsscript.json` | Apps Script manifest, timezone, scopes and anonymous web-app execution policy. |
 
@@ -47,7 +47,7 @@ Public `doGet` read-only actions include `summary`, `cut_first`, `safe_to_spend`
 | `schema.js` | Required V55 and optional V56 sheet/header contracts. |
 | `domain.js`, `validator.js` | Financial calculations and deterministic event invariants. |
 | `card-cycle.js`, `invoice-ledger.js` | Invoice assignment and exposure helpers. |
-| `brazil-business-day.js` | Deterministic weekend and national banking-holiday adjustment for nominal card due dates. |
+| `brazil-business-day.js` | Deterministic previous/next/nth Brazilian banking-business-day helpers for invoices and recurring income. |
 | `parser-*`, `event-planner.js`, `idempotency.js`, `write-adapter.js` | Existing pure parser/planner/write contracts preserved during vertical migration. |
 
 ## Edge and automation
@@ -55,7 +55,7 @@ Public `doGet` read-only actions include `summary`, `cut_first`, `safe_to_spend`
 | Path | Responsibility |
 |---|---|
 | `val-town/main.ts` | Versioned relative entry import. |
-| `val-town/telegram-proxy.ts` | `POST`/JSON/1 MB/secret/user+chat gate before all external work; Telegram action dispatch and Apps Script forwarding. |
+| `val-town/telegram-proxy.ts` | `POST`/JSON/1 MB/secret/user+chat gate; typing feedback, chunked delivery and retryable upstream/Telegram failures. |
 | `val-town/deno.json`, `.vtignore` | Local Val Town project configuration. |
 | `.github/workflows/ci.yml` | `npm ci` plus `npm run check` on push and PR. |
 | `.github/workflows/deploy-val-town.yml` | Pinned `vt` deploy after changes land on `main`; reads only GitHub secret/variable. |
@@ -83,6 +83,6 @@ Optional V56 sheets are `Metas_Financeiras`, `Compromissos_Recorrentes` and `Reg
 
 ## Telegram surface
 
-Read-only: `/copiloto`, `/onde_cortar`, `/gasto_seguro`, `/resumo`, `/agenda`, `/revisar_mes`, `/orcamento`, `/metas`, `/compromissos`, `/pendencias`, `/importar`, `/pendencias_importacao`, `/limpar_contexto`.
+Read-only: `/copiloto`, `/onde_cortar`, `/gasto_seguro`, `/resumo`, `/agenda`, `/revisar_mes`, `/orcamento`, `/metas`, `/compromissos`, `/pendencias`, `/importar`, `/pendencias_importacao`, `/configurar`, `/limpar_contexto`.
 
-Mutating after validation/confirmation: natural financial events, balance/asset updates, correction flow and confirmed safe import batches.
+Mutating after validation/confirmation: natural financial events, guided setup, balance/asset updates, correction flow and confirmed safe import batches. Invoice payments, internal transfers and recent semantic duplicates always receive an explicit preview before mutation.

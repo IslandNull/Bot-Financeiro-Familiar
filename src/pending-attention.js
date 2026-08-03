@@ -60,6 +60,18 @@ function buildPendingAttention(input = {}) {
     const pendingGoals = (input.goals || []).filter(row => active(row.ativo) && String(row.status_revisao || '').toLowerCase() !== 'revisado');
     const pendingCommitments = (input.commitments || []).filter(row => active(row.ativo) && String(row.status_revisao || '').toLowerCase() !== 'revisado');
     const pendingRules = (input.importRules || []).filter(row => active(row.ativo) && String(row.status_revisao || '').toLowerCase() !== 'revisado');
+    const activeRecurringIncomes = (input.recurringIncomes || []).filter(row => {
+        const restricted = row.beneficio_restrito === true || ['true', 'sim', '1'].includes(String(row.beneficio_restrito || '').toLowerCase());
+        return active(row.ativo) && !restricted;
+    });
+    const incompleteRecurringIncomes = activeRecurringIncomes.filter(row => {
+        const day = Number(row.dia_recebimento);
+        return !String(row.id_fonte || '').trim() || !Number.isInteger(day) || day < 1 || day > 31 || !String(row.regra_dia_util || '').trim();
+    });
+    const recurringIncomeReviewPending = activeRecurringIncomes.filter(row => {
+        const reviewRequired = row.revisao_mensal === true || ['true', 'sim', '1'].includes(String(row.revisao_mensal || '').toLowerCase());
+        return reviewRequired && isoDate(row.revisado_em).slice(0, 7) !== month;
+    });
     const items = [];
     if (missing.length) items.push(item('SOURCE_BALANCE_MISSING', 'blocking', missing.length, 'fontes sem saldo'));
     if (stale.length) items.push(item('SOURCE_BALANCE_STALE', 'blocking', stale.length, `saldos com mais de ${freshnessDays} dias`));
@@ -69,6 +81,8 @@ function buildPendingAttention(input = {}) {
     if (pendingGoals.length) items.push(item('GOAL_REVIEW_PENDING', 'attention', pendingGoals.length, 'metas aguardando revisão'));
     if (pendingCommitments.length) items.push(item('COMMITMENT_REVIEW_PENDING', 'attention', pendingCommitments.length, 'compromissos aguardando revisão'));
     if (pendingRules.length) items.push(item('IMPORT_RULE_REVIEW_PENDING', 'attention', pendingRules.length, 'regras de importação aguardando revisão'));
+    if (incompleteRecurringIncomes.length) items.push(item('RECURRING_INCOME_CONFIG_MISSING', 'attention', incompleteRecurringIncomes.length, 'rendas recorrentes sem data ou conta de destino'));
+    if (recurringIncomeReviewPending.length) items.push(item('RECURRING_INCOME_REVIEW_PENDING', 'attention', recurringIncomeReviewPending.length, 'rendas variáveis aguardando revisão mensal'));
     return {
         generated_for: today,
         freshness_days: freshnessDays,

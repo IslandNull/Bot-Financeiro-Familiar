@@ -42,4 +42,18 @@ test('pending attention finds invoice authority and monthly/review gaps without 
     assert.doesNotMatch(JSON.stringify(result), /private_asset|private_debt/);
 });
 
+test('pending attention identifies incomplete and stale variable recurring income without exposing descriptions', () => {
+    const result = buildPendingAttention({
+        today: '2026-08-03',
+        recurringIncomes: [
+            { id_renda: 'private_fixed', descricao: 'private salary', ativo: true, beneficio_restrito: false, dia_recebimento: '', regra_dia_util: '', id_fonte: '' },
+            { id_renda: 'private_variable', descricao: 'private bonus', ativo: true, beneficio_restrito: false, dia_recebimento: 5, regra_dia_util: 'dia_fixo_anterior_util', id_fonte: 'source', revisao_mensal: true, revisado_em: '2026-07-31' },
+        ],
+    });
+    assert.deepStrictEqual(result.items.map(entry => entry.code), [
+        'RECURRING_INCOME_CONFIG_MISSING', 'RECURRING_INCOME_REVIEW_PENDING',
+    ]);
+    assert.doesNotMatch(JSON.stringify(result), /private_fixed|private_variable|private salary|private bonus/);
+});
+
 module.exports = Promise.resolve();

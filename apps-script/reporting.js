@@ -9,12 +9,12 @@ function buildPilotFamilySummaryResponse_(config) {
   };
 }
 
-function buildCopilotResponse_(config) {
+function buildCopilotResponse_(config, explainWithAi) {
   var result = readCurrentPilotFamilySummary_(config, '');
   if (!result.ok) return result;
   return {
     ok: true,
-    responseText: appendPendingAttentionBlocker_(formatCopilotDecisionCardsMaybeNarrated_(result.summary, config), result.summary),
+    responseText: appendPendingAttentionBlocker_(formatCopilotDecisionCardsMaybeNarrated_(result.summary, config, explainWithAi === true), result.summary),
     shouldApplyDomainMutation: false,
   };
 }
@@ -316,6 +316,13 @@ function formatBudgetDecisionLines_(competencia, budgetItems) {
 }
 
 function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
+  var startedAt = new Date().getTime();
+  var result = readCurrentPilotFamilySummaryInternal_(config, requestedCompetencia);
+  logRuntimeTiming_('sheets_summary_read', startedAt, { ok: Boolean(result && result.ok) });
+  return result;
+}
+
+function readCurrentPilotFamilySummaryInternal_(config, requestedCompetencia) {
   var runtimeCheck = verifyReportingRuntimeConfig_(config);
   if (!runtimeCheck.ok) return runtimeCheck;
   var competenciaCheck = normalizeRequestedCompetencia_(requestedCompetencia);
@@ -392,6 +399,7 @@ function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
       goals: goals,
       commitments: commitments,
       importRules: importRules,
+      recurringIncomes: recurringIncomes,
     });
     if (summary.pending_attention.blocking) {
       summary.capacidade_aporte_segura = 0;
@@ -461,7 +469,7 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
   var recurringIncome = summarizePilotRecurringIncome_(recurringIncomes || []);
   var sourceBalanceSummary = summarizePilotSourceBalances_(sourceBalances || [], competencia, sourcesById || {});
   var benefitBalances = computePilotBenefitBalances_(launches, sourceBalances, recurringIncomes || [], sourcesById || {}, competencia);
-  var projectedCashFlow = computePilotProjectedCashFlow_(competencia, recurringIncome, dre, sourceBalanceSummary, currentInvoiceExposure.total, obligationExposure.cycle_total);
+  var projectedCashFlow = computePilotProjectedCashFlow_(competencia, recurringIncomes || [], recurringIncome, dre, sourceBalanceSummary, currentInvoiceExposure.total, obligationExposure.cycle_total);
   var coverageBase = sourceBalanceSummary.saldos_fontes_count > 0
     ? roundMoney_(sourceBalanceSummary.saldos_fontes_disponivel + reservaTotal)
     : cash.sobra_caixa;
@@ -527,6 +535,8 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     beneficios_restritos_planejados: recurringIncome.beneficios_restritos_planejados,
     renda_prevista_data: projectedCashFlow.renda_prevista_data,
     renda_prevista_pendente: projectedCashFlow.renda_prevista_pendente,
+    rendas_previstas_detalhe: projectedCashFlow.rendas_previstas_detalhe,
+    rendas_previstas_bloqueadas: projectedCashFlow.rendas_previstas_bloqueadas,
     pagamentos_programados: projectedCashFlow.pagamentos_programados,
     sobra_projetada_pos_pagamentos: projectedCashFlow.sobra_projetada_pos_pagamentos,
     saldos_fontes_count: sourceBalanceSummary.saldos_fontes_count,
@@ -909,21 +919,130 @@ function summarizePilotRecurringIncome_(rows) {
   });
 }
 
-function computePilotProjectedCashFlow_(competencia, recurringIncome, dre, sourceBalanceSummary, currentInvoices, obligations) {
+function computePilotProjectedCashFlow_(competencia, recurringRows, recurringIncome, dre, sourceBalanceSummary, currentInvoices, obligations) {
   var plannedCashIncome = numberFromSheetValue_(recurringIncome && recurringIncome.renda_caixa_planejada);
   var actualRevenue = numberFromSheetValue_(dre && dre.receitas_dre);
-  var incomeDate = nextSalaryBusinessDate_(todaySaoPaulo_());
-  var pendingIncome = incomeDate.slice(0, 7) === normalizeSheetCompetencia_(competencia)
-    ? roundMoney_(Math.max(0, plannedCashIncome - actualRevenue))
-    : plannedCashIncome;
+  var schedule = buildRecurringIncomeSchedule_(recurringRows || [], competencia);
+  var remainingActual = actualRevenue;
+  schedule.items.forEach(function(item) {
+    var sameCompetencia = stringValue_(item.data_prevista).slice(0, 7) === normalizeSheetCompetencia_(competencia);
+    var covered = sameCompetencia ? Math.min(item.valor_planejado, remainingActual) : 0;
+    item.valor_pendente = roundMoney_(item.valor_planejado - covered);
+    if (sameCompetencia) remainingActual = roundMoney_(Math.max(0, remainingActual - covered));
+  });
+  var pendingIncome = roundMoney_(schedule.items.reduce(function(sum, item) {
+    return sum + item.valor_pendente;
+  }, 0));
+  if (!schedule.items.length && !schedule.blocked.length) pendingIncome = roundMoney_(Math.max(0, plannedCashIncome - actualRevenue));
+  var incomeDate = schedule.items.length ? schedule.items[0].data_prevista : nextSalaryBusinessDate_(todaySaoPaulo_());
   var scheduledPayments = roundMoney_(numberFromSheetValue_(currentInvoices) + numberFromSheetValue_(obligations));
   var availableCash = numberFromSheetValue_(sourceBalanceSummary && sourceBalanceSummary.saldos_fontes_disponivel);
   return {
     renda_prevista_data: incomeDate,
     renda_prevista_pendente: pendingIncome,
+    rendas_previstas_detalhe: schedule.items,
+    rendas_previstas_bloqueadas: schedule.blocked,
     pagamentos_programados: scheduledPayments,
     sobra_projetada_pos_pagamentos: roundMoney_(availableCash + pendingIncome - scheduledPayments),
   };
+}
+
+function buildOnboardingSetupResponse_(config) {
+  if (!config || !config.spreadsheetId) return fail_('MISSING_SPREADSHEET_ID', 'spreadsheetId', GENERIC_RECORD_FAILURE);
+  try {
+    var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+    var sourceSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_FONTES);
+    var cardSheet = spreadsheet.getSheetByName(SHEETS.CARTOES);
+    var incomeSheet = spreadsheet.getSheetByName(SHEETS.RENDAS_RECORRENTES);
+    var balanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
+    var assetSheet = spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS);
+    var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
+    [SHEETS.CONFIG_FONTES, SHEETS.CARTOES, SHEETS.RENDAS_RECORRENTES, SHEETS.SALDOS_FONTES, SHEETS.PATRIMONIO_ATIVOS, SHEETS.DIVIDAS].forEach(function(name) {
+      verifySheetHeaders_(spreadsheet.getSheetByName(name), name);
+    });
+    var sources = readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES).filter(function(row) { return row.ativo === true && row.tipo !== 'cartao_credito'; });
+    var cards = readRowsAsObjects_(cardSheet, SHEETS.CARTOES).filter(function(row) { return row.ativo === true; });
+    var incomes = readRowsAsObjects_(incomeSheet, SHEETS.RENDAS_RECORRENTES).filter(function(row) { return row.ativo === true; });
+    var balances = readRowsAsObjects_(balanceSheet, SHEETS.SALDOS_FONTES);
+    var assets = readRowsAsObjects_(assetSheet, SHEETS.PATRIMONIO_ATIVOS).filter(function(row) { return row.ativo === true; });
+    var debts = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS).filter(function(row) { return ['ativa', 'em_aberto', 'renegociada'].indexOf(stringValue_(row.status)) !== -1; });
+    var balanceIds = {};
+    balances.forEach(function(row) { if (row.id_fonte) balanceIds[row.id_fonte] = true; });
+    var statusLines = ['Progresso atual'];
+    ['Gustavo', 'Luana'].forEach(function(person) {
+      var sourceCount = sources.filter(function(row) { return normalizeAliasText_(row.titular) === normalizeAliasText_(person); }).length;
+      var cardCount = cards.filter(function(row) { return normalizeAliasText_(row.titular) === normalizeAliasText_(person); }).length;
+      var incomeCount = incomes.filter(function(row) { return normalizeAliasText_(row.pessoa) === normalizeAliasText_(person); }).length;
+      statusLines.push((sourceCount && cardCount ? '✅ ' : '▫️ ') + person + ': ' + sourceCount + ' conta(s), ' + cardCount + ' cartão(ões), ' + incomeCount + ' renda(s).');
+    });
+    var informedBalances = sources.filter(function(source) { return balanceIds[source.id_fonte]; }).length;
+    statusLines.push((informedBalances === sources.length && sources.length ? '✅ ' : '▫️ ') + 'Saldos: ' + informedBalances + ' de ' + sources.length + ' conta(s).');
+    statusLines.push((assets.length ? '✅ ' : '▫️ ') + 'Patrimônio: ' + assets.length + ' ativo(s).');
+    statusLines.push((debts.length ? '▫️ ' : '✅ ') + 'Dívidas ativas: ' + debts.length + '.');
+    return telegramPlainResponseFromView_(buildTelegramConfigureView_(statusLines.join('\n')));
+  } catch (_err) {
+    return fail_('ONBOARDING_STATUS_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+  }
+}
+
+function buildRecurringIncomeSchedule_(rows, competencia) {
+  var items = [];
+  var blocked = [];
+  (rows || []).forEach(function(row) {
+    if (row.ativo === false || row.beneficio_restrito === true) return;
+    var amount = numberFromSheetValue_(row.valor_planejado);
+    if (amount <= 0) return;
+    var day = Number(row.dia_recebimento || 5);
+    var rule = stringValue_(row.regra_dia_util) || 'dia_fixo_anterior_util';
+    var scheduleCompetencia = normalizeSheetCompetencia_(competencia);
+    var scheduledDate = recurringIncomeDate_(scheduleCompetencia, day, rule);
+    if (scheduledDate && scheduledDate < todaySaoPaulo_()) {
+      scheduleCompetencia = addMonthsToCompetencia_(scheduleCompetencia, 1);
+      scheduledDate = recurringIncomeDate_(scheduleCompetencia, day, rule);
+    }
+    var reviewRequired = row.revisao_mensal === true;
+    var reviewedCompetencia = formatSheetDate_(row.revisado_em).slice(0, 7);
+    var missing = [];
+    if (!stringValue_(row.id_fonte)) missing.push('fonte');
+    if (!isFinite(day) || day < 1 || day > 31) missing.push('dia');
+    if (reviewRequired && reviewedCompetencia !== scheduleCompetencia) missing.push('revisao_mensal');
+    var item = {
+      id_renda: stringValue_(row.id_renda),
+      pessoa: stringValue_(row.pessoa),
+      descricao: stringValue_(row.descricao),
+      id_fonte: stringValue_(row.id_fonte),
+      valor_planejado: amount,
+      valor_pendente: amount,
+      data_prevista: scheduledDate,
+      revisao_mensal: reviewRequired,
+      confianca: missing.length ? 'baixa' : 'alta',
+      faltando: missing,
+    };
+    if (missing.length) blocked.push(item);
+    else items.push(item);
+  });
+  items.sort(function(left, right) {
+    if (left.data_prevista !== right.data_prevista) return left.data_prevista < right.data_prevista ? -1 : 1;
+    return left.id_renda < right.id_renda ? -1 : 1;
+  });
+  return { items: items, blocked: blocked };
+}
+
+function recurringIncomeDate_(competencia, day, rule) {
+  var base = buildClampedMonthDate_(competencia, day);
+  if (!base) return '';
+  var parts = base.split('-');
+  var date = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0));
+  if (rule === 'quinto_dia_util' && typeof BFFCore !== 'undefined' && BFFCore.nthBrazilBankingBusinessDay) {
+    return BFFCore.nthBrazilBankingBusinessDay(Number(parts[0]), Number(parts[1]) - 1, 5).toISOString().slice(0, 10);
+  }
+  if (rule === 'dia_fixo_proximo_util' && typeof BFFCore !== 'undefined' && BFFCore.nextBrazilBankingBusinessDay) {
+    return BFFCore.nextBrazilBankingBusinessDay(date).toISOString().slice(0, 10);
+  }
+  if (rule === 'dia_fixo_anterior_util' && typeof BFFCore !== 'undefined' && BFFCore.previousBrazilBankingBusinessDay) {
+    return BFFCore.previousBrazilBankingBusinessDay(date).toISOString().slice(0, 10);
+  }
+  return base;
 }
 
 function nextSalaryBusinessDate_(referenceDate) {
@@ -1530,9 +1649,9 @@ function formatCopilotDecisionCards_(summary) {
   return lines.join('\n');
 }
 
-function formatCopilotDecisionCardsMaybeNarrated_(summary, config) {
+function formatCopilotDecisionCardsMaybeNarrated_(summary, config, explainWithAi) {
   var deterministicText = formatCopilotDecisionCards_(summary);
-  if (!config || config.copilotNarratorEnabled !== true) return deterministicText;
+  if (explainWithAi !== true) return deterministicText;
   if (!config.openAiApiKey || !config.openAiNarratorModel) return deterministicText;
 
   var candidateText = fetchCopilotNarrationText_(summary, deterministicText, config);
@@ -1542,13 +1661,7 @@ function formatCopilotDecisionCardsMaybeNarrated_(summary, config) {
 
 function fetchCopilotNarrationText_(summary, deterministicText, config) {
   try {
-    var response = UrlFetchApp.fetch(OPENAI_RESPONSES_URL, {
-      method: 'post',
-      contentType: 'application/json',
-      headers: { Authorization: 'Bearer ' + config.openAiApiKey },
-      payload: JSON.stringify(openAiCopilotNarratorPayload_(summary, deterministicText, config)),
-      muteHttpExceptions: true,
-    });
+    var response = fetchOpenAIResponseWithRetry_(openAiCopilotNarratorPayload_(summary, deterministicText, config), config, 'narrator');
     if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) return '';
     var parsedResponse = parseJsonSafe_(response.getContentText());
     var outputText = extractOpenAIOutputText_(parsedResponse);
@@ -3734,6 +3847,8 @@ function recordedEventText_(event, actionLabel, referenceData, spreadsheet) {
   lines.push('📌 Impacto');
   var sourceName = friendlySourceName_(event.id_fonte, referenceData);
   if (sourceName) lines.push('Fonte: ' + sourceName);
+  var estimatedBalance = estimatedSourceBalanceAfterEvent_(event, referenceData);
+  if (estimatedBalance !== null) lines.push('Saldo estimado após: ' + formatMoney_(estimatedBalance));
   var cardName = friendlyCardName_(event.id_cartao, referenceData);
   if (cardName) lines.push('Cartão: ' + cardName);
   if (event.id_fatura) lines.push('Fatura: ' + friendlyInvoiceName_(event.id_fatura, referenceData));

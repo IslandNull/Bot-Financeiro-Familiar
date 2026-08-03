@@ -82,6 +82,17 @@ function createRuntimeMutationPlan_(input) {
 }
 
 function executeRuntimeMutationPlan_(spreadsheet, request, plan) {
+  var startedAt = new Date().getTime();
+  var result = executeRuntimeMutationPlanInternal_(spreadsheet, request, plan);
+  logRuntimeTiming_('sheets_mutation', startedAt, {
+    ok: Boolean(result && result.ok),
+    operation: stringValue_(plan && plan.operation),
+    status: stringValue_(result && result.status),
+  });
+  return result;
+}
+
+function executeRuntimeMutationPlanInternal_(spreadsheet, request, plan) {
   var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
   verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
   var existing = findIdempotencyJournalEntry_(idempotencySheet, plan.idempotency_key);
