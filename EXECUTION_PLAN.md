@@ -2,7 +2,7 @@
 
 Operational authority for Bot Financeiro Familiar V56.
 
-## Current State (2026-08-02)
+## Current State (2026-08-03)
 
 ### VERIFIED locally
 
@@ -38,7 +38,8 @@ Operational authority for Bot Financeiro Familiar V56.
 - VERIFIED: the Nubank invoice closed on 2026-07-30 and due on 2026-08-07 is registered as an opening authority obligation of BRL 1,013.90; no pre-cutoff purchase was recreated in `Lancamentos` or counted in the August DRE.
 - VERIFIED: July 2026 is closed as the technical pre-cutoff period, so the runtime cannot import or register pre-2026-08-01 purchases as new expenses.
 - VERIFIED: the live base has 28 purpose-based active categories with no invented monthly limits and 23 reviewed high-confidence card import rules; generic marketplaces and the unidentified `Evertonsantosde` purchase have no automatic rule.
-- VERIFIED: opening invoice exposure also covers Mercado Pago August BRL 2,943.03, Nubank September BRL 399.41 and Mercado Pago September BRL 1,825.25 without adding pre-cutoff launches. The three remain `prevista` until authoritative closing values are supplied.
+- VERIFIED: Mercado Pago August closed at BRL 3,058.03. Its BRL 2,943.03 pre-cutoff exposure remains isolated from the August DRE, while the BRL 115.00 delivery on 2026-08-02 is the first post-cutoff card purchase, categorized as family food out.
+- VERIFIED: Nubank September BRL 399.41 and Mercado Pago September BRL 1,825.25 remain `prevista` until authoritative closing values are supplied.
 - TODO: rebuild recurring income, commitments, opening balances, assets and debts through the guided clean-base onboarding before relying on financial recommendations.
 - TODO: owner reviews and merges the draft PR; the main-branch workflow then publishes the versioned Val Town proxy.
 
