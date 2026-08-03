@@ -41,7 +41,8 @@ Operational authority for Bot Financeiro Familiar V56.
 - VERIFIED: Mercado Pago August closed at BRL 3,058.03. Its BRL 2,943.03 pre-cutoff exposure remains isolated from the August DRE, while the BRL 115.00 delivery on 2026-08-02 is the first post-cutoff card purchase, categorized as family food out.
 - VERIFIED: Nubank September BRL 399.41 and Mercado Pago September BRL 1,825.25 remain `prevista` until authoritative closing values are supplied.
 - VERIFIED: opening account balances on 2026-08-01 are Mercado Pago BRL 132.16 and Nubank BRL 1.00, totaling BRL 133.16 of informed liquidity; both active cash sources now satisfy the initial balance requirement.
-- TODO: rebuild recurring income, commitments, assets and debts through the guided clean-base onboarding before relying on financial recommendations.
+- VERIFIED: planned cash income for 2026-08-05 totals BRL 4,476.90 in the Mercado Pago account: BRL 3,442.43 salary plus BRL 1,034.47 variable compensation. The variable amount is explicitly marked for monthly review and neither item is counted as current cash before receipt confirmation.
+- TODO: rebuild commitments, assets and debts through the guided clean-base onboarding before relying on financial recommendations.
 - TODO: owner reviews and merges the draft PR; the main-branch workflow then publishes the versioned Val Town proxy.
 
 ## Remaining release order
