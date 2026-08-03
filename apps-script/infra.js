@@ -377,7 +377,9 @@ function roundMoney_(value) {
 }
 
 function formatMoney_(value) {
-  return 'R$ ' + roundMoney_(value).toFixed(2).replace('.', ',');
+  var parts = roundMoney_(value).toFixed(2).split('.');
+  var integer = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return 'R$ ' + integer + ',' + parts[1];
 }
 
 function firstAllowed_(items) {

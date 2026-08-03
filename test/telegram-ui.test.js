@@ -6,6 +6,7 @@ const {
     buildTelegramHelpView,
     buildTelegramHomeView,
     buildTelegramLaunchView,
+    buildTelegramMoreView,
     buildTelegramUnknownCallbackView,
     buildTelegramExamplesView,
     telegramCallbackButton,
@@ -25,17 +26,15 @@ function flattenButtons(view) {
 test('Telegram UI home exposes inline navigation without mutating', () => {
     const view = buildTelegramHomeView();
 
-    assert.match(view.text, /Bot financeiro familiar/);
-    assert.match(view.text, /escrever direto/i);
+    assert.match(view.text, /Finanças da família/);
+    assert.match(view.text, /escreva como você fala/i);
     assert.ok(view.reply_markup.inline_keyboard.length >= 3);
     assert.ok(flattenButtons(view).some((button) => button.callback_data === TELEGRAM_CALLBACKS.summary));
     assert.ok(flattenButtons(view).some((button) => button.callback_data === TELEGRAM_CALLBACKS.copilot));
-    assert.ok(flattenButtons(view).some((button) => button.callback_data === TELEGRAM_CALLBACKS.cutFirst));
-    assert.ok(flattenButtons(view).some((button) => button.callback_data === TELEGRAM_CALLBACKS.safeToSpend));
-    assert.ok(flattenButtons(view).some((button) => button.text === 'Orçamento' && button.callback_data === TELEGRAM_CALLBACKS.budget));
-    assert.ok(flattenButtons(view).some((button) => button.callback_data === TELEGRAM_CALLBACKS.goals));
-    assert.ok(flattenButtons(view).some((button) => button.callback_data === TELEGRAM_CALLBACKS.commitments));
+    assert.ok(flattenButtons(view).some((button) => button.callback_data === TELEGRAM_CALLBACKS.pendingAttention));
+    assert.ok(flattenButtons(view).some((button) => button.callback_data === TELEGRAM_CALLBACKS.more));
     assert.ok(flattenButtons(view).some((button) => button.callback_data === TELEGRAM_CALLBACKS.launch));
+    assert.ok(flattenButtons(view).length <= 6);
 });
 
 test('Telegram UI submenus include home navigation', () => {
@@ -43,10 +42,13 @@ test('Telegram UI submenus include home navigation', () => {
     const examples = buildTelegramExamplesView();
     const launch = buildTelegramLaunchView();
     const unknown = buildTelegramUnknownCallbackView();
+    const more = buildTelegramMoreView();
 
-    for (const view of [help, examples, launch, unknown]) {
+    for (const view of [help, examples, launch, unknown, more]) {
         assert.ok(flattenButtons(view).some((button) => button.callback_data === TELEGRAM_CALLBACKS.home));
     }
+    assert.ok(flattenButtons(more).some((button) => button.callback_data === TELEGRAM_CALLBACKS.safeToSpend));
+    assert.ok(flattenButtons(more).some((button) => button.callback_data === TELEGRAM_CALLBACKS.budget));
 });
 
 test('Telegram UI builders reject callback_data above Telegram limit', () => {

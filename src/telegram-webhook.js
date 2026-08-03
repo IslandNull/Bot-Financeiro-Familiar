@@ -2,8 +2,13 @@
 
 const { GENERIC_FAILURE_TEXT, UNAUTHORIZED_TEXT, handleTelegramUpdate, isAuthorized } = require('./telegram-handler');
 
-const WEBHOOK_SECRET_FAILURE_TEXT = 'Nao foi possivel processar esta requisicao.';
-const HELP_TEXT = 'Bot financeiro familiar ativo. Envie um lancamento em linguagem natural.';
+const WEBHOOK_SECRET_FAILURE_TEXT = 'Não foi possível processar esta requisição.';
+const HELP_TEXT = [
+    '💰 Finanças da família',
+    '',
+    'Envie um lançamento como você falaria normalmente.',
+    'Exemplo: Mercado R$ 82,40 no Nubank ontem.',
+].join('\n');
 
 async function handleTelegramWebhook(input) {
     const config = (input && input.config) || {};
@@ -20,7 +25,7 @@ async function handleTelegramWebhook(input) {
     if (update.edited_message) {
         return {
             ok: false,
-            responseText: 'Não processo edição de mensagem para evitar duplicidade. Para corrigir, envie: corrigir último lançamento para ...',
+            responseText: '✏️ Para evitar duplicidade, não processo mensagens editadas. Envie uma nova mensagem: “corrigir último lançamento para...”',
             shouldApplyDomainMutation: false,
         };
     }

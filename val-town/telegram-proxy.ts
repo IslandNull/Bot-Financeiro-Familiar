@@ -403,7 +403,8 @@ function actionPayload(action: TelegramAction): Record<string, unknown> {
     return payload;
   }
   payload.chat_id = stringOrEmpty(action.chat_id);
-  payload.text = telegramText(action.text);
+  payload.text = telegramHtmlText(action.text);
+  payload.parse_mode = "HTML";
   payload.disable_web_page_preview = action.disable_web_page_preview !== false;
   if (method === "editMessageText") payload.message_id = stringOrEmpty(action.message_id);
   if (isTelegramReplyMarkup(action.reply_markup)) payload.reply_markup = action.reply_markup;
@@ -475,11 +476,31 @@ function telegramText(value: unknown): string {
   return String(value || "").trim().slice(0, TELEGRAM_MAX_TEXT_LENGTH);
 }
 
+export function telegramHtmlText(value: unknown): string {
+  const plainText = telegramText(value);
+  let foundTitle = false;
+  return plainText.split("\n").map((line) => {
+    const trimmed = line.trim();
+    const isTitle = Boolean(trimmed) && !foundTitle;
+    if (trimmed && !foundTitle) foundTitle = true;
+    const isSection = /^(?:🚨|🛡️|👉|⛔|✅|🛑|📊|📅|💰|💳|📌|🧭|🔎|🔄|✂️|🏦|🧩|⏰|🎯|🔒|🧾|📥|⚙️|❔|💬|✍️|🧰|🏠|💵|🔭|📈|📉|🚦|🌅|ℹ️|⌛|🧹)\s/u.test(trimmed);
+    const escaped = escapeTelegramHtml(line);
+    return isTitle || isSection ? "<b>" + escaped + "</b>" : escaped;
+  }).join("\n");
+}
+
+function escapeTelegramHtml(value: string): string {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function splitTelegramText(value: unknown): string[] {
   let remaining = String(value || "").trim();
   if (!remaining) return [];
   const chunks: string[] = [];
-  while (remaining.length > TELEGRAM_MAX_TEXT_LENGTH) {
+  while (remaining.length > TELEGRAM_SAFE_TEXT_LENGTH) {
     const window = remaining.slice(0, TELEGRAM_SAFE_TEXT_LENGTH);
     const breakAt = Math.max(window.lastIndexOf("\n\n"), window.lastIndexOf("\n"), window.lastIndexOf(" "));
     const splitAt = breakAt > TELEGRAM_SAFE_TEXT_LENGTH * 0.6 ? breakAt : TELEGRAM_SAFE_TEXT_LENGTH;

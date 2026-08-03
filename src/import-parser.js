@@ -263,16 +263,16 @@ function planImportPreview(input = {}) {
 
 function formatImportPreview(preview, options = {}) {
     const lines = [
-        `Incluidos: ${preview.counts.included || 0}`,
-        `Duplicados: ${preview.counts.duplicates || 0}`,
-        `Possiveis duplicados: ${preview.counts.possible_duplicate || 0}`,
-        `Ambiguos: ${preview.counts.ambiguous || 0}`,
-        `Bloqueados: ${preview.counts.blocked || 0}`,
-        `Nao suportados: ${preview.counts.unsupported || 0}`,
+        `✅ Prontos para importar: ${preview.counts.included || 0}`,
+        `↩️ Duplicados ignorados: ${preview.counts.duplicates || 0}`,
+        `🔎 Possíveis duplicados: ${preview.counts.possible_duplicate || 0}`,
+        `❔ Precisam de categoria: ${preview.counts.ambiguous || 0}`,
+        `⛔ Bloqueados pelas regras: ${preview.counts.blocked || 0}`,
+        `⚠️ Não suportados: ${preview.counts.unsupported || 0}`,
     ];
     if (!options.groupChat) {
         const descriptions = preview.included.slice(0, 10).map(item => sanitizeImportDescription(item.description));
-        if (descriptions.length) lines.push('', 'Preview sanitizado:', ...descriptions.map(description => `- ${description}`));
+        if (descriptions.length) lines.push('', '🧾 Amostra sanitizada', ...descriptions.map(description => `• ${description}`));
     }
     return lines.join('\n');
 }

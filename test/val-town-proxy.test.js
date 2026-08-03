@@ -96,6 +96,8 @@ module.exports = (async function runValTownProxyTests() {
             const payload = JSON.parse(await response.text());
             assert.strictEqual(payload.method, 'sendMessage');
             assert.strictEqual(payload.chat_id, '-202');
+            assert.strictEqual(payload.parse_mode, 'HTML');
+            assert.strictEqual(payload.text, '<b>Tudo certo.</b>');
         });
     });
 
@@ -253,10 +255,17 @@ module.exports = (async function runValTownProxyTests() {
             assert.strictEqual(response.status, 200);
             assert.ok(telegramPayloads.length > 1);
             assert.ok(telegramPayloads.every((payload) => payload.text.length <= 4096));
+            assert.ok(telegramPayloads.every((payload) => payload.parse_mode === 'HTML'));
             assert.match(telegramPayloads[0].text, /Linha 1 /);
             assert.match(telegramPayloads[telegramPayloads.length - 1].text, /Linha 900 /);
         } finally {
             globalThis.fetch = previousFetch;
         }
+    });
+
+    await test('Telegram HTML highlights hierarchy and escapes every dynamic character', async () => {
+        const text = proxyModule.telegramHtmlText('🧭 Copiloto • Agosto\n\n🚨 Atenção <agora>\n• Descrição: A&B');
+        assert.strictEqual(text, '<b>🧭 Copiloto • Agosto</b>\n\n<b>🚨 Atenção &lt;agora&gt;</b>\n• Descrição: A&amp;B');
+        assert.doesNotMatch(text, /<agora>/);
     });
 })();

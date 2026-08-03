@@ -1,45 +1,27 @@
-var GENERIC_REQUEST_FAILURE = 'Nao foi possivel processar esta requisicao.';
-var GENERIC_MESSAGE_FAILURE = 'Nao foi possivel processar esta mensagem.';
-var GENERIC_RECORD_FAILURE = '⚠️ Não anotei com segurança.\n\n📌 O que falta\nValor, data, fonte/cartão ou categoria.\n\nExemplo:\nmercado 42 em 18/05 categoria Mercado da semana';
+var GENERIC_REQUEST_FAILURE = '⚠️ Não consegui concluir agora.\n\nTente novamente em instantes. Se persistir, volte ao início.';
+var GENERIC_MESSAGE_FAILURE = '⚠️ Não consegui entender esta mensagem.\n\nEscreva de outro jeito ou abra a ajuda para ver exemplos.';
+var GENERIC_RECORD_FAILURE = '⚠️ Ainda não anotei\n\nFalta confirmar valor, data, conta/cartão ou categoria.\n\n💬 Exemplo\nmercado 42 hoje no Nubank';
 var HELP_TEXT = [
-  '💰 Bot financeiro familiar',
+  '❔ Guia rápido',
   '',
-  '✍️ Lançar agora',
-  '- mercado 42 hoje',
-  '- farmacia 18 no nubank',
-  '- notebook 3000 em 3x no nubank categoria Eletronicos e equipamentos',
-  '- paguei fatura Nubank 300',
-  '- paguei fatura Mercado Pago 300',
-  '- Luana mandou 200 para caixa familiar',
-  '- transferi 1675 do Nubank Gustavo para Mercado Pago Gustavo',
-  '- saldo Mercado Pago Gustavo 324,41 em 18/05',
-  '- cofrinho Mercado Pago Gustavo saldo 9482,99',
+  '✍️ Escreva como você fala',
+  '• mercado 42 hoje no Nubank',
+  '• notebook 3000 em 3x no Nubank',
+  '• paguei fatura Nubank 300 pelo Mercado Pago',
+  '• transferi 500 do Nubank para Mercado Pago',
   '',
-  '🔎 Perguntas úteis',
-  '- qual meu custo de vida mensal?',
-  '- para onde foi meu dinheiro este mes?',
-  '- quais faturas tenho proximas?',
-  '- posso comprar notebook 900 em 3x?',
-  '- como esta minha reserva?',
+  '🔎 Pergunte antes de decidir',
+  '• quanto posso gastar agora?',
+  '• para onde foi meu dinheiro este mês?',
+  '• posso comprar notebook 900 em 3x?',
   '',
-  '📌 Comandos',
-  '- /copiloto: orientacao deterministica do que fazer agora',
-  '- /onde_cortar: primeiro corte sugerido sem abrir detalhes privados',
-  '- /gasto_seguro: teto conservador para gasto novo agora',
-  '- /resumo: visao do mes sem alterar a planilha',
-  '- /orcamento: ver limites e consumos por categoria',
-  '- /agenda: faturas e compromissos por data',
-  '- /metas: progresso de metas financeiras configuradas',
-  '- /compromissos: compromissos recorrentes configurados',
-  '- /pendencias: qualidade dos dados e revisoes necessarias',
-  '- /importar: importar OFX/CSV com preview e confirmacao',
-  '- /pendencias_importacao: itens excluidos do ultimo preview',
-  '- /revisar_mes: checklist antes de fechamento',
-  '- /configurar: onboarding guiado de contas, cartões, renda e planejamento',
-  '- /limpar_contexto: apaga a conversa pendente deste chat',
-  '- /ajuda: exemplos'
+  '🧭 Atalhos essenciais',
+  '/copiloto • /resumo • /agenda • /gasto_seguro',
+  '/orcamento • /metas • /pendencias • /importar',
+  '',
+  '🛡️ Se faltar algum dado, eu pergunto antes de salvar.'
 ].join('\n');
-var SUCCESS_TEXT = '✅ Anotado.\n\n🧭 Próximo passo\nUse /resumo para revisar o mês.';
+var SUCCESS_TEXT = '✅ Anotado com segurança.\n\nO resumo já considera este lançamento.';
 var FAMILY_SUMMARY_HELP_TEXT = '🛡️ Regra de segurança\nSe eu não tiver certeza, eu não chuto. Eu peço categoria, fonte ou contexto.';
 var DEFAULT_OPENAI_MODEL = 'gpt-5-nano';
 var OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';

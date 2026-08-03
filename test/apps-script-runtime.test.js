@@ -177,18 +177,16 @@ test('Apps Script help gives practical launch examples without mutating', () => 
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Bot financeiro familiar/);
-    assert.match(result.responseText, /Lan.ar agora|Lancamentos:/);
-    assert.match(result.responseText, /Perguntas .teis|Perguntas seguras:/);
+    assert.match(result.responseText, /Guia rápido/);
+    assert.match(result.responseText, /Escreva como você fala/);
+    assert.match(result.responseText, /Pergunte antes de decidir/);
     assert.match(result.responseText, /mercado 42 hoje/);
-    assert.match(result.responseText, /farmacia 18 no nubank/);
-    assert.match(result.responseText, /paguei fatura Mercado Pago 300/);
-    assert.match(result.responseText, /Luana mandou 200 para caixa familiar/);
-    assert.match(result.responseText, /saldo Mercado Pago Gustavo 324,41 em 18\/05/);
-    assert.match(result.responseText, /qual meu custo de vida mensal/);
-    assert.match(result.responseText, /Comandos/);
+    assert.match(result.responseText, /notebook 3000 em 3x no Nubank/);
+    assert.match(result.responseText, /paguei fatura Nubank 300 pelo Mercado Pago/);
+    assert.match(result.responseText, /quanto posso gastar agora/);
+    assert.match(result.responseText, /Atalhos essenciais/);
     assert.match(result.responseText, /Regra de seguran.a|Regra de seguranca/);
-    assert.match(result.responseText, /\/ajuda: exemplos\n\n.*Regra de seguran/s);
+    assert.match(result.responseText, /\/copiloto.*\/resumo.*\/agenda/s);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
@@ -200,8 +198,8 @@ test('Apps Script /start and /help return Home with inline keyboard', () => {
 
     assert.strictEqual(start.ok, true);
     assert.strictEqual(help.ok, true);
-    assert.match(start.responseText, /Bot financeiro familiar/);
-    assert.match(start.responseText, /escrever direto/i);
+    assert.match(start.responseText, /Finanças da família/);
+    assert.match(start.responseText, /escreva como você fala/i);
     assert.ok(start.reply_markup.inline_keyboard.length > 0);
     assert.ok(help.reply_markup.inline_keyboard.length > 0);
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:summary_current'));
@@ -220,7 +218,7 @@ test('Apps Script callback home edits menu and answers callback', () => {
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.strictEqual(result.telegramActions[0].method, 'answerCallbackQuery');
     assert.strictEqual(result.telegramActions[1].method, 'editMessageText');
-    assert.match(result.telegramActions[1].text, /Bot financeiro familiar/);
+    assert.match(result.telegramActions[1].text, /Finanças da família/);
     assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.length > 0);
 });
 
@@ -229,11 +227,11 @@ test('Apps Script unauthorized callback fails closed without financial data', ()
     const result = postTelegramCallback(context, 'act:summary_current', { userId: 'intruder' });
 
     assert.strictEqual(result.ok, false);
-    assert.strictEqual(result.responseText, 'Nao foi possivel processar esta mensagem.');
+    assert.match(result.responseText, /Não consegui entender esta mensagem/);
     assert.deepStrictEqual(result.telegramActions, [{
         method: 'answerCallbackQuery',
         callback_query_id: 'callback_1',
-        text: 'Nao autorizado.',
+            text: 'Não autorizado.',
         show_alert: false,
     }]);
     assert.ok(!JSON.stringify(result).includes('Resumo de abril'));
@@ -257,23 +255,25 @@ test('Apps Script read-only callbacks reuse summary agenda and review without mu
         assert.strictEqual(result.telegramActions[0].method, 'answerCallbackQuery');
         assert.strictEqual(result.telegramActions[1].method, 'editMessageText');
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'nav:home'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:copilot_explain'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:safe_to_spend'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:summary_current'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:agenda_current'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'nav:launch'));
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().length <= 6);
     }
+    const copilotButtons = copilot.telegramActions[1].reply_markup.inline_keyboard.flat().map((button) => button.callback_data);
+    const summaryButtons = summary.telegramActions[1].reply_markup.inline_keyboard.flat().map((button) => button.callback_data);
+    assert.ok(copilotButtons.includes('act:copilot_explain'));
+    assert.ok(copilotButtons.includes('act:safe_to_spend'));
+    assert.ok(summaryButtons.includes('act:copilot_today'));
+    assert.ok(summaryButtons.includes('nav:launch'));
+    assert.ok(!summaryButtons.includes('act:copilot_explain'));
     assert.match(summary.telegramActions[1].text, /Resumo/);
-    assert.match(copilot.telegramActions[1].text, /Copiloto financeiro/);
-    assert.match(copilot.telegramActions[1].text, /O que fazer agora/);
-    assert.match(cutFirst.telegramActions[1].text, /Onde cortar/);
+    assert.match(copilot.telegramActions[1].text, /Copiloto •/);
+    assert.match(copilot.telegramActions[1].text, /Prioridade agora/);
+    assert.match(cutFirst.telegramActions[1].text, /Onde economizar/);
     assert.match(safeToSpend.telegramActions[1].text, /Gasto seguro agora/);
     assert.match(agenda.telegramActions[1].text, /Agenda|Faturas/);
     assert.match(review.telegramActions[1].text, /fechar|revis/i);
     assert.match(budget.telegramActions[1].text, /Or.amento|orcamento|budget/i);
-    assert.match(goals.telegramActions[1].text, /Metas financeiras revisadas|Metas revisadas ainda nao configuradas/i);
-    assert.match(commitments.telegramActions[1].text, /Compromissos recorrentes revisados|Compromissos revisados ainda nao configurados/i);
+    assert.match(goals.telegramActions[1].text, /Metas financeiras/i);
+    assert.match(commitments.telegramActions[1].text, /Compromissos recorrentes/i);
 });
 
 test('Apps Script launch and clear-context callbacks do not write financial rows', () => {
@@ -284,7 +284,7 @@ test('Apps Script launch and clear-context callbacks do not write financial rows
 
     assert.strictEqual(launch.ok, true);
     assert.strictEqual(clear.ok, true);
-    assert.match(launch.telegramActions[1].text, /Lancar|movimentacao/i);
+    assert.match(launch.telegramActions[1].text, /Novo lançamento/i);
     assert.match(clear.telegramActions[1].text, /Contexto limpo/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     assert.deepStrictEqual(Object.keys(context.__scriptProperties).filter((key) => key.startsWith('BFF_CONVERSATION_')), []);
@@ -357,13 +357,13 @@ test('Apps Script UX messages hide internal invoice ids and explain card impact'
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     assert.match(result.responseText, /Compra no cart.o anotada/);
-    assert.match(result.responseText, /Valor: R\$ 3000,00/);
+    assert.match(result.responseText, /Valor: R\$ 3\.000,00/);
     assert.match(result.responseText, /Categoria: Eletronicos e equipamentos/);
     assert.match(result.responseText, /Cart.o: Nubank Gustavo/);
     assert.match(result.responseText, /Fatura: Nubank abril/);
     assert.match(result.responseText, /N.o saiu do caixa agora|Nao saiu do caixa agora/);
     assert.match(result.responseText, /Entra na fatura do cart.o|Entra na fatura do cartao/);
-    assert.match(result.responseText, /Parcela estimada: R\$ 1000,00/);
+    assert.match(result.responseText, /Parcela estimada: R\$ 1\.000,00/);
     assert.doesNotMatch(result.responseText, /Tipo:/);
     assert.doesNotMatch(result.responseText, /FAT_|CARD_|FONTE_|OPEX_/);
 });
@@ -597,14 +597,14 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Resumo de abril/);
+    assert.match(result.responseText, /Resumo • Abril/);
     assert.match(result.responseText, /Sobra projetada positiva/);
     assert.match(result.responseText, /Contas: R\$ 330,00/);
-    assert.match(result.responseText, /Reserva: R\$ 1000,00/);
-    assert.match(result.responseText, /Renda prevista 05\/05: R\$ 5000,00/);
-    assert.match(result.responseText, /Sobra projetada: R\$ 4787,50/);
-    assert.match(result.responseText, /Nubank( Gu)? 07\/05: R\$ 42,50/);
-    assert.match(result.responseText, /Total: R\$ 42,50/);
+    assert.match(result.responseText, /Reserva: R\$ 1\.000,00/);
+    assert.match(result.responseText, /Renda prevista 05\/05: R\$ 5\.000,00/);
+    assert.match(result.responseText, /Sobra projetada: R\$ 4\.787,50/);
+    assert.match(result.responseText, /Nubank( Gu)?.*07\/05.*R\$ 42,50/);
+    assert.match(result.responseText, /Total das faturas: R\$ 42,50/);
     assert.doesNotMatch(result.responseText, /Compromissos cadastrados/);
     assert.doesNotMatch(result.responseText, /Financiamento: R\$ 500,00/);
     assert.doesNotMatch(result.responseText, /tudo vencendo agora/);
@@ -615,13 +615,13 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.doesNotMatch(result.responseText, /Nota: ainda falta saldo real das contas/);
     assert.doesNotMatch(result.responseText, /Ultimos gastos/);
     assert.doesNotMatch(result.responseText, /30\/04 Mercado da semana - R\$ 43,90/);
-    assert.match(result.responseText, /Ver detalhes:/);
-    assert.match(result.responseText, /\/agenda/);
-    assert.match(result.responseText, /para onde foi meu dinheiro/);
-    assert.match(result.responseText, /\/revisar_mes/);
-    assert.match(result.responseText, /A..es agora/);
-    assert.match(result.responseText, /\/orcamento/);
-    assert.match(result.responseText, /\/gasto_seguro/);
+    assert.match(result.responseText, /Próxima melhor ação/);
+    assert.match(result.responseText, /Valores calculados com os dados registrados agora/);
+    const actions = result.reply_markup.inline_keyboard.flat().map((button) => button.callback_data);
+    assert.ok(actions.includes('act:copilot_today'));
+    assert.ok(actions.includes('act:agenda_current'));
+    assert.ok(actions.includes('nav:launch'));
+    assert.doesNotMatch(result.responseText, /\/agenda|\/orcamento|\/gasto_seguro/);
     assert.doesNotMatch(result.responseText, /OPEX_MERCADO_SEMANA/);
     assert.doesNotMatch(result.responseText, /Mercado da semana/);
     assert.doesNotMatch(result.responseText, /privado/);
@@ -650,7 +650,7 @@ test('Apps Script /resumo normalizes sheet date cells used as competencia', () =
     assert.doesNotMatch(result.responseText, /Mercado da semana: R\$ 43,90/);
     assert.doesNotMatch(result.responseText, /Gastos assumidos \(DRE\)/);
     assert.doesNotMatch(result.responseText, /Caixa registrado/);
-    assert.match(result.responseText, /Ainda nao vou sugerir investimento, reserva ou amortizacao/);
+    assert.match(result.responseText, /Ainda não vou sugerir investimento, reserva ou amortização/);
     assert.match(result.responseText, /Ainda falta saldo real das contas/);
 });
 
@@ -670,12 +670,12 @@ test('Apps Script /copiloto is read-only and returns deterministic decision card
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Copiloto financeiro de abril/);
-    assert.match(result.responseText, /Status/);
-    assert.match(result.responseText, /Por que/);
-    assert.match(result.responseText, /O que fazer agora/);
-    assert.match(result.responseText, /Nao fazer/);
-    assert.match(result.responseText, /Confianca: alta/);
+    assert.match(result.responseText, /🧭 Copiloto • Abril/);
+    assert.match(result.responseText, /🚨 Caixa projetado no vermelho/);
+    assert.match(result.responseText, /👉 Prioridade agora/);
+    assert.match(result.responseText, /⛔ Evite agora/);
+    assert.match(result.responseText, /confiança alta/);
+    assert.doesNotMatch(result.responseText, /^(?:Status|Por que|O que fazer agora|Nao fazer)$/m);
     assert.doesNotMatch(result.responseText, /INSIGHT_|FONTE_|CARD_|FAT_|OPEX_/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
@@ -759,7 +759,7 @@ test('Apps Script optional IA narrator falls back when the model invents money o
     const result = postTelegramCallback(context, 'act:copilot_explain');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
-    assert.match(result.responseText, /Copiloto financeiro de abril/);
+    assert.match(result.responseText, /Copiloto • Abril/);
     assert.doesNotMatch(result.responseText, /999,00|OPEX_DELIVERY_FAMILIAR/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
@@ -779,7 +779,7 @@ test('Apps Script /resumo labels uncovered obligations clearly when source balan
 
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Faturas atuais/);
-    assert.match(result.responseText, /Total: R\$ 300,00/);
+    assert.match(result.responseText, /Total das faturas: R\$ 300,00/);
     assert.match(result.responseText, /Ainda falta saldo real das contas/);
     assert.doesNotMatch(result.responseText, /Falta para cobrir tudo/);
     assert.match(result.responseText, /Sem esse dado eu evito sugerir investimento/);
@@ -906,10 +906,10 @@ test('Apps Script /resumo projects salary before scheduled invoices and obligati
     assert.strictEqual(result.summary.obrigacoes_ciclo, 300);
     assert.strictEqual(result.summary.pagamentos_programados, 1500);
     assert.strictEqual(result.summary.sobra_projetada_pos_pagamentos, 4000);
-    assert.match(result.responseText, /Renda prevista 05\/05: R\$ 5000,00/);
-    assert.match(result.responseText, /Obrigacoes do ciclo: R\$ 300,00/);
-    assert.match(result.responseText, /Pagamentos programados: R\$ 1500,00/);
-    assert.match(result.responseText, /Sobra projetada: R\$ 4000,00/);
+    assert.match(result.responseText, /Renda prevista 05\/05: R\$ 5\.000,00/);
+    assert.match(result.responseText, /Compromissos do ciclo: R\$ 300,00/);
+    assert.match(result.responseText, /Pagamentos programados: R\$ 1\.500,00/);
+    assert.match(result.responseText, /Sobra projetada: R\$ 4\.000,00/);
     assert.doesNotMatch(result.responseText, /Saldos de benef/);
     assert.doesNotMatch(result.responseText, /Maior impacto/);
 });
@@ -953,11 +953,11 @@ test('Apps Script /resumo separates current liquidity from 60-day exposure and s
 
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Contas: R\$ 324,91/);
-    assert.match(result.responseText, /Reserva: R\$ 9482,99/);
-    assert.match(result.responseText, /Nubank( Gu)? 07\/05: R\$ 1260,47/);
-    assert.match(result.responseText, /Total: R\$ 1260,47/);
+    assert.match(result.responseText, /Reserva: R\$ 9\.482,99/);
+    assert.match(result.responseText, /Nubank( Gu)?.*07\/05.*R\$ 1\.260,47/);
+    assert.match(result.responseText, /Total das faturas: R\$ 1\.260,47/);
     assert.doesNotMatch(result.responseText, /Compromissos cadastrados/);
-    assert.doesNotMatch(result.responseText, /Contas proximas: R\$ 4239,85/);
+    assert.doesNotMatch(result.responseText, /Contas proximas: R\$ 4\.239,85/);
     assert.doesNotMatch(result.responseText, /Ãšltimos gastos|Ultimos gastos/);
 });
 
@@ -1091,8 +1091,8 @@ test('Apps Script /resumo subtracts effective invoice payments when invoice rows
         data_vencimento: '2026-05-10',
         valor: 25,
     });
-    assert.match(result.responseText, /Total: R\$ 25,00/);
-    assert.match(result.responseText, /Mercado Pago( Gu)? 10\/05: R\$ 25,00/);
+    assert.match(result.responseText, /Total das faturas: R\$ 25,00/);
+    assert.match(result.responseText, /Mercado Pago( Gu)?.*10\/05.*R\$ 25,00/);
 });
 
 test('Apps Script /resumo uses closed invoice total as authority over planned card rows', () => {
@@ -1145,8 +1145,8 @@ test('Apps Script /resumo uses closed invoice total as authority over planned ca
         data_vencimento: '2026-06-10',
         valor: 2100.97,
     }]);
-    assert.match(result.responseText, /Total: R\$ 2100,97/);
-    assert.doesNotMatch(result.responseText, /R\$ 2157,52/);
+    assert.match(result.responseText, /Total das faturas: R\$ 2\.100,97/);
+    assert.doesNotMatch(result.responseText, /R\$ 2\.157,52/);
 });
 
 test('Apps Script /resumo respects fechada row even when closing date is in the future', () => {
@@ -1216,7 +1216,7 @@ test('Apps Script /resumo respects fechada row even when closing date is in the 
         data_vencimento: '2026-06-10',
         valor: 2100.97,
     }]);
-    assert.match(result.responseText, /R\$ 2100,97/);
+    assert.match(result.responseText, /R\$ 2\.100,97/);
 });
 
 test('Apps Script answers cost-of-life question without calling the parser', () => {
@@ -1449,13 +1449,13 @@ test('Apps Script answers agenda command with dated invoices and obligations', (
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Agenda financeira de abril/);
+    assert.match(result.responseText, /Agenda • Abril/);
     assert.match(result.responseText, /Faturas/);
     assert.match(result.responseText, /Compromissos/);
-    assert.match(result.responseText, /Aten..o/);
+    assert.match(result.responseText, /Proteção/);
     assert.match(result.responseText, /07\/05 .*Nubank.*R\$ 300,00/);
     assert.match(result.responseText, /07\/06 .*Nubank.*R\$ 200,00/);
-    assert.match(result.responseText, /05\/05 Condominio: R\$ 700,00/);
+    assert.match(result.responseText, /05\/05.*Condominio.*R\$ 700,00/);
     assert.match(result.responseText, /Financiamento casa.*R\$ 878,41/);
     assert.match(result.responseText, /N.o . tudo vencendo hoje/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
@@ -1502,14 +1502,14 @@ test('Apps Script agenda decision drill-down highlights next action without muta
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(text, /Agenda financeira de abril/);
+    assert.match(text, /Agenda • Abril/);
     assert.match(text, /Pr.ximo vencimento/);
     assert.match(text, /05\/05 Condominio R\$ 700,00/);
     assert.match(text, /07\/05 .*Nubank.*R\$ 300,00/);
-    assert.match(text, /A..o sugerida/);
-    assert.match(text, /separar .*R\$ 3656,82/i);
-    assert.match(text, /N.o fazer/);
-    assert.match(text, /Confianca: alta/);
+    assert.match(text, /Prioridade agora/);
+    assert.match(text, /separar .*R\$ 3\.656,82/i);
+    assert.match(text, /Evite agora/);
+    assert.match(text, /confiança alta/);
     assert.strictEqual(JSON.stringify(sheets), beforeRows);
 });
 
@@ -1530,17 +1530,16 @@ test('Apps Script simulates whether a new installment purchase fits safely', () 
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Simula..o conservadora/);
-    assert.match(result.responseText, /Status/);
-    assert.match(result.responseText, /Nao cabe com seguranca/);
-    assert.match(result.responseText, /Por que/);
+    assert.match(result.responseText, /Simulação de compra/);
+    assert.match(result.responseText, /A compra não cabe agora/);
+    assert.match(result.responseText, /Não cabe com segurança/i);
     assert.match(result.responseText, /Compra: R\$ 900,00 em 3x/);
     assert.match(result.responseText, /Parcela estimada: R\$ 300,00/);
-    assert.match(result.responseText, /Gasto seguro agora: R\$ 0,00/);
-    assert.match(result.responseText, /Folga depois da compra: R\$ -300,00/);
-    assert.match(result.responseText, /O que fazer agora/);
-    assert.match(result.responseText, /Nao fazer/);
-    assert.match(result.responseText, /Confianca: alta/);
+    assert.match(result.responseText, /Gasto seguro antes: R\$ 0,00/);
+    assert.match(result.responseText, /Margem depois: R\$ -300,00/);
+    assert.match(result.responseText, /Prioridade agora/);
+    assert.match(result.responseText, /Evite agora/);
+    assert.match(result.responseText, /confiança alta/);
     assert.doesNotMatch(result.responseText, /FONTE_|CARD_|FAT_|OPEX_|INSIGHT_/);
     assert.doesNotMatch(result.responseText, /Cabe nos dados registrados/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
@@ -1563,13 +1562,11 @@ test('Apps Script answers how much can be spent now without requiring a purchase
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Gasto seguro agora/);
-    assert.match(result.responseText, /Status/);
-    assert.match(result.responseText, /Por que/);
-    assert.match(result.responseText, /Dinheiro em contas: R\$ 2600,00/);
-    assert.match(result.responseText, /Gasto seguro agora: R\$ 0,00/);
-    assert.match(result.responseText, /Pendencia principal|fontes sem saldo/);
-    assert.match(result.responseText, /O que fazer agora/);
-    assert.match(result.responseText, /Nao fazer/);
+    assert.match(result.responseText, /R\$ 0,00 para gasto novo/);
+    assert.match(result.responseText, /Dinheiro em contas: R\$ 2\.600,00/);
+    assert.match(result.responseText, /Pendência que bloqueia|fontes sem saldo/);
+    assert.match(result.responseText, /Prioridade agora/);
+    assert.match(result.responseText, /Evite agora/);
     assert.doesNotMatch(result.responseText, /O que falta/);
     assert.doesNotMatch(result.responseText, /FONTE_|CARD_|FAT_|OPEX_|INSIGHT_/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
@@ -1592,8 +1589,8 @@ test('Apps Script /gasto_seguro command previews safe-to-spend without mutation'
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Gasto seguro agora/);
-    assert.match(result.responseText, /Dinheiro em contas: R\$ 2600,00/);
-    assert.match(result.responseText, /Gasto seguro agora: R\$ 0,00/);
+    assert.match(result.responseText, /Dinheiro em contas: R\$ 2\.600,00/);
+    assert.match(result.responseText, /R\$ 0,00 para gasto novo/);
     assert.match(result.responseText, /fontes sem saldo/);
     assert.doesNotMatch(result.responseText, /FONTE_|CARD_|FAT_|OPEX_|INSIGHT_/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
@@ -1642,12 +1639,12 @@ test('Apps Script goals command reads reviewed optional V56 goals without mutati
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Metas financeiras revisadas/);
+    assert.match(result.responseText, /Metas financeiras/);
     assert.match(result.responseText, /Reserva emergencial/);
-    assert.match(result.responseText, /Progresso: R\$ 6000,00 \/ R\$ 15000,00 \(40%\)/);
-    assert.match(result.responseText, /Falta: R\$ 9000,00/);
-    assert.match(result.responseText, /Aporte mensal planejado: R\$ 1000,00/);
-    assert.match(result.responseText, /Confianca: alta/);
+    assert.match(result.responseText, /Reserva emergencial.*40%/);
+    assert.match(result.responseText, /R\$ 6\.000,00 de R\$ 15\.000,00.*faltam R\$ 9\.000,00/);
+    assert.match(result.responseText, /Aporte planejado: R\$ 1\.000,00\/mês/);
+    assert.match(result.responseText, /confiança alta/);
     assert.match(result.responseText, /Privacidade/);
     assert.match(result.responseText, /1 meta privada ficou apenas agregada/i);
     assert.doesNotMatch(result.responseText, /Objetivo privado/);
@@ -1667,9 +1664,9 @@ test('Apps Script /pendencias and callback expose only aggregate quality blocker
     const callback = postTelegramCallback(context, 'act:pending_attention');
     assert.strictEqual(command.ok, true);
     assert.strictEqual(callback.ok, true);
-    assert.match(command.responseText, /Central de pendencias/);
+    assert.match(command.responseText, /Central de pendências/);
     assert.match(command.responseText, /fontes sem saldo|saldos com mais de 7 dias/);
-    assert.match(command.responseText, /somente contagens agregadas/);
+    assert.match(command.responseText, /somente contagens agregadas/i);
     assert.doesNotMatch(command.responseText, /PRIVATE_ASSET_ID|PRIVATE_DEBT_ID/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
@@ -1736,14 +1733,14 @@ test('Apps Script commitments command reads reviewed recurring commitments with 
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(text, /Compromissos recorrentes revisados/);
+    assert.match(text, /Compromissos recorrentes/);
     assert.match(text, /Condominio/);
-    assert.match(text, /05\/05 Condominio: R\$ 700,00/);
-    assert.match(text, /10\/05 Streaming familiar: R\$ 50,00/);
-    assert.match(text, /Pressao 30d visivel: R\$ 750,00/);
-    assert.match(text, /Total mensal visivel: R\$ 750,00/);
-    assert.match(text, /A..o sugerida/);
-    assert.match(text, /separar R\$ 700,00 ate 05\/05/i);
+    assert.match(text, /05\/05.*Condominio.*R\$ 700,00/);
+    assert.match(text, /10\/05.*Streaming familiar.*R\$ 50,00/);
+    assert.match(text, /Visível: R\$ 750,00/);
+    assert.match(text, /Mensal visível: R\$ 750,00/);
+    assert.match(text, /Prioridade agora/);
+    assert.match(text, /separe R\$ 700,00 até 05\/05/i);
     assert.match(text, /Privacidade/);
     assert.match(text, /1 compromisso privado ficou apenas agregado/i);
     assert.doesNotMatch(text, /Assinatura privada/);
@@ -1917,12 +1914,12 @@ test('Apps Script monthly review explains current month is not closable', () => 
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Revis.o de abril/);
-    assert.match(result.responseText, /Status/);
-    assert.match(result.responseText, /Confer.ncia|Conferencia/);
+    assert.match(result.responseText, /Revisão do mês • Abril/);
+    assert.match(result.responseText, /Estado da competência/);
+    assert.match(result.responseText, /Conferência rápida/);
     assert.match(result.responseText, /Maiores impactos/);
     assert.match(result.responseText, /M.s atual ainda aberto/);
-    assert.match(result.responseText, /N.o vou fechar este m.s agora/);
+    assert.match(result.responseText, /fechamento permanece bloqueado/i);
     assert.match(result.responseText, /Mercado da semana: R\$ 120,00/);
     assert.match(result.responseText, /Faturas atuais: R\$ 300,00/);
     assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 1);
@@ -1957,13 +1954,13 @@ test('Apps Script monthly review callback returns read-only decision card before
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(text, /Decis.o de fechamento/);
     assert.match(text, /Ainda n.o fechar/);
-    assert.match(text, /Bloqueadores/);
+    assert.match(text, /O que ainda precisa fechar/);
     assert.match(text, /M.s atual ainda aberto/);
-    assert.match(text, /A..o sugerida/);
+    assert.match(text, /Prioridade agora/);
     assert.match(text, /conferir faturas reais/i);
     assert.match(text, /Privacidade/);
     assert.match(text, /detalhes pessoais ficam agregados/i);
-    assert.match(text, /Confianca: alta/);
+    assert.match(text, /confiança alta/);
     assert.doesNotMatch(text, /compra privada nao abrir/);
     assert.strictEqual(JSON.stringify(sheets), beforeRows);
 });
@@ -2052,10 +2049,10 @@ test('Apps Script monthly review recommends concrete savings opportunities and a
     const result = postPilotMessage(context, '/revisar_mes');
 
     assert.strictEqual(result.ok, true);
-    assert.match(result.responseText, /Taxa de poupanca: 91%/);
+    assert.match(result.responseText, /Taxa de poupança: 91%/);
     assert.match(result.responseText, /reduzir Alimentacao fora de R\$ 420,00 para R\$ 300,00 libera R\$ 120,00/i);
     assert.match(result.responseText, /Gastos pessoais privados: R\$ 180,00/);
-    assert.match(result.responseText, /Nao fazer: investir antes de cobrir reserva e pagamentos registrados/i);
+    assert.match(result.responseText, /Evite investir antes de cobrir reserva e pagamentos registrados/i);
     assert.doesNotMatch(result.responseText, /item privado nao deve aparecer/);
 });
 
@@ -2097,15 +2094,13 @@ test('Apps Script onde cortar command returns read-only decision card with priva
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Onde cortar/);
-    assert.match(result.responseText, /Status/);
-    assert.match(result.responseText, /Por que/);
+    assert.match(result.responseText, /Onde economizar/);
     assert.match(result.responseText, /Alimentacao fora/);
-    assert.match(result.responseText, /Economia possivel: R\$ 120,00/);
+    assert.match(result.responseText, /Economia possível: R\$ 120,00/);
     assert.match(result.responseText, /Gastos pessoais privados: R\$ 180,00/);
-    assert.match(result.responseText, /O que fazer agora/);
-    assert.match(result.responseText, /Nao fazer/);
-    assert.match(result.responseText, /Confianca/);
+    assert.match(result.responseText, /Prioridade agora/);
+    assert.match(result.responseText, /Evite agora/);
+    assert.match(result.responseText, /confiança/);
     assert.doesNotMatch(result.responseText, /item privado nao deve aparecer/);
     assert.doesNotMatch(result.responseText, /OPEX_|FONTE_|CARD_|FAT_|INSIGHT_/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 4);
@@ -2139,7 +2134,7 @@ test('Apps Script doGet cut_first action previews onde cortar without mutation',
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Onde cortar/);
+    assert.match(result.responseText, /Onde economizar/);
     assert.match(result.responseText, /Alimentacao fora/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 3);
 });
@@ -2161,7 +2156,7 @@ test('Apps Script doGet safe_to_spend action previews gasto seguro without mutat
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Gasto seguro agora/);
-    assert.match(result.responseText, /Gasto seguro agora: R\$ 0,00/);
+    assert.match(result.responseText, /R\$ 0,00 para gasto novo/);
     assert.match(result.responseText, /fontes sem saldo/);
     assert.strictEqual(result.summary.competencia, '2026-04');
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
@@ -2203,9 +2198,9 @@ test('Apps Script doGet copilot_digest_preview action returns weekly digest with
     assert.strictEqual(result.digest.should_send, false);
     assert.strictEqual(result.digest.competencia, '2026-04');
     assert.strictEqual(result.digest.sections.biggest_risk.action_key, 'safe_to_spend');
-    assert.match(result.responseText, /Digest semanal do copiloto/);
+    assert.match(result.responseText, /Seu radar da semana/);
     assert.match(result.responseText, /Maior risco/);
-    assert.match(result.responseText, /Onde cortar primeiro/);
+    assert.match(result.responseText, /Onde economizar primeiro/);
     assert.match(result.responseText, /Gasto seguro/);
     assert.doesNotMatch(result.responseText, /item privado nao deve aparecer/);
     assert.doesNotMatch(result.responseText, /OPEX_|FONTE_|CARD_|FAT_|INSIGHT_/);
@@ -2265,7 +2260,7 @@ test('Apps Script copilot digest delivery sends only when enabled without leakin
     assert.ok(calls.every((call) => call.url.includes('/sendMessage')));
     const payloads = calls.map((call) => JSON.parse(call.options.payload));
     assert.deepStrictEqual(payloads.map((payload) => payload.chat_id), ['chat_1', 'chat_2']);
-    assert.ok(payloads.every((payload) => /Digest semanal do copiloto/.test(payload.text)));
+    assert.ok(payloads.every((payload) => /Seu radar da semana/.test(payload.text)));
     assert.doesNotMatch(JSON.stringify(result), /123456:test_token|chat_1|chat_2/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 
@@ -2333,9 +2328,9 @@ test('Apps Script safe question answers how much to save and blocks investment w
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Meta mensal de guardar dinheiro/);
-    assert.match(result.responseText, /Meta sugerida: R\$ 2000,00/);
-    assert.match(result.responseText, /Bloqueio de investimento/);
+    assert.match(result.responseText, /Plano de reserva/);
+    assert.match(result.responseText, /Meta sugerida: R\$ 2\.000,00/);
+    assert.match(result.responseText, /Antes de investir/);
     assert.match(result.responseText, /falta saldo real das contas/);
 });
 
@@ -2389,7 +2384,7 @@ test('Apps Script doGet summary action returns current read-only family summary'
     assert.strictEqual(result.summary.saldos_fontes_inicial, 100);
     assert.strictEqual(result.summary.saldos_fontes_final, 350);
     assert.strictEqual(result.summary.saldos_fontes_disponivel, 330);
-    assert.match(result.responseText, /Resumo de abril/);
+    assert.match(result.responseText, /Resumo • Abril/);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
@@ -2929,7 +2924,7 @@ test('Apps Script pilot expense canonicalizes fragile parser output before writi
     assert.match(result.responseText, /Fonte: Conta familia/);
     assert.match(result.responseText, /Impacto/);
     assert.match(result.responseText, /Caixa familiar: saiu\./);
-    assert.match(result.responseText, /Use \/resumo para revisar o m.s\./);
+    assert.match(result.responseText, /Confira o resumo ou corrija este lançamento/);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -5787,7 +5782,7 @@ test('Apps Script dynamic benefit balance calculates correctly in summary and fo
 
     // /resumo stays compact; benefit detail remains available in the summary payload.
     assert.doesNotMatch(result.responseText, /Saldos de benef/);
-    assert.doesNotMatch(result.responseText, /Alelo Gustavo: R\$ 950,00 \(de R\$ 1500,00\)/);
+    assert.doesNotMatch(result.responseText, /Alelo Gustavo: R\$ 950,00 \(de R\$ 1\.500,00\)/);
 });
 
 test('Apps Script correction using last_success_ref rolls back purchase and rewrites with new category', () => {
@@ -6169,7 +6164,7 @@ test('Apps Script guided correction blocks closed-month targets', () => {
     const list = postTelegramCallback(context, 'flow:correction');
 
     assert.strictEqual(list.ok, true);
-    assert.match(list.telegramActions[1].text, /Nenhum lancamento aberto/);
+    assert.match(list.telegramActions[1].text, /Nenhum lançamento aberto/);
     assert.ok(!JSON.stringify(list.telegramActions).includes('LAN_CLOSED_TARGET'));
 });
 
@@ -6501,15 +6496,15 @@ test('Apps Script budget report command displays active categories and rollover 
     assert.strictEqual(result.ok, true);
 
     // Assert summary structure and contents
-    assert.match(result.responseText, /Or.amento por Categoria \(2026-05\)/);
+    assert.match(result.responseText, /Orçamento • maio/);
 
     // OPEX_ALIMENTACAO_FORA: 100/300 (33%) -> ?
-    assert.match(result.responseText, /\*Alimentacao fora\*/);
+    assert.match(result.responseText, /Alimentacao fora/);
     assert.match(result.responseText, /Consumido: R\$ 100,00 \/ R\$ 300,00/);
     assert.match(result.responseText, /Dispon.vel: R\$ 200,00 \(33%\)/);
 
     // OPEX_PET: 450/300 -> over budget because April is ignored (rollover is 0)
-    assert.match(result.responseText, /\*Pet\*/);
+    assert.match(result.responseText, /Pet/);
     assert.match(result.responseText, /Consumido: R\$ 450,00 \/ R\$ 300,00/);
     assert.match(result.responseText, /Dispon.vel: R\$ -150,00 \(150%\)/);
 
@@ -6526,10 +6521,10 @@ test('Apps Script budget report command displays active categories and rollover 
 
     let resultAugust = postPilotMessage(context, '/orcamento 2026-08', { updateId: 'up_bud_rep_3', messageId: 'msg_bud_rep_3' });
     assert.strictEqual(resultAugust.ok, true);
-    assert.match(resultAugust.responseText, /Or.amento por Categoria \(2026-08\)/);
+    assert.match(resultAugust.responseText, /Orçamento • agosto/);
 
     // Pet limit 300 + rollover 600 (capped from 900) -> total available 900.
-    assert.match(resultAugust.responseText, /\*Pet\*/);
+    assert.match(resultAugust.responseText, /Pet/);
     assert.match(resultAugust.responseText, /Consumido: R\$ 0,00 \/ R\$ 300,00 \(Acumulado: R\$ 900,00\)/);
     assert.match(resultAugust.responseText, /Saldo anterior: \+R\$ 600,00/);
     sheets.Lancamentos.rows.splice(1);
@@ -6593,13 +6588,12 @@ test('Apps Script budget decision drill-down ranks risk and keeps private line i
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Or.amento por Categoria \(2026-05\)/);
-    assert.match(result.responseText, /Status/);
-    assert.match(result.responseText, /Categoria em risco: Alimentacao fora/);
+    assert.match(result.responseText, /Orçamento • maio/);
+    assert.match(result.responseText, /Alimentacao fora pede atenção/);
     assert.match(result.responseText, /Categorias em risco/);
     assert.match(result.responseText, /Alimentacao fora.*120%/);
     assert.match(result.responseText, /Cafe trabalho Gustavo.*98%/);
-    assert.match(result.responseText, /A..o sugerida/);
+    assert.match(result.responseText, /Prioridade agora/);
     assert.match(result.responseText, /pausar gasto novo em Alimentacao fora/i);
     assert.match(result.responseText, /Privacidade/);
     assert.match(result.responseText, /detalhes privados ficam agregados/i);
@@ -6725,7 +6719,7 @@ test('Apps Script correction fails and keeps original transaction intact if muta
     const result = postPilotMessage(context, 'nao, mercado da semana');
 
     assert.strictEqual(result.ok, false);
-    assert.match(result.responseText, /Piloto financeiro ainda nao habilitado/);
+    assert.match(result.responseText, /registro financeiro ainda não está habilitado/);
     assert.strictEqual(callCount, 1);
     
     // Assert original launch is still in the database (2 rows = header + 1 launch)
@@ -6886,7 +6880,7 @@ test('Apps Script imports a confirmed OFX batch through one MutationPlan and rej
 
     const preview = postTelegramDocument(context, document, { caption: 'Conta familia' });
     assert.strictEqual(preview.ok, true, JSON.stringify(preview.errors));
-    assert.match(preview.responseText, /Incluidos: 1/);
+    assert.match(preview.responseText, /Prontos para importar: 1/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     const ephemeral = JSON.parse(context.__scriptProperties.BFF_IMPORT_chat_1);
     assert.deepStrictEqual(Object.keys(ephemeral).sort(), ['expires_at', 'file_id', 'file_unique_id', 'hash', 'origin', 'token']);
@@ -6894,14 +6888,14 @@ test('Apps Script imports a confirmed OFX batch through one MutationPlan and rej
     const confirmData = preview.reply_markup.inline_keyboard.flat().find(button => button.callback_data.startsWith('imp:confirm:')).callback_data;
     const confirmed = postTelegramCallback(context, confirmData, { updateId: 'confirm-import', messageId: 'preview-message' });
     assert.strictEqual(confirmed.ok, true, JSON.stringify(confirmed.errors));
-    assert.match(confirmed.responseText, /1 transacoes incluidas/);
+    assert.match(confirmed.responseText, /1 transações incluídas/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
     assert.strictEqual(sheets.Lancamentos.rows[1][lancamentosHeaders.indexOf('descricao')], 'Mercado Central');
 
     const reupload = postTelegramDocument(context, document, { caption: 'Conta familia', updateId: 'document-reupload', messageId: 'document-reupload' });
-    assert.match(reupload.responseText, /Incluidos: 0/);
-    assert.match(reupload.responseText, /Duplicados: 1/);
+    assert.match(reupload.responseText, /Prontos para importar: 0/);
+    assert.match(reupload.responseText, /Duplicados ignorados: 1/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     assert.strictEqual(fetchCount, 6);
 });
@@ -6931,7 +6925,7 @@ test('Apps Script card import retries every sheet boundary without duplicate lau
         context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
         const retried = postTelegramCallback(context, confirmData, { updateId: `card-confirm-retry-${boundary}`, messageId: `card-preview-${boundary}` });
         assert.strictEqual(retried.ok, true);
-        assert.match(retried.responseText, /1 transacoes incluidas/);
+        assert.match(retried.responseText, /1 transa(?:ç|Ã§)(?:õ|Ãµ)es inclu(?:í|Ã­)das/);
         assert.strictEqual(sheets.Lancamentos.rows.length, 2);
         assert.strictEqual(sheets.Faturas_Linhas.rows.length, 2);
         assert.strictEqual(sheets.Faturas_Resumo.rows.length, 2);
@@ -6956,7 +6950,7 @@ test('Apps Script import validates file before download and keeps group preview 
     assert.strictEqual(calls, 0);
     const group = postTelegramDocument(context, { file_id: 'y', file_unique_id: 'y', file_name: 'x.csv', mime_type: 'text/csv', file_size: bytes.length }, { caption: 'Conta familia', chatType: 'group', updateId: 'group-import' });
     assert.strictEqual(group.ok, true);
-    assert.match(group.responseText, /Incluidos: 1/);
+    assert.match(group.responseText, /Prontos para importar: 1/);
     assert.doesNotMatch(group.responseText, /Mercado privado/);
 });
 
@@ -6980,7 +6974,7 @@ test('Apps Script AI import suggestion uses strict store-false output and saves 
     };
     const document = { file_id: 'unknown-file', file_unique_id: 'unknown-unique', file_name: 'unknown.csv', mime_type: 'text/csv', file_size: bytes.length };
     const preview = postTelegramDocument(context, document, { caption: 'Conta familia', updateId: 'unknown-doc' });
-    assert.match(preview.responseText, /Ambiguos: 1/);
+    assert.match(preview.responseText, /Precisam de categoria: 1/);
     const suggestData = preview.reply_markup.inline_keyboard.flat().find(button => button.callback_data.startsWith('imp:suggest:')).callback_data;
     const suggestion = postTelegramCallback(context, suggestData, { updateId: 'suggest-rule', messageId: 'suggest-preview' });
     assert.strictEqual(aiPayload.model, 'parser-model');
@@ -6988,7 +6982,7 @@ test('Apps Script AI import suggestion uses strict store-false output and saves 
     assert.strictEqual(aiPayload.text.format.type, 'json_schema');
     assert.strictEqual(aiPayload.text.format.strict, true);
     assert.ok(aiPayload.input.includes('OPEX_MERCADO_SEMANA'));
-    assert.match(suggestion.responseText, /ainda nao salva/);
+    assert.match(suggestion.responseText, /Ainda não foi salva/);
     assert.strictEqual(sheets.Regras_Importacao.rows.length, 2);
     const saveData = suggestion.reply_markup.inline_keyboard.flat().find(button => button.callback_data.startsWith('imp:save:')).callback_data;
     const saved = postTelegramCallback(context, saveData, { updateId: 'save-rule', messageId: 'suggest-preview' });
@@ -7000,7 +6994,7 @@ test('Apps Script AI import suggestion uses strict store-false output and saves 
     assert.strictEqual(newRule.id_categoria, 'OPEX_MERCADO_SEMANA');
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     const refreshed = postTelegramDocument(context, document, { caption: 'Conta familia', updateId: 'unknown-doc-2', messageId: 'unknown-doc-2' });
-    assert.match(refreshed.responseText, /Incluidos: 1/);
+    assert.match(refreshed.responseText, /Prontos para importar: 1/);
 });
 
 test('Apps Script import selftest is read-only', () => {

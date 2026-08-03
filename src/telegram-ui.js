@@ -4,6 +4,7 @@ const TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64;
 
 const TELEGRAM_CALLBACKS = Object.freeze({
     home: 'nav:home',
+    more: 'nav:more',
     help: 'nav:help',
     examples: 'nav:examples',
     launch: 'nav:launch',
@@ -14,6 +15,8 @@ const TELEGRAM_CALLBACKS = Object.freeze({
     budget: 'act:budget_current',
     goals: 'act:goals_current',
     commitments: 'act:commitments_current',
+    pendingAttention: 'act:pending_attention',
+    importHelp: 'nav:import',
     copilot: 'act:copilot_today',
     cutFirst: 'act:cut_first',
     safeToSpend: 'act:safe_to_spend',
@@ -53,102 +56,111 @@ function view(text, buttons) {
 
 function buildTelegramHomeView() {
     return view([
-        'Bot financeiro familiar',
+        '💰 Finanças da família',
         '',
-        'Voce pode tocar nos botoes ou escrever direto.',
+        'Seu dinheiro organizado em decisões simples.',
         '',
-        'Exemplos rapidos:',
-        '- mercado 42 hoje no Nubank',
-        '- paguei fatura Nubank 300',
-        '- posso comprar 900 em 3x?',
-        '',
-        'O que voce quer fazer?',
+        'Toque em uma ação ou escreva como você fala:',
+        '“mercado 42 hoje no Nubank”',
     ].join('\n'), [
-        telegramCallbackButton('Copiloto', TELEGRAM_CALLBACKS.copilot),
-        telegramCallbackButton('Onde cortar', TELEGRAM_CALLBACKS.cutFirst),
-        telegramCallbackButton('Gasto seguro', TELEGRAM_CALLBACKS.safeToSpend),
-        telegramCallbackButton('Resumo', TELEGRAM_CALLBACKS.summary),
-        telegramCallbackButton('Agenda', TELEGRAM_CALLBACKS.agenda),
-        telegramCallbackButton('Orçamento', TELEGRAM_CALLBACKS.budget),
-        telegramCallbackButton('Metas', TELEGRAM_CALLBACKS.goals),
-        telegramCallbackButton('Compromissos', TELEGRAM_CALLBACKS.commitments),
-        telegramCallbackButton('Lancar', TELEGRAM_CALLBACKS.launch),
-        telegramCallbackButton('Revisar mes', TELEGRAM_CALLBACKS.reviewMonth),
-        telegramCallbackButton('Ajuda', TELEGRAM_CALLBACKS.help),
-        telegramCallbackButton('Corrigir', TELEGRAM_CALLBACKS.correction),
+        telegramCallbackButton('🧭 Copiloto', TELEGRAM_CALLBACKS.copilot),
+        telegramCallbackButton('✍️ Lançar', TELEGRAM_CALLBACKS.launch),
+        telegramCallbackButton('📊 Resumo', TELEGRAM_CALLBACKS.summary),
+        telegramCallbackButton('📅 Agenda', TELEGRAM_CALLBACKS.agenda),
+        telegramCallbackButton('🧩 Pendências', TELEGRAM_CALLBACKS.pendingAttention),
+        telegramCallbackButton('••• Mais', TELEGRAM_CALLBACKS.more),
+    ]);
+}
+
+function buildTelegramMoreView() {
+    return view([
+        '🧰 Mais ferramentas',
+        '',
+        'Planeje, revise ou ajuste sem perder o contexto.',
+    ].join('\n'), [
+        telegramCallbackButton('🛡️ Gasto seguro', TELEGRAM_CALLBACKS.safeToSpend),
+        telegramCallbackButton('✂️ Onde cortar', TELEGRAM_CALLBACKS.cutFirst),
+        telegramCallbackButton('🎛️ Orçamento', TELEGRAM_CALLBACKS.budget),
+        telegramCallbackButton('🎯 Metas', TELEGRAM_CALLBACKS.goals),
+        telegramCallbackButton('🔁 Compromissos', TELEGRAM_CALLBACKS.commitments),
+        telegramCallbackButton('🧾 Revisar mês', TELEGRAM_CALLBACKS.reviewMonth),
+        telegramCallbackButton('📥 Importar', TELEGRAM_CALLBACKS.importHelp),
+        telegramCallbackButton('✏️ Corrigir', TELEGRAM_CALLBACKS.correction),
+        telegramCallbackButton('❔ Ajuda', TELEGRAM_CALLBACKS.help),
+        telegramCallbackButton('🏠 Início', TELEGRAM_CALLBACKS.home),
     ]);
 }
 
 function buildTelegramHelpView() {
     return view([
-        'Como usar',
+        '❔ Como usar',
         '',
-        'Voce pode escrever direto ou usar botoes.',
+        'Escreva naturalmente ou use os botões.',
         '',
-        'Comandos preservados:',
-        '/resumo, /agenda, /revisar_mes, /orcamento, /metas, /compromissos, /limpar_contexto.',
+        'Atalhos principais',
+        '/resumo, /agenda, /revisar_mes, /orcamento, /metas, /compromissos, /pendencias e /limpar_contexto.',
         '',
-        'Se faltar fonte, cartao, categoria ou fatura, eu pergunto antes de anotar.',
+        '🛡️ Se faltar algum dado, eu pergunto antes de anotar.',
     ].join('\n'), [
-        telegramCallbackButton('Exemplos', TELEGRAM_CALLBACKS.examples),
-        telegramCallbackButton('Lancar', TELEGRAM_CALLBACKS.launch),
-        telegramCallbackButton('Inicio', TELEGRAM_CALLBACKS.home),
+        telegramCallbackButton('💬 Exemplos', TELEGRAM_CALLBACKS.examples),
+        telegramCallbackButton('✍️ Lançar', TELEGRAM_CALLBACKS.launch),
+        telegramCallbackButton('🏠 Início', TELEGRAM_CALLBACKS.home),
     ]);
 }
 
 function buildTelegramExamplesView() {
     return view([
-        'Exemplos',
+        '💬 Fale naturalmente',
         '',
-        'Despesa: mercado 42 hoje no Nubank',
-        'Compra cartao: notebook 3000 em 3x no Nubank',
-        'Fatura: paguei fatura Nubank 300',
-        'Transferencia: transferi 500 do Nubank para Mercado Pago',
-        'Receita: Luana mandou 200 para caixa familiar',
+        '🛒 “mercado 42 hoje no Nubank”',
+        '💳 “notebook 3000 em 3x no Nubank”',
+        '🧾 “paguei fatura Nubank 300”',
+        '🔄 “transferi 500 do Nubank para Mercado Pago”',
+        '💵 “Luana mandou 200 para o caixa familiar”',
     ].join('\n'), [
-        telegramCallbackButton('Lancar', TELEGRAM_CALLBACKS.launch),
-        telegramCallbackButton('Ajuda', TELEGRAM_CALLBACKS.help),
-        telegramCallbackButton('Inicio', TELEGRAM_CALLBACKS.home),
+        telegramCallbackButton('✍️ Lançar', TELEGRAM_CALLBACKS.launch),
+        telegramCallbackButton('❔ Ajuda', TELEGRAM_CALLBACKS.help),
+        telegramCallbackButton('🏠 Início', TELEGRAM_CALLBACKS.home),
     ]);
 }
 
 function buildTelegramLaunchView() {
     return view([
-        'Lancar movimentacao',
+        '✍️ Novo lançamento',
         '',
-        'Voce pode escrever direto:',
-        'mercado 42 hoje no Nubank',
+        'Escreva em uma frase:',
+        '“mercado 42 hoje no Nubank”',
         '',
-        'Ou escolher um tipo e responder a proxima mensagem.',
+        'Ou escolha o tipo para receber um exemplo.',
     ].join('\n'), [
-        telegramCallbackButton('Despesa', 'flow:expense'),
-        telegramCallbackButton('Compra cartao', 'flow:card_purchase'),
-        telegramCallbackButton('Pagar fatura', 'flow:invoice_payment'),
-        telegramCallbackButton('Transferencia', 'flow:transfer'),
-        telegramCallbackButton('Receita/Aporte', 'flow:income'),
-        telegramCallbackButton('Corrigir', TELEGRAM_CALLBACKS.correction),
-        telegramCallbackButton('Inicio', TELEGRAM_CALLBACKS.home),
+        telegramCallbackButton('🛒 Despesa', 'flow:expense'),
+        telegramCallbackButton('💳 Compra no cartão', 'flow:card_purchase'),
+        telegramCallbackButton('🧾 Pagar fatura', 'flow:invoice_payment'),
+        telegramCallbackButton('🔄 Transferência', 'flow:transfer'),
+        telegramCallbackButton('💵 Receita/Aporte', 'flow:income'),
+        telegramCallbackButton('✏️ Corrigir', TELEGRAM_CALLBACKS.correction),
+        telegramCallbackButton('🏠 Início', TELEGRAM_CALLBACKS.home),
     ]);
 }
 
 function buildTelegramUnknownCallbackView() {
     return view([
-        'Nao reconheci esse botao.',
+        '⌛ Este botão não está mais disponível',
         '',
-        'Proximo passo: volte para o inicio ou escreva direto o que quer fazer.',
+        'A tela pode ter expirado. Volte ao início ou escreva o que deseja fazer.',
     ].join('\n'), [
-        telegramCallbackButton('Inicio', TELEGRAM_CALLBACKS.home),
-        telegramCallbackButton('Ajuda', TELEGRAM_CALLBACKS.help),
+        telegramCallbackButton('🏠 Início', TELEGRAM_CALLBACKS.home),
+        telegramCallbackButton('❔ Ajuda', TELEGRAM_CALLBACKS.help),
     ]);
 }
 
 function buildTelegramContextClearedView() {
     return view([
-        'Contexto limpo.',
+        '🧹 Contexto limpo',
         '',
-        'Proximo passo: escreva direto ou volte para o inicio.',
+        'Pronto para começar uma nova conversa.',
     ].join('\n'), [
-        telegramCallbackButton('Inicio', TELEGRAM_CALLBACKS.home),
+        telegramCallbackButton('🏠 Início', TELEGRAM_CALLBACKS.home),
     ]);
 }
 
@@ -190,6 +202,7 @@ module.exports = {
     buildTelegramHelpView,
     buildTelegramHomeView,
     buildTelegramLaunchView,
+    buildTelegramMoreView,
     buildTelegramUnknownCallbackView,
     telegramAnswerCallbackAction,
     telegramCallbackButton,

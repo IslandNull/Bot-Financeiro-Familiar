@@ -36,11 +36,14 @@ function importInstructionsResponse_() {
   return {
     ok: true,
     responseText: [
-      'Importar extrato OFX ou CSV', '',
-      'Envie um documento .ofx ou .csv de ate 5 MB.',
-      'Na legenda, escreva exatamente o nome da fonte ou cartao. Se faltar, eu mostro botoes.', '',
-      'Nada e incluido sem preview e confirmacao. Transferencias, pagamentos de fatura, estornos, periodos fechados e sinais ambiguos ficam fora do lote.',
+      '📥 Importar extrato', '',
+      'Envie um arquivo OFX ou CSV de até 5 MB.', '',
+      '1. Se quiser, escreva o nome da conta ou cartão na legenda.',
+      '2. Eu separo o que é seguro, duplicado ou precisa de revisão.',
+      '3. Você confere a prévia e confirma o lote.', '',
+      '🛡️ Nada é salvo antes da confirmação. O arquivo bruto não fica armazenado.',
     ].join('\n'),
+    reply_markup: telegramInlineKeyboard_([telegramCallbackButton_('🏠 Início', TELEGRAM_CALLBACKS.home)], 2),
     shouldApplyDomainMutation: false,
   };
 }
@@ -53,10 +56,10 @@ function handleTelegramImportDocument_(update, message, config) {
   extension = String(extension || '').toLowerCase();
   var mime = String(document.mime_type || '').toLowerCase();
   var allowedMime = ['application/x-ofx', 'application/ofx', 'application/xml', 'text/xml', 'text/csv', 'application/csv', 'text/plain', 'application/octet-stream'];
-  if (extension !== 'ofx' && extension !== 'csv') return fail_('IMPORT_EXTENSION_BLOCKED', 'document', 'Envie somente arquivo .ofx ou .csv.');
-  if (allowedMime.indexOf(mime) === -1) return fail_('IMPORT_MIME_BLOCKED', 'document', 'O tipo do arquivo nao corresponde a OFX/CSV.');
+  if (extension !== 'ofx' && extension !== 'csv') return fail_('IMPORT_EXTENSION_BLOCKED', 'document', 'Envie somente um arquivo .ofx ou .csv.');
+  if (allowedMime.indexOf(mime) === -1) return fail_('IMPORT_MIME_BLOCKED', 'document', 'O tipo do arquivo não corresponde a OFX ou CSV.');
   if (numberFromSheetValue_(document.file_size) <= 0 || numberFromSheetValue_(document.file_size) > IMPORT_MAX_BYTES) {
-    return fail_('IMPORT_SIZE_BLOCKED', 'document', 'O arquivo precisa ter no maximo 5 MB.');
+    return fail_('IMPORT_SIZE_BLOCKED', 'document', 'O arquivo precisa ter no máximo 5 MB.');
   }
   if (!document.file_id || !document.file_unique_id) return fail_('IMPORT_FILE_ID_MISSING', 'document', GENERIC_MESSAGE_FAILURE);
   var chatId = message.chat && message.chat.id;
@@ -102,10 +105,10 @@ function importOriginSelectionResponse_(state, choices) {
   var buttons = (choices || []).slice(0, 12).map(function(choice, index) {
     return telegramCallbackButton_(String(choice.label).slice(0, 28), 'imp:origin:' + state.token + ':' + index);
   });
-  buttons.push(telegramCallbackButton_('Cancelar', 'imp:cancel:' + state.token));
+  buttons.push(telegramCallbackButton_('✕ Cancelar', 'imp:cancel:' + state.token));
   return {
     ok: true,
-    responseText: 'Escolha a fonte ou o cartao deste arquivo. Nenhum dado foi importado ainda.',
+    responseText: '📥 De onde é este extrato?\n\nEscolha a conta ou cartão. Nenhum dado foi importado ainda.',
     reply_markup: telegramInlineKeyboard_(buttons, 2),
     shouldApplyDomainMutation: false,
   };
@@ -117,11 +120,11 @@ function handleTelegramImportCallback_(update, config, state, data, chatId, mess
   var action = parts[1] || '';
   var token = parts[2] || '';
   if (!state || state.token !== token) {
-    return telegramCallbackViewResult_(callback, chatId, messageId, telegramView_('Este preview expirou. Envie o arquivo novamente.', [telegramCallbackButton_('Inicio', TELEGRAM_CALLBACKS.home)]), false);
+    return telegramCallbackViewResult_(callback, chatId, messageId, telegramView_('⌛ Esta prévia expirou\n\nEnvie o arquivo novamente para gerar uma conferência atualizada.', [telegramCallbackButton_('🏠 Início', TELEGRAM_CALLBACKS.home)]), false);
   }
   if (action === 'cancel') {
     clearImportState_(chatId);
-    return telegramCallbackViewResult_(callback, chatId, messageId, telegramView_('Importacao cancelada. Nenhuma linha foi gravada.', [telegramCallbackButton_('Inicio', TELEGRAM_CALLBACKS.home)]), false);
+    return telegramCallbackViewResult_(callback, chatId, messageId, telegramView_('✅ Importação cancelada\n\nNenhuma linha foi gravada.', [telegramCallbackButton_('🏠 Início', TELEGRAM_CALLBACKS.home)]), false);
   }
   if (action === 'origin') {
     var referenceData = readRuntimeReferenceData_(config);
@@ -157,17 +160,17 @@ function buildTelegramImportPreviewResponse_(message, config, state, fromCallbac
   state.hash = prepared.hash;
   writeImportState_(message.chat && message.chat.id, state);
   var isGroup = message.chat && message.chat.type && message.chat.type !== 'private';
-  var text = ['Preview de importacao', '', BFFCore.formatImportPreview(prepared.preview, { groupChat: isGroup })];
-  if (prepared.parsed.truncated) text.push('', 'Limite aplicado: somente as primeiras 200 transacoes processaveis foram avaliadas.');
-  text.push('', 'Confirme somente o lote seguro. Itens fora do lote ficam em /pendencias_importacao.');
+  var text = ['🔎 Prévia da importação', '', BFFCore.formatImportPreview(prepared.preview, { groupChat: isGroup })];
+  if (prepared.parsed.truncated) text.push('', '⚠️ Limite aplicado: avaliadas as primeiras 200 transações processáveis.');
+  text.push('', '🛡️ Apenas o lote seguro será importado. Os demais itens permanecem nas pendências.');
   var buttons = [];
-  if (prepared.preview.included.length > 0) buttons.push(telegramCallbackButton_('Confirmar lote', 'imp:confirm:' + state.token));
+  if (prepared.preview.included.length > 0) buttons.push(telegramCallbackButton_('✅ Importar ' + prepared.preview.included.length, 'imp:confirm:' + state.token));
   if (!isGroup && config.openAiApiKey && prepared.preview.ambiguous.length > 0) {
     prepared.preview.ambiguous.slice(0, 3).forEach(function(_item, index) {
-      buttons.push(telegramCallbackButton_('Sugerir regra IA ' + (index + 1), 'imp:suggest:' + state.token + ':' + index));
+      buttons.push(telegramCallbackButton_('✨ Sugerir regra ' + (index + 1), 'imp:suggest:' + state.token + ':' + index));
     });
   }
-  buttons.push(telegramCallbackButton_('Cancelar', 'imp:cancel:' + state.token));
+  buttons.push(telegramCallbackButton_('✕ Cancelar', 'imp:cancel:' + state.token));
   return { ok: true, responseText: text.join('\n'), reply_markup: telegramInlineKeyboard_(buttons, 2), shouldApplyDomainMutation: false, fromCallback: Boolean(fromCallback) };
 }
 
@@ -175,7 +178,7 @@ function suggestTelegramImportRule_(message, config, state, ambiguousIndex) {
   var prepared = prepareTelegramImport_(message, config, state);
   if (!prepared.ok) return prepared;
   var transaction = prepared.preview.ambiguous[ambiguousIndex];
-  if (!transaction) return fail_('IMPORT_SUGGESTION_TARGET_MISSING', 'preview', 'A transacao nao esta mais neste preview.');
+  if (!transaction) return fail_('IMPORT_SUGGESTION_TARGET_MISSING', 'preview', 'A transação não está mais nesta prévia.');
   var referenceData = readRuntimeReferenceData_(config);
   if (!referenceData.ok) return referenceData;
   var suggestion = fetchImportRuleSuggestion_(transaction, prepared.originType, config, referenceData);
@@ -187,15 +190,15 @@ function suggestTelegramImportRule_(message, config, state, ambiguousIndex) {
   return {
     ok: true,
     responseText: [
-      'Sugestao de regra (ainda nao salva)', '',
-      'Descricao sanitizada: ' + BFFCore.sanitizeImportDescription(transaction.description),
-      'Tipo: ' + suggestion.tipo_evento,
-      'Categoria: ' + (category.nome || category.id_categoria), '',
-      'Esta sugestao nao inclui a transacao atual. Confirme individualmente para usar a regra em futuros arquivos.',
+      '✨ Sugestão de regra', '',
+      '• Descrição sanitizada: ' + BFFCore.sanitizeImportDescription(transaction.description),
+      '• Tipo: ' + suggestion.tipo_evento,
+      '• Categoria: ' + (category.nome || category.id_categoria), '',
+      '🛡️ Ainda não foi salva e não inclui a transação atual. Confirme apenas se a regra fizer sentido para futuros arquivos.',
     ].join('\n'),
     buttons: [
-      telegramCallbackButton_('Salvar regra revisada', 'imp:save:' + state.token + ':' + ambiguousIndex + ':' + categoryIndex + ':' + typeCode),
-      telegramCallbackButton_('Cancelar', 'imp:cancel:' + state.token),
+      telegramCallbackButton_('✅ Salvar regra', 'imp:save:' + state.token + ':' + ambiguousIndex + ':' + categoryIndex + ':' + typeCode),
+      telegramCallbackButton_('✕ Cancelar', 'imp:cancel:' + state.token),
     ],
     shouldApplyDomainMutation: false,
   };
@@ -250,7 +253,7 @@ function saveTelegramImportRule_(update, message, config, state, ambiguousIndex,
   var prepared = prepareTelegramImport_(message, config, state);
   if (!prepared.ok) return prepared;
   var transaction = prepared.preview.ambiguous[ambiguousIndex];
-  if (!transaction) return fail_('IMPORT_SUGGESTION_TARGET_MISSING', 'preview', 'A transacao nao esta mais neste preview.');
+  if (!transaction) return fail_('IMPORT_SUGGESTION_TARGET_MISSING', 'preview', 'A transação não está mais nesta prévia.');
   var referenceData = readRuntimeReferenceData_(config);
   if (!referenceData.ok) return referenceData;
   var category = referenceData.categories[categoryIndex];
@@ -289,7 +292,7 @@ function saveTelegramImportRule_(update, message, config, state, ambiguousIndex,
   try {
     var applied = executeRuntimeMutationPlan_(prepared.spreadsheet, request, plan);
     if (!applied.ok) return applied;
-    return { ok: true, responseText: 'Regra revisada salva para futuros arquivos. A transacao atual continua fora do lote; reenvie o arquivo para novo preview.', shouldApplyDomainMutation: applied.shouldApplyDomainMutation, result_ref: ruleId, mutationPlan: mutationPlanPublicView_(plan) };
+    return { ok: true, responseText: '✅ Regra revisada salva\n\nEla será aplicada a futuros arquivos. A transação atual continua fora do lote; reenvie o extrato para gerar uma nova prévia.', shouldApplyDomainMutation: applied.shouldApplyDomainMutation, result_ref: ruleId, mutationPlan: mutationPlanPublicView_(plan) };
   } finally {
     lock.releaseLock();
   }
@@ -299,11 +302,11 @@ function prepareTelegramImport_(message, config, state) {
   var downloaded = downloadTelegramImportFile_(config.telegramBotToken, state.file_id);
   if (!downloaded.ok) return downloaded;
   var hash = importBytesHash_(downloaded.bytes);
-  if (state.hash && state.hash !== hash) return fail_('IMPORT_HASH_MISMATCH', 'document', 'O arquivo mudou desde o preview. Envie novamente.');
+  if (state.hash && state.hash !== hash) return fail_('IMPORT_HASH_MISMATCH', 'document', 'O arquivo mudou desde a prévia. Envie novamente.');
   var parsed = BFFCore.parseStatement(downloaded.bytes);
-  if (!parsed.transactions.length) return fail_('IMPORT_EMPTY_OR_UNSUPPORTED', 'document', 'Nao encontrei transacoes OFX/CSV suportadas.');
+  if (!parsed.transactions.length) return fail_('IMPORT_EMPTY_OR_UNSUPPORTED', 'document', 'Não encontrei transações OFX ou CSV compatíveis.');
   var originParts = String(state.origin || '').split(':');
-  if (originParts.length !== 2) return fail_('IMPORT_ORIGIN_MISSING', 'origin', 'Escolha uma fonte ou cartao.');
+  if (originParts.length !== 2) return fail_('IMPORT_ORIGIN_MISSING', 'origin', 'Escolha uma conta ou cartão.');
   var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
   var ruleSheet = spreadsheet.getSheetByName(OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO);
   var rules = ruleSheet ? readOptionalV56RowsAsObjects_(ruleSheet, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO) : [];
@@ -346,11 +349,11 @@ function downloadTelegramImportFile_(token, fileId) {
   if (metadata.getResponseCode() < 200 || metadata.getResponseCode() >= 300 || !parsed || parsed.ok !== true || !parsed.result || !parsed.result.file_path) {
     return fail_('IMPORT_DOWNLOAD_METADATA_FAILED', 'telegram', GENERIC_REQUEST_FAILURE);
   }
-  if (numberFromSheetValue_(parsed.result.file_size) > IMPORT_MAX_BYTES) return fail_('IMPORT_SIZE_BLOCKED', 'document', 'O arquivo precisa ter no maximo 5 MB.');
+  if (numberFromSheetValue_(parsed.result.file_size) > IMPORT_MAX_BYTES) return fail_('IMPORT_SIZE_BLOCKED', 'document', 'O arquivo precisa ter no máximo 5 MB.');
   var fileResponse = UrlFetchApp.fetch('https://api.telegram.org/file/bot' + encodeURIComponent(token) + '/' + encodeURI(parsed.result.file_path), { muteHttpExceptions: true });
   if (fileResponse.getResponseCode() < 200 || fileResponse.getResponseCode() >= 300) return fail_('IMPORT_DOWNLOAD_FAILED', 'telegram', GENERIC_REQUEST_FAILURE);
   var bytes = fileResponse.getBlob().getBytes();
-  if (bytes.length > IMPORT_MAX_BYTES) return fail_('IMPORT_SIZE_BLOCKED', 'document', 'O arquivo precisa ter no maximo 5 MB.');
+  if (bytes.length > IMPORT_MAX_BYTES) return fail_('IMPORT_SIZE_BLOCKED', 'document', 'O arquivo precisa ter no máximo 5 MB.');
   return { ok: true, bytes: bytes };
 }
 
@@ -362,20 +365,20 @@ function importBytesHash_(bytes) {
 function buildPendingImportResponse_(message, config) {
   var chatId = message.chat && message.chat.id;
   var state = readImportState_(chatId);
-  if (!state || !state.origin || !state.hash) return { ok: true, responseText: 'Nao ha preview de importacao valido neste chat.', shouldApplyDomainMutation: false };
+  if (!state || !state.origin || !state.hash) return { ok: true, responseText: '📥 Nenhuma prévia ativa\n\nEnvie um arquivo OFX ou CSV para começar.', shouldApplyDomainMutation: false };
   var prepared = prepareTelegramImport_(message, config, state);
   if (!prepared.ok) return prepared;
   var excluded = prepared.preview;
   return {
     ok: true,
     responseText: [
-      'Pendencias da ultima importacao', '',
-      'Duplicados: ' + excluded.counts.duplicates,
-      'Possiveis duplicados: ' + excluded.counts.possible_duplicate,
-      'Ambiguos: ' + excluded.counts.ambiguous,
-      'Bloqueados: ' + excluded.counts.blocked,
-      'Nao suportados: ' + excluded.counts.unsupported,
-      '', 'Detalhes privados permanecem agregados.',
+      '🧩 Pendências da importação', '',
+      '• Duplicados ignorados: ' + excluded.counts.duplicates,
+      '• Possíveis duplicados: ' + excluded.counts.possible_duplicate,
+      '• Precisam de categoria: ' + excluded.counts.ambiguous,
+      '• Bloqueados pelas regras: ' + excluded.counts.blocked,
+      '• Não suportados: ' + excluded.counts.unsupported,
+      '', '🔒 Detalhes privados permanecem agregados.',
     ].join('\n'),
     shouldApplyDomainMutation: false,
   };
@@ -384,8 +387,8 @@ function buildPendingImportResponse_(message, config) {
 function confirmTelegramImport_(update, message, config, state) {
   var prepared = prepareTelegramImport_(message, config, state);
   if (!prepared.ok) return prepared;
-  if (!state.hash || state.hash !== prepared.hash) return fail_('IMPORT_HASH_MISMATCH', 'document', 'O arquivo mudou desde o preview. Envie novamente.');
-  if (!prepared.preview.included.length) return fail_('IMPORT_NOTHING_SAFE', 'preview', 'Nao ha transacao segura para incluir.');
+  if (!state.hash || state.hash !== prepared.hash) return fail_('IMPORT_HASH_MISMATCH', 'document', 'O arquivo mudou desde a prévia. Envie novamente.');
+  if (!prepared.preview.included.length) return fail_('IMPORT_NOTHING_SAFE', 'preview', 'Não há transações seguras para incluir.');
   var applied = applyTelegramImportMutationPlan_(update, message, config, state, prepared);
   if (applied.ok) clearImportState_(message.chat && message.chat.id);
   return applied;
@@ -406,9 +409,9 @@ function applyTelegramImportMutationPlan_(update, message, config, state, prepar
       var category = referenceData.categoriesById[stringValue_(rule.id_categoria)];
       if (!category) return fail_('IMPORT_RULE_CATEGORY_INVALID', 'id_categoria', 'Uma regra revisada aponta para categoria inexistente.');
       var origin = prepared.originType === 'card' ? referenceData.cardsById[prepared.originId] : referenceData.sourcesById[prepared.originId];
-      if (!origin) return fail_('IMPORT_ORIGIN_INVALID', 'origin', 'A fonte ou cartao nao esta mais ativo.');
-      if (prepared.originType === 'card' && rule.tipo_evento !== 'compra_cartao') return fail_('IMPORT_RULE_EVENT_INVALID', 'tipo_evento', 'Regra de cartao precisa ser compra_cartao.');
-      if (prepared.originType === 'source' && rule.tipo_evento === 'compra_cartao') return fail_('IMPORT_RULE_EVENT_INVALID', 'tipo_evento', 'Regra de conta nao pode criar compra de cartao.');
+      if (!origin) return fail_('IMPORT_ORIGIN_INVALID', 'origin', 'A fonte ou o cartão não está mais ativo.');
+      if (prepared.originType === 'card' && rule.tipo_evento !== 'compra_cartao') return fail_('IMPORT_RULE_EVENT_INVALID', 'tipo_evento', 'A regra de cartão precisa representar uma compra no cartão.');
+      if (prepared.originType === 'source' && rule.tipo_evento === 'compra_cartao') return fail_('IMPORT_RULE_EVENT_INVALID', 'tipo_evento', 'Uma regra de conta não pode criar compra de cartão.');
       var resultRef = stableId_('IMP', item.import_key);
       var event = {
         tipo_evento: rule.tipo_evento,
@@ -455,7 +458,7 @@ function applyTelegramImportMutationPlan_(update, message, config, state, prepar
     if (!plan.ok) return plan;
     var applied = executeRuntimeMutationPlan_(spreadsheet, request, plan);
     if (!applied.ok) return applied;
-    return { ok: true, responseText: 'Importacao concluida: ' + prepared.preview.included.length + ' transacoes incluidas sem duplicar.', shouldApplyDomainMutation: applied.shouldApplyDomainMutation, result_ref: plan.result_ref, mutationPlan: mutationPlanPublicView_(plan) };
+    return { ok: true, responseText: '✅ Importação concluída\n\n' + prepared.preview.included.length + ' transações incluídas sem duplicar.\n\n📊 O resumo já considera os novos lançamentos.', shouldApplyDomainMutation: applied.shouldApplyDomainMutation, result_ref: plan.result_ref, mutationPlan: mutationPlanPublicView_(plan) };
   } finally {
     lock.releaseLock();
   }

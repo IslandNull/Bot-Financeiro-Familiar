@@ -25,12 +25,13 @@ const facts = {
 };
 
 const deterministicText = [
-    'Status',
-    'Fluxo projetado negativo.',
-    'Por que',
-    '- Sobra projetada: R$ -320,15',
-    '- Faturas atuais: R$ 2100,00',
-    'O que fazer agora',
+    '🧭 Copiloto • Maio',
+    '',
+    '🚨 Fluxo projetado negativo.',
+    '• Sobra projetada: R$ -320,15',
+    '• Faturas atuais: R$ 2100,00',
+    '',
+    '👉 Prioridade agora',
     'Cobrir pagamentos registrados antes de gasto novo.',
 ].join('\n');
 

@@ -23,14 +23,16 @@ Operational authority for Bot Financeiro Familiar V56.
 - Purpose-based spending categories are compatible with both account expenses and card purchases; import-rule suggestions no longer require duplicate categories by payment medium.
 - Optional `Regras_Importacao` schema and idempotent header migration are implemented with audit coverage.
 - Nominal card due dates advance through weekends and Brazilian national banking holidays; authoritative invoice dates still prevail.
-- Telegram UX uses a compact home plus secondary menu, immediate processing feedback, chunked long replies, guided `/configurar` onboarding and explicit previews for high-risk or recently duplicated events.
+- Telegram UX uses a compact home plus secondary menu, scannable emoji decision cards, contextual inline actions, immediate processing feedback, chunked long replies, guided `/configurar` onboarding and explicit previews for high-risk or recently duplicated events.
+- Telegram copy prioritizes situation, evidence, one next action and one guardrail; the edge adds safe HTML hierarchy only after escaping dynamic text.
 - Conversation context is isolated by chat and user, expires after 24 hours, and deterministic read questions bypass OpenAI when no contextual resolution is needed.
 - Standard copilot output is deterministic; narration is opt-in. OpenAI calls use bounded transient retry, while static reference data uses a short cache and every slow boundary emits redacted timing telemetry.
 - Recurring-income projections respect receipt day/business-day rule and require competence-level review for variable income.
 
 ### Remote rollout state
 
-- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 245 is published.
+- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 246 is published.
+- VERIFIED: the Telegram UX redesign is live in Apps Script; quick/full read-only smokes pass and the sheet audit reports zero findings. Safe HTML hierarchy remains staged in the versioned Val Town proxy until merge to `main`.
 - VERIFIED: `Rendas_Recorrentes` was migrated append-only from 8 to 13 columns; the post-deploy dry-run reports `no_change` and the sheet audit has zero findings.
 - VERIFIED: owner OAuth consent covers Spreadsheet, Properties, external requests and Apps Script trigger management.
 - VERIFIED: quick/full remote smoke pass; sheet audit has zero findings and the redacted snapshot is current.
