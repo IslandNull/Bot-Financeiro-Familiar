@@ -1789,6 +1789,7 @@ function openAiCopilotNarratorPayload_(summary, deterministicText, config) {
   return {
     model: config.openAiNarratorModel,
     store: false,
+    reasoning: { effort: 'none' },
     input: [
       'You are an optional Telegram phrasing layer for a deterministic family finance copilot.',
       'Use only the provided facts, evidence, recommendation, and avoid rule.',

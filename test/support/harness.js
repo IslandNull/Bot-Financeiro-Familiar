@@ -115,7 +115,7 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
         PILOT_FINANCIAL_MUTATION_ENABLED: 'YES',
         SPREADSHEET_ID: 'sheet_1',
         OPENAI_API_KEY: 'test_openai_key',
-        OPENAI_MODEL: 'gpt-5.4-nano',
+        OPENAI_MODEL: 'gpt-5.6-luna',
         ...(options.properties || {}),
     };
     const scriptProperties = { ...properties };

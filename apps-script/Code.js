@@ -23,7 +23,7 @@ var HELP_TEXT = [
 ].join('\n');
 var SUCCESS_TEXT = '✅ Anotado com segurança.\n\nO resumo já considera este lançamento.';
 var FAMILY_SUMMARY_HELP_TEXT = '🛡️ Regra de segurança\nSe eu não tiver certeza, eu não chuto. Eu peço categoria, fonte ou contexto.';
-var DEFAULT_OPENAI_MODEL = 'gpt-5-nano';
+var DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna';
 var OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 var SHEETS = {
   CONFIG_CATEGORIAS: 'Config_Categorias',
@@ -135,6 +135,9 @@ function doGet(e) {
   }
   if (action === 'import_selftest') {
     return json_(runImportSelfTestV56());
+  }
+  if (action === 'openai_selftest') {
+    return json_(runOpenAIModelSelfTest());
   }
   if (action === 'optional_v56_template') {
     return json_(exportOptionalV56Template());
@@ -872,6 +875,70 @@ function auditOptionalV56Goals_(findings, goals) {
     auditOptionalIsoDate_(findings, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS, 'data_alvo', row.data_alvo, true);
     auditOptionalIsoDate_(findings, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS, 'revisado_em', row.revisado_em, false);
   });
+}
+
+function runOpenAIModelSelfTest() {
+  var config = readConfig_();
+  if (!config.openAiApiKey) return fail_('MISSING_OPENAI_API_KEY', 'openai', GENERIC_REQUEST_FAILURE);
+  var models = [config.openAiParserModel, config.openAiNarratorModel].filter(function(model, index, all) {
+    return model && all.indexOf(model) === index;
+  });
+  var checks = [];
+  for (var i = 0; i < models.length; i += 1) {
+    var model = models[i];
+    var payload = {
+      model: model,
+      store: false,
+      reasoning: { effort: 'none' },
+      input: 'Return the required self-test status. Do not add any other content.',
+      text: { format: {
+        type: 'json_schema',
+        name: 'openai_model_selftest',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['status'],
+          properties: { status: { type: 'string', enum: ['ok'] } },
+        },
+      } },
+    };
+    try {
+      var response = fetchOpenAIResponseWithRetry_(payload, config, 'model_selftest');
+      var responseCode = response.getResponseCode();
+      var parsed = parseJsonSafe_(extractOpenAIOutputText_(parseJsonSafe_(response.getContentText())));
+      checks.push({ model: model, ok: responseCode >= 200 && responseCode < 300 && parsed && parsed.status === 'ok' });
+    } catch (_err) {
+      checks.push({ model: model, ok: false });
+    }
+  }
+  var referenceData = readRuntimeReferenceData_(config);
+  var parserResult = referenceData.ok
+    ? parseFinancialEventWithOpenAI_(
+      'Comprei mercado da semana por R$ 1,23 em 04/08/2026 usando a conta Mercado Pago.',
+      config,
+      referenceData,
+      { messages: [] }
+    )
+    : referenceData;
+  var financialParserOk = Boolean(
+    parserResult && parserResult.ok && parserResult.event &&
+    parserResult.event.tipo_evento === 'despesa' &&
+    parserResult.event.id_categoria === 'OPEX_MERCADO_SEMANA' &&
+    parserResult.event.id_fonte === 'FONTE_CONTA_MERCADO_PAGO_GU' &&
+    numberFromSheetValue_(parserResult.event.valor) === 1.23
+  );
+  return {
+    ok: checks.length > 0 && checks.every(function(check) { return check.ok; }) && financialParserOk,
+    shouldApplyDomainMutation: false,
+    parser_model: config.openAiParserModel,
+    narrator_model: config.openAiNarratorModel,
+    reasoning_effort: 'none',
+    structured_outputs: true,
+    store: false,
+    financial_parser_ok: financialParserOk,
+    checks: checks,
+  };
 }
 
 function isoWeekKey_(isoDate) {

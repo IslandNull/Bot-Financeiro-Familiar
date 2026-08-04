@@ -14,7 +14,7 @@ Operational authority for Bot Financeiro Familiar V56.
 - Runtime writes use a deterministic `MutationPlan`, journal `processing -> completed/failed`, ID upserts, conflict blocking and retry reconciliation under one `LockService` operation.
 - Expense, generic launch, transfer, card purchase/installments, invoice exposure/payment, balances, assets, corrections and statement imports are covered by executable failure/retry tests.
 - Corrections validate the replacement first, keep closed periods blocked, journal replacement/deletions and physically remove the original and dependent invoice lines.
-- OpenAI parser and optional narrator use Responses `json_schema` with `strict: true`, `store: false`; parser/narrator model properties fall back to `OPENAI_MODEL` and then `gpt-5-nano`.
+- OpenAI parser and optional narrator use `gpt-5.6-luna` with Responses `json_schema`, `strict: true`, `store: false` and explicit `reasoning.effort=none`; role-specific properties still override through `OPENAI_PARSER_MODEL` and `OPENAI_NARRATOR_MODEL`, with legacy `OPENAI_MODEL` compatibility.
 - Deterministic pending-attention blocks safe spending, investment and amortization when any active cash source lacks a balance, a balance is older than 7 days, or an upcoming invoice lacks authority.
 - Weekly digest deduplicates by chat, ISO week and content hash; trigger setup is idempotent for Monday 08:00 `America/Sao_Paulo`.
 - High-signal budget alerts use preview-only 85%/100% thresholds; immediate delivery stays disabled.
@@ -33,8 +33,9 @@ Operational authority for Bot Financeiro Familiar V56.
 
 ### Remote rollout state
 
-- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 248 is published.
-- VERIFIED: runtime 248 contains the final monthly-income flow; quick/full remote smokes pass and the live sheet audit has zero findings.
+- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 251 is published.
+- VERIFIED: runtime 251 contains the monthly-income flow and GPT-5.6 Luna migration; quick/full remote smokes pass and the live sheet audit has zero findings.
+- VERIFIED: production parser and narrator resolve to `gpt-5.6-luna`; protected synthetic Responses and financial-parser checks passed with `reasoning.effort=none`, strict structured output, `store=false` and no spreadsheet mutation.
 - VERIFIED: the Telegram UX redesign is live in Apps Script; quick/full read-only smokes pass and the sheet audit reports zero findings. Safe HTML hierarchy remains staged in the versioned Val Town proxy until merge to `main`.
 - VERIFIED: `Rendas_Recorrentes` was migrated append-only from 8 to 13 columns; the post-deploy dry-run reports `no_change` and the sheet audit has zero findings.
 - VERIFIED: owner OAuth consent covers Spreadsheet, Properties, external requests and Apps Script trigger management.
@@ -51,9 +52,8 @@ Operational authority for Bot Financeiro Familiar V56.
 - VERIFIED: Mercado Pago August closed at BRL 3,058.03. Its BRL 2,943.03 pre-cutoff exposure remains isolated from the August DRE, while the BRL 115.00 delivery on 2026-08-02 is the first post-cutoff card purchase, categorized as family food out.
 - VERIFIED: Nubank September BRL 399.41 and Mercado Pago September BRL 1,825.25 remain `prevista` until authoritative closing values are supplied.
 - VERIFIED: opening account balances on 2026-08-01 are Mercado Pago BRL 132.16 and Nubank BRL 1.00, totaling BRL 133.16 of informed liquidity; both active cash sources now satisfy the initial balance requirement.
-- VERIFIED: the known August income is BRL 4,476.90 for Mercado Pago on 2026-08-05: BRL 3,442.43 net salary plus BRL 1,034.47 separate extra income. Existing recurring rows remain incomplete until the owner sends the new final monthly declaration once.
+- VERIFIED: the August income declaration is stored for Mercado Pago on 2026-08-05: net salary plus separately identified extra income, with no second receipt confirmation required.
 - TODO: rebuild commitments, assets and debts through the guided clean-base onboarding before relying on financial recommendations.
-- TODO: after runtime publication, send the single August income message once; no follow-up message is needed on receipt day.
 - TODO: owner reviews and merges the draft PR; the main-branch workflow then publishes the versioned Val Town proxy.
 
 ## Remaining release order

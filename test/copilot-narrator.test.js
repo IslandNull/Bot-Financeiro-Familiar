@@ -70,10 +70,11 @@ test('copilot narrator rejects internal ids and falls back to deterministic text
 });
 
 test('copilot narrator payload requests strict structured output', () => {
-    const payload = buildCopilotNarratorPayload(facts, deterministicText, { model: 'gpt-5-nano' });
+    const payload = buildCopilotNarratorPayload(facts, deterministicText);
 
-    assert.strictEqual(payload.model, 'gpt-5-nano');
+    assert.strictEqual(payload.model, 'gpt-5.6-luna');
     assert.strictEqual(payload.store, false);
+    assert.deepStrictEqual(payload.reasoning, { effort: 'none' });
     assert.strictEqual(payload.text.format.type, 'json_schema');
     assert.strictEqual(payload.text.format.strict, true);
     assert.deepStrictEqual(payload.text.format.schema.required, ['text']);

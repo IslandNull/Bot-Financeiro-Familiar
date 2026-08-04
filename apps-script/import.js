@@ -217,6 +217,7 @@ function fetchImportRuleSuggestion_(transaction, originType, config, referenceDa
   var payload = {
     model: config.openAiParserModel,
     store: false,
+    reasoning: { effort: 'none' },
     input: [
       'Suggest one category for a financial import rule. This is suggestion-only; deterministic code validates it.',
       'Use only the allowed event types and category ids. Do not add fields or financial rules.',

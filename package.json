@@ -24,6 +24,7 @@
     "pending:preview": "node scripts/clasp-run.js pending_attention_preview",
     "alerts:preview": "node scripts/clasp-run.js alerts_preview",
     "import:selftest": "node scripts/clasp-run.js import_selftest",
+    "openai:selftest": "node scripts/clasp-run.js openai_selftest",
     "optional:v56:template": "node scripts/clasp-run.js optional_v56_template",
     "digest:preview": "node scripts/clasp-run.js copilot_digest_preview",
     "digest:send": "node scripts/clasp-run.js copilot_digest_send",

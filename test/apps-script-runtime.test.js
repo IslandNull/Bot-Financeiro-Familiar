@@ -692,8 +692,9 @@ test('Apps Script optional IA narrator uses structured output and accepts only d
     context.UrlFetchApp.fetch = function(url, options) {
         calls.push({ url, options });
         const payload = JSON.parse(options.payload);
-        assert.strictEqual(payload.model, 'gpt-5.4-nano');
+        assert.strictEqual(payload.model, 'gpt-5.6-luna');
         assert.strictEqual(payload.store, false);
+        assert.deepStrictEqual(payload.reasoning, { effort: 'none' });
         assert.strictEqual(payload.text.format.type, 'json_schema');
         assert.strictEqual(payload.text.format.strict, true);
         return {
@@ -2645,12 +2646,13 @@ test('Apps Script summary and closing_draft actions accept explicit competencia'
     assert.deepStrictEqual(invalid.errors.map((error) => error.code), ['INVALID_REQUESTED_COMPETENCIA']);
 });
 
-test('Apps Script runtime uses strict OpenAI Responses structured output for parser boundary', () => {
-    assert.ok(code.includes("DEFAULT_OPENAI_MODEL = 'gpt-5-nano'"));
+test('Apps Script runtime uses GPT-5.6 Luna with strict OpenAI Responses structured output for parser boundary', () => {
+    assert.ok(code.includes("DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna'"));
     assert.ok(code.includes('https://api.openai.com/v1/responses'));
     assert.ok(code.includes("name: 'financial_event'"));
     assert.ok(code.includes('strict: true'));
     assert.ok(code.includes('store: false'));
+    assert.ok(code.includes("reasoning: { effort: 'none' }"));
     assert.ok(code.includes('input: buildParserPrompt_(text, referenceData, conversation)'));
     assert.ok(code.includes('extractOpenAIOutputText_'));
     assert.ok(code.includes('if (!parsed.ok) return '));
@@ -5517,6 +5519,7 @@ test('Apps Script parser sends strict schema, store false, and parser-specific m
 
     assert.strictEqual(payload.model, 'parser-model');
     assert.strictEqual(payload.store, false);
+    assert.deepStrictEqual(payload.reasoning, { effort: 'none' });
     assert.strictEqual(payload.text.format.type, 'json_schema');
     assert.strictEqual(payload.text.format.strict, true);
     assert.deepStrictEqual(Array.from(payload.text.format.schema.required), Array.from(context.PARSED_EVENT_FIELDS));
@@ -6979,6 +6982,7 @@ test('Apps Script AI import suggestion uses strict store-false output and saves 
     const suggestion = postTelegramCallback(context, suggestData, { updateId: 'suggest-rule', messageId: 'suggest-preview' });
     assert.strictEqual(aiPayload.model, 'parser-model');
     assert.strictEqual(aiPayload.store, false);
+    assert.deepStrictEqual(aiPayload.reasoning, { effort: 'none' });
     assert.strictEqual(aiPayload.text.format.type, 'json_schema');
     assert.strictEqual(aiPayload.text.format.strict, true);
     assert.ok(aiPayload.input.includes('OPEX_MERCADO_SEMANA'));
@@ -7004,6 +7008,48 @@ test('Apps Script import selftest is read-only', () => {
     assert.strictEqual(result.processed, 1);
     assert.strictEqual(result.stores_raw_file, false);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script OpenAI selftest validates configured Luna once without spreadsheet mutation', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const calls = [];
+    context.UrlFetchApp.fetch = function(url, options) {
+        assert.strictEqual(url, 'https://api.openai.com/v1/responses');
+        const payload = JSON.parse(options.payload);
+        calls.push(payload);
+        const output = payload.text.format.name === 'financial_event'
+            ? {
+                tipo_evento: 'despesa', data: '2026-08-04', competencia: '2026-08', valor: '1.23',
+                descricao: 'Mercado da semana', id_categoria: 'OPEX_MERCADO_SEMANA',
+                id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU', pessoa: 'Gustavo', escopo: 'Familiar',
+                visibilidade: 'detalhada', id_cartao: '', id_fatura: '', id_divida: '', id_ativo: '',
+                afeta_dre: true, afeta_patrimonio: false, afeta_caixa_familiar: true,
+                direcao_caixa_familiar: '', status: 'efetivado', parcelas: 1,
+            }
+            : { status: 'ok' };
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({ output: [{ content: [{ text: JSON.stringify(output) }] }] }),
+        };
+    };
+
+    const result = runRemoteAction(context, 'openai_selftest');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(result.parser_model, 'gpt-5.6-luna');
+    assert.strictEqual(result.narrator_model, 'gpt-5.6-luna');
+    assert.strictEqual(result.financial_parser_ok, true);
+    assert.strictEqual(calls.length, 2);
+    assert.strictEqual(calls[0].model, 'gpt-5.6-luna');
+    assert.strictEqual(calls[0].store, false);
+    assert.deepStrictEqual(calls[0].reasoning, { effort: 'none' });
+    assert.strictEqual(calls[0].text.format.type, 'json_schema');
+    assert.strictEqual(calls[0].text.format.strict, true);
+    assert.strictEqual(calls[1].text.format.name, 'financial_event');
+    assert.deepStrictEqual(calls[1].reasoning, { effort: 'none' });
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
 });
 
 test('Apps Script accepts one final natural message for monthly salary and extra income', () => {

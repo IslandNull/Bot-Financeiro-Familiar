@@ -32,7 +32,7 @@ OpenAI Responses API
 | `apps-script/generated-core.js` | Generated ignored bundle exposing `BFFCore`; build with `npm run build:gas`. |
 | `apps-script/appsscript.json` | Apps Script manifest, timezone, scopes and anonymous web-app execution policy. |
 
-Public `doGet` read-only actions include `summary`, `cut_first`, `safe_to_spend`, `goals_preview`, `commitments_preview`, `pending_attention_preview`, `alerts_preview`, `copilot_digest_preview`, `import_selftest`, `optional_v56_template`, `selftest`, `snapshot` and `sheet_audit`. Explicit mutation/operation actions remain schema upgrade, closing and gated digest delivery.
+Public `doGet` read-only actions include `summary`, `cut_first`, `safe_to_spend`, `goals_preview`, `commitments_preview`, `pending_attention_preview`, `alerts_preview`, `copilot_digest_preview`, `import_selftest`, `openai_selftest`, `optional_v56_template`, `selftest`, `snapshot` and `sheet_audit`. Explicit mutation/operation actions remain schema upgrade, closing and gated digest delivery.
 
 ## Pure core (`src/`)
 

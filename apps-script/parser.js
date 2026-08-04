@@ -1970,6 +1970,7 @@ function openAiParserPayload_(text, config, referenceData, conversation) {
   return {
     model: config.openAiParserModel,
     store: false,
+    reasoning: { effort: 'none' },
     input: buildParserPrompt_(text, referenceData, conversation),
     text: {
       format: {
@@ -2093,6 +2094,7 @@ function openAiCorrectionPayload_(text, config, referenceData, conversation) {
   return {
     model: config.openAiParserModel,
     store: false,
+    reasoning: { effort: 'none' },
     input: buildCorrectionParserPrompt_(text, referenceData, conversation),
     text: {
       format: {
