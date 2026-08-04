@@ -2,7 +2,7 @@
 
 Operational authority for Bot Financeiro Familiar V56.
 
-## Current State (2026-08-03)
+## Current State (2026-08-04)
 
 ### VERIFIED locally
 
@@ -27,11 +27,14 @@ Operational authority for Bot Financeiro Familiar V56.
 - Telegram copy prioritizes situation, evidence, one next action and one guardrail; the edge adds safe HTML hierarchy only after escaping dynamic text.
 - Conversation context is isolated by chat and user, expires after 24 hours, and deterministic read questions bypass OpenAI when no contextual resolution is needed.
 - Standard copilot output is deterministic; narration is opt-in. OpenAI calls use bounded transient retry, while static reference data uses a short cache and every slow boundary emits redacted timing telemetry.
-- Recurring-income projections respect receipt day/business-day rule and require competence-level review for variable income.
+- One natural monthly message can schedule net salary and separate extra income atomically with explicit date/account; it is final without a later receipt confirmation.
+- Monthly income uses deterministic private scheduled launches, supersedes that person's recurring templates for the competence and reconciles against a destination-account balance dated on/after receipt to prevent double counting.
+- Copilot and summary show confirmed monthly income, separate extra-income guidance and accurate “considered vs reconciled” wording; employer bank and portability are outside the model.
 
 ### Remote rollout state
 
-- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 246 is published.
+- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 248 is published.
+- VERIFIED: runtime 248 contains the final monthly-income flow; quick/full remote smokes pass and the live sheet audit has zero findings.
 - VERIFIED: the Telegram UX redesign is live in Apps Script; quick/full read-only smokes pass and the sheet audit reports zero findings. Safe HTML hierarchy remains staged in the versioned Val Town proxy until merge to `main`.
 - VERIFIED: `Rendas_Recorrentes` was migrated append-only from 8 to 13 columns; the post-deploy dry-run reports `no_change` and the sheet audit has zero findings.
 - VERIFIED: owner OAuth consent covers Spreadsheet, Properties, external requests and Apps Script trigger management.
@@ -48,9 +51,9 @@ Operational authority for Bot Financeiro Familiar V56.
 - VERIFIED: Mercado Pago August closed at BRL 3,058.03. Its BRL 2,943.03 pre-cutoff exposure remains isolated from the August DRE, while the BRL 115.00 delivery on 2026-08-02 is the first post-cutoff card purchase, categorized as family food out.
 - VERIFIED: Nubank September BRL 399.41 and Mercado Pago September BRL 1,825.25 remain `prevista` until authoritative closing values are supplied.
 - VERIFIED: opening account balances on 2026-08-01 are Mercado Pago BRL 132.16 and Nubank BRL 1.00, totaling BRL 133.16 of informed liquidity; both active cash sources now satisfy the initial balance requirement.
-- VERIFIED: planned cash income for 2026-08-05 totals BRL 4,476.90 in the Mercado Pago account: BRL 3,442.43 salary plus BRL 1,034.47 variable compensation. The variable amount is explicitly marked for monthly review and neither item is counted as current cash before receipt confirmation.
+- VERIFIED: the known August income is BRL 4,476.90 for Mercado Pago on 2026-08-05: BRL 3,442.43 net salary plus BRL 1,034.47 separate extra income. Existing recurring rows remain incomplete until the owner sends the new final monthly declaration once.
 - TODO: rebuild commitments, assets and debts through the guided clean-base onboarding before relying on financial recommendations.
-- TODO: use `/configurar` to confirm day, business-day rule and Mercado Pago destination for the two existing recurring incomes; the safe replacement flow prevents duplicate rows.
+- TODO: after runtime publication, send the single August income message once; no follow-up message is needed on receipt day.
 - TODO: owner reviews and merges the draft PR; the main-branch workflow then publishes the versioned Val Town proxy.
 
 ## Remaining release order

@@ -7006,3 +7006,124 @@ test('Apps Script import selftest is read-only', () => {
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
+test('Apps Script accepts one final natural message for monthly salary and extra income', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const result = postPilotMessage(
+        context,
+        'Meu salário líquido será 3.500,00 e a renda extra 900,00; ambos cairão dia 5 no Mercado Pago. Ignore Santander e portabilidade.',
+        { updateId: 'monthly-income-1', messageId: 'monthly-income-1' },
+    );
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, true);
+    assert.match(result.responseText, /Renda do mês programada/);
+    assert.match(result.responseText, /Salário líquido: R\$ 3\.500,00/);
+    assert.match(result.responseText, /Renda extra: R\$ 900,00/);
+    assert.match(result.responseText, /não precisa confirmar novamente/i);
+    assert.doesNotMatch(result.responseText, /Santander|portabilidade/i);
+
+    const scheduled = sheets.Lancamentos.rows.slice(1).map((row) => Object.fromEntries(
+        lancamentosHeaders.map((header, index) => [header, row[index]]),
+    ));
+    assert.strictEqual(scheduled.length, 2);
+    assert.deepStrictEqual(scheduled.map((row) => row.valor).sort((a, b) => a - b), [900, 3500]);
+    scheduled.forEach((row) => {
+        assert.strictEqual(row.status, 'agendado');
+        assert.strictEqual(row.data, '2026-05-05');
+        assert.strictEqual(row.id_fonte, 'FONTE_CONTA_MERCADO_PAGO_GU');
+        assert.strictEqual(row.pessoa, 'Gustavo');
+        assert.strictEqual(row.visibilidade, 'privada');
+    });
+    assert.ok(scheduled.some((row) => row.id_categoria === 'REC_SALARIO_LIQUIDO'));
+    assert.ok(scheduled.some((row) => row.id_categoria === 'REC_RENDA_EXTRA'));
+});
+
+test('Apps Script monthly income response keeps component values private in group chat', () => {
+    const { context } = createAppsScriptHarness(null, { failOnFetch: true });
+    const result = postPilotMessage(
+        context,
+        'Meu salário será 3500,00 e a renda extra 900,00; ambos cairão dia 5 no Mercado Pago.',
+        { updateId: 'monthly-group', messageId: 'monthly-group', chatType: 'group' },
+    );
+    assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /Total previsto: R\$ 4\.400,00/);
+    assert.doesNotMatch(result.responseText, /3\.500,00|900,00/);
+});
+
+test('Apps Script monthly income retry is idempotent and a new declaration updates the same month', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const text = 'Meu salário será 3500,00 e a renda extra 900,00; ambos vão cair dia 5 na conta Mercado Pago.';
+    const first = postPilotMessage(context, text, { updateId: 'monthly-retry', messageId: 'monthly-retry' });
+    const retry = postPilotMessage(context, text, { updateId: 'monthly-retry', messageId: 'monthly-retry' });
+    assert.strictEqual(first.ok, true);
+    assert.strictEqual(retry.ok, true);
+    assert.strictEqual(retry.shouldApplyDomainMutation, false);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 3);
+
+    const changed = postPilotMessage(
+        context,
+        'Meu salário será 3600,00 e a renda extra 850,00; ambos cairão dia 5 na conta Mercado Pago.',
+        { updateId: 'monthly-change', messageId: 'monthly-change' },
+    );
+    assert.strictEqual(changed.ok, true);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 3);
+    const values = sheets.Lancamentos.rows.slice(1).map((row) => row[lancamentosHeaders.indexOf('valor')]).sort((a, b) => a - b);
+    assert.deepStrictEqual(values, [850, 3600]);
+});
+
+test('Apps Script monthly income recovers after every write boundary without duplicates', () => {
+    [1, 2].forEach((boundary) => {
+        const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+        const text = 'Meu salário será 3500,00 e a renda extra 900,00; ambos cairão dia 5 na conta Mercado Pago.';
+        context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = boundary;
+        const failed = postPilotMessage(context, text, { updateId: `monthly-fail-${boundary}`, messageId: `monthly-fail-${boundary}` });
+        assert.strictEqual(failed.ok, false);
+        context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
+        const recovered = postPilotMessage(context, text, { updateId: `monthly-fail-${boundary}`, messageId: `monthly-fail-${boundary}` });
+        assert.strictEqual(recovered.ok, true);
+        assert.strictEqual(sheets.Lancamentos.rows.length, 3);
+        const ids = sheets.Lancamentos.rows.slice(1).map((row) => row[lancamentosHeaders.indexOf('id_lancamento')]);
+        assert.strictEqual(new Set(ids).size, 2);
+    });
+});
+
+test('Apps Script projection includes declared income without receipt confirmation and reconciles it with a later balance', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeRecurringIncome(sheets, {
+        id_renda: 'OLD_SALARY_WITHOUT_SOURCE',
+        valor_planejado: 3500,
+        id_fonte: '',
+        revisao_mensal: true,
+        revisado_em: '2026-04-30',
+    });
+    const recorded = postPilotMessage(
+        context,
+        'Meu salário será 3500,00 e a renda extra 900,00; ambos cairão dia 5 no Mercado Pago.',
+        { updateId: 'monthly-projection', messageId: 'monthly-projection' },
+    );
+    assert.strictEqual(recorded.ok, true);
+
+    const before = context.readCurrentPilotFamilySummary_(context.readConfig_(), '2026-05');
+    assert.strictEqual(before.ok, true);
+    assert.strictEqual(before.summary.renda_mensal_confirmada, 4400);
+    assert.strictEqual(before.summary.renda_extra_confirmada, 900);
+    assert.strictEqual(before.summary.renda_prevista_pendente, 4400);
+    assert.strictEqual(before.summary.rendas_previstas_bloqueadas.length, 0);
+    assert.match(context.formatCopilotDecisionCards_(before.summary), /Renda extra com destino claro/);
+
+    appendFakeSourceBalance(sheets, {
+        id_snapshot: 'MP_AFTER_INCOME',
+        competencia: '2026-05',
+        data_referencia: '2026-05-05',
+        id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU',
+        saldo_inicial: 0,
+        saldo_final: 4400,
+        saldo_disponivel: 4400,
+    });
+    const after = context.readCurrentPilotFamilySummary_(context.readConfig_(), '2026-05');
+    assert.strictEqual(after.ok, true);
+    assert.strictEqual(after.summary.renda_prevista_pendente, 0);
+    assert.strictEqual(after.summary.sobra_projetada_pos_pagamentos, 4400);
+    assert.match(after.responseText, /Renda já conciliada com o saldo da conta/);
+});
+

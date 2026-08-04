@@ -356,8 +356,14 @@ function readCurrentPilotFamilySummaryInternal_(config, requestedCompetencia) {
     verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
 
     var competencia = competenciaCheck.competencia || todaySaoPaulo_().slice(0, 7);
-    var launches = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS).filter(function(row) {
-      return normalizeSheetCompetencia_(row.competencia) === competencia && row.status === 'efetivado';
+    var competenceLaunches = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS).filter(function(row) {
+      return normalizeSheetCompetencia_(row.competencia) === competencia;
+    });
+    var launches = competenceLaunches.filter(function(row) {
+      return row.status === 'efetivado';
+    });
+    var scheduledIncomeLaunches = competenceLaunches.filter(function(row) {
+      return row.status === 'agendado' && row.tipo_evento === 'receita' && isMonthlyIncomeCategoryId_(row.id_categoria);
     });
     var transfers = readRowsAsObjects_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS).filter(function(row) {
       return normalizeSheetCompetencia_(row.competencia) === competencia && row.escopo === 'Familiar';
@@ -387,7 +393,12 @@ function readCurrentPilotFamilySummaryInternal_(config, requestedCompetencia) {
     var sourceRows = readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES);
     var sourcesById = indexBy_(sourceRows, 'id_fonte');
     var reserveTarget = Number(config.essentialCostOfLife || 5000) * Number(config.reserveMonths || 3);
-    var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget, commitments);
+    var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget, commitments, scheduledIncomeLaunches);
+    var declaredIncomePeople = {};
+    scheduledIncomeLaunches.forEach(function(row) { declaredIncomePeople[stringValue_(row.pessoa)] = true; });
+    var attentionRecurringIncomes = recurringIncomes.filter(function(row) {
+      return !declaredIncomePeople[stringValue_(row.pessoa)];
+    });
     summary.pending_attention = BFFCore.buildPendingAttention({
       today: todaySaoPaulo_(),
       freshnessDays: config.balanceFreshnessDays,
@@ -399,7 +410,7 @@ function readCurrentPilotFamilySummaryInternal_(config, requestedCompetencia) {
       goals: goals,
       commitments: commitments,
       importRules: importRules,
-      recurringIncomes: recurringIncomes,
+      recurringIncomes: attentionRecurringIncomes,
     });
     if (summary.pending_attention.blocking) {
       summary.capacidade_aporte_segura = 0;
@@ -421,7 +432,7 @@ function readCurrentPilotFamilySummaryInternal_(config, requestedCompetencia) {
   }
 }
 
-function computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget, commitments) {
+function computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget, commitments, scheduledIncomeLaunches) {
   var dre = launches.reduce(function(summary, row) {
     var amount = numberFromSheetValue_(row.valor);
     if (row.afeta_dre !== true) return summary;
@@ -469,7 +480,12 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
   var recurringIncome = summarizePilotRecurringIncome_(recurringIncomes || []);
   var sourceBalanceSummary = summarizePilotSourceBalances_(sourceBalances || [], competencia, sourcesById || {});
   var benefitBalances = computePilotBenefitBalances_(launches, sourceBalances, recurringIncomes || [], sourcesById || {}, competencia);
-  var projectedCashFlow = computePilotProjectedCashFlow_(competencia, recurringIncomes || [], recurringIncome, dre, sourceBalanceSummary, currentInvoiceExposure.total, obligationExposure.cycle_total);
+  var projectedCashFlow = computePilotProjectedCashFlow_(competencia, recurringIncomes || [], recurringIncome, dre, sourceBalanceSummary, currentInvoiceExposure.total, obligationExposure.cycle_total, scheduledIncomeLaunches || []);
+  var effectiveIncome = Object.assign({}, recurringIncome, {
+    renda_caixa_planejada: projectedCashFlow.renda_mensal_confirmada > 0
+      ? projectedCashFlow.renda_mensal_confirmada
+      : recurringIncome.renda_caixa_planejada,
+  });
   var coverageBase = sourceBalanceSummary.saldos_fontes_count > 0
     ? roundMoney_(sourceBalanceSummary.saldos_fontes_disponivel + reservaTotal)
     : cash.sobra_caixa;
@@ -502,7 +518,7 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     launches: launches,
     categoriesById: categoriesById || {},
     dre: dre,
-    recurringIncome: recurringIncome,
+    recurringIncome: effectiveIncome,
     faturasAtuais: currentInvoiceExposure.total,
     obrigacoesCiclo: obligationExposure.cycle_total,
     reservaTotal: reservaTotal,
@@ -531,10 +547,12 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     patrimonio_liquido: roundMoney_(ativosTotal - dividasTotal),
     rendas_recorrentes_ativas: recurringIncome.rendas_recorrentes_ativas,
     rendas_recorrentes_planejadas: recurringIncome.rendas_recorrentes_planejadas,
-    renda_caixa_planejada: recurringIncome.renda_caixa_planejada,
+    renda_caixa_planejada: effectiveIncome.renda_caixa_planejada,
     beneficios_restritos_planejados: recurringIncome.beneficios_restritos_planejados,
     renda_prevista_data: projectedCashFlow.renda_prevista_data,
     renda_prevista_pendente: projectedCashFlow.renda_prevista_pendente,
+    renda_mensal_confirmada: projectedCashFlow.renda_mensal_confirmada,
+    renda_extra_confirmada: projectedCashFlow.renda_extra_confirmada,
     rendas_previstas_detalhe: projectedCashFlow.rendas_previstas_detalhe,
     rendas_previstas_bloqueadas: projectedCashFlow.rendas_previstas_bloqueadas,
     pagamentos_programados: projectedCashFlow.pagamentos_programados,
@@ -919,10 +937,15 @@ function summarizePilotRecurringIncome_(rows) {
   });
 }
 
-function computePilotProjectedCashFlow_(competencia, recurringRows, recurringIncome, dre, sourceBalanceSummary, currentInvoices, obligations) {
+function computePilotProjectedCashFlow_(competencia, recurringRows, recurringIncome, dre, sourceBalanceSummary, currentInvoices, obligations, scheduledIncomeLaunches) {
   var plannedCashIncome = numberFromSheetValue_(recurringIncome && recurringIncome.renda_caixa_planejada);
   var actualRevenue = numberFromSheetValue_(dre && dre.receitas_dre);
   var schedule = buildRecurringIncomeSchedule_(recurringRows || [], competencia);
+  var declaredPeople = {};
+  var declaredSchedule = buildDeclaredMonthlyIncomeSchedule_(scheduledIncomeLaunches || [], sourceBalanceSummary);
+  declaredSchedule.items.forEach(function(item) { declaredPeople[stringValue_(item.pessoa)] = true; });
+  schedule.items = schedule.items.filter(function(item) { return !declaredPeople[stringValue_(item.pessoa)]; });
+  schedule.blocked = schedule.blocked.filter(function(item) { return !declaredPeople[stringValue_(item.pessoa)]; });
   var remainingActual = actualRevenue;
   schedule.items.forEach(function(item) {
     var sameCompetencia = stringValue_(item.data_prevista).slice(0, 7) === normalizeSheetCompetencia_(competencia);
@@ -930,21 +953,61 @@ function computePilotProjectedCashFlow_(competencia, recurringRows, recurringInc
     item.valor_pendente = roundMoney_(item.valor_planejado - covered);
     if (sameCompetencia) remainingActual = roundMoney_(Math.max(0, remainingActual - covered));
   });
-  var pendingIncome = roundMoney_(schedule.items.reduce(function(sum, item) {
+  var recurringPendingIncome = roundMoney_(schedule.items.reduce(function(sum, item) {
     return sum + item.valor_pendente;
   }, 0));
-  if (!schedule.items.length && !schedule.blocked.length) pendingIncome = roundMoney_(Math.max(0, plannedCashIncome - actualRevenue));
-  var incomeDate = schedule.items.length ? schedule.items[0].data_prevista : nextSalaryBusinessDate_(todaySaoPaulo_());
+  if (!schedule.items.length && !schedule.blocked.length && !declaredSchedule.items.length) recurringPendingIncome = roundMoney_(Math.max(0, plannedCashIncome - actualRevenue));
+  var declaredPendingIncome = roundMoney_(declaredSchedule.items.reduce(function(sum, item) { return sum + item.valor_pendente; }, 0));
+  var pendingIncome = roundMoney_(recurringPendingIncome + declaredPendingIncome);
+  var allScheduleItems = declaredSchedule.items.concat(schedule.items).sort(function(left, right) {
+    return stringValue_(left.data_prevista).localeCompare(stringValue_(right.data_prevista));
+  });
+  var incomeDate = allScheduleItems.length ? allScheduleItems[0].data_prevista : nextSalaryBusinessDate_(todaySaoPaulo_());
   var scheduledPayments = roundMoney_(numberFromSheetValue_(currentInvoices) + numberFromSheetValue_(obligations));
   var availableCash = numberFromSheetValue_(sourceBalanceSummary && sourceBalanceSummary.saldos_fontes_disponivel);
   return {
     renda_prevista_data: incomeDate,
     renda_prevista_pendente: pendingIncome,
-    rendas_previstas_detalhe: schedule.items,
+    renda_mensal_confirmada: roundMoney_(declaredSchedule.items.reduce(function(sum, item) { return sum + item.valor_planejado; }, 0)),
+    renda_extra_confirmada: roundMoney_(declaredSchedule.items.reduce(function(sum, item) { return sum + (item.tipo_renda === 'extra' ? item.valor_planejado : 0); }, 0)),
+    rendas_previstas_detalhe: allScheduleItems,
     rendas_previstas_bloqueadas: schedule.blocked,
     pagamentos_programados: scheduledPayments,
     sobra_projetada_pos_pagamentos: roundMoney_(availableCash + pendingIncome - scheduledPayments),
   };
+}
+
+function buildDeclaredMonthlyIncomeSchedule_(rows, sourceBalanceSummary) {
+  var latestBalanceBySource = {};
+  ((sourceBalanceSummary && sourceBalanceSummary.saldos_fontes_detalhe) || []).forEach(function(item) {
+    latestBalanceBySource[stringValue_(item.id_fonte)] = item;
+  });
+  var items = (rows || []).map(function(row) {
+    var amount = numberFromSheetValue_(row.valor);
+    var scheduledDate = formatSheetDate_(row.data);
+    var balance = latestBalanceBySource[stringValue_(row.id_fonte)];
+    var reconciled = Boolean(balance && formatSheetDate_(balance.data_referencia) >= scheduledDate);
+    return {
+      id_renda: stringValue_(row.id_lancamento),
+      pessoa: stringValue_(row.pessoa),
+      descricao: stringValue_(row.descricao),
+      id_fonte: stringValue_(row.id_fonte),
+      tipo_renda: stringValue_(row.id_categoria) === MONTHLY_INCOME_CATEGORY_IDS.extra ? 'extra' : 'salary',
+      valor_planejado: amount,
+      valor_pendente: reconciled ? 0 : amount,
+      data_prevista: scheduledDate,
+      revisao_mensal: false,
+      reconciliado_por_saldo: reconciled,
+      confianca: 'alta',
+      faltando: [],
+    };
+  });
+  return { items: items, blocked: [] };
+}
+
+function isMonthlyIncomeCategoryId_(value) {
+  var id = stringValue_(value);
+  return id === MONTHLY_INCOME_CATEGORY_IDS.salary || id === MONTHLY_INCOME_CATEGORY_IDS.extra;
 }
 
 function buildOnboardingSetupResponse_(config) {
@@ -1100,6 +1163,7 @@ function summarizePilotSourceBalances_(rows, competencia, sourcesById) {
     summary.saldos_fontes_detalhe.push({
       id_fonte: row.id_fonte,
       nome: source ? source.nome : row.id_fonte,
+      data_referencia: formatSheetDate_(row.data_referencia),
       saldo_inicial: numberFromSheetValue_(row.saldo_inicial),
       saldo_final: numberFromSheetValue_(row.saldo_final),
       saldo_disponivel: numberFromSheetValue_(row.saldo_disponivel),
@@ -1506,6 +1570,7 @@ function buildCopilotInsights_(summary, limit) {
   }
 
   if (numberFromSheetValue_(facts.sobra_projetada_pos_pagamentos) < 0) {
+    var confirmedIncome = numberFromSheetValue_(facts.renda_mensal_confirmada);
     insights.push(copilotInsight_({
       id: 'INSIGHT_PROJECTED_CASHFLOW_NEGATIVE',
       pillar: 'cash_flow',
@@ -1513,15 +1578,46 @@ function buildCopilotInsights_(summary, limit) {
       confidence: numberFromSheetValue_(facts.saldos_fontes_count) > 0 ? 'high' : 'medium',
       privacy_level: 'shared',
       title: 'Caixa projetado no vermelho',
-      status: 'Mesmo após a renda registrada, os pagamentos deixam o caixa projetado negativo.',
+      status: confirmedIncome > 0
+        ? 'Mesmo considerando a renda do mês, os pagamentos deixam o caixa projetado negativo.'
+        : 'Os pagamentos deixam o caixa projetado negativo e ainda não há renda mensal confirmada.',
       evidence: [
         { label: 'Sobra projetada', value: roundMoney_(facts.sobra_projetada_pos_pagamentos) },
+        { label: 'Renda do mês considerada', value: roundMoney_(facts.renda_mensal_confirmada || facts.renda_prevista_pendente) },
         { label: 'Faturas atuais', value: roundMoney_(facts.faturas_atuais) },
         { label: 'Compromissos do ciclo', value: roundMoney_(facts.obrigacoes_ciclo) }
       ],
       recommendation: 'Separe primeiro o valor dos pagamentos registrados e revise o que pode ser adiado.',
       avoid: 'Evite compra nova ou parcelamento enquanto a projeção continuar negativa.',
       action_key: 'safe_to_spend',
+    }));
+  }
+
+  var extraIncome = numberFromSheetValue_(facts.renda_extra_confirmada);
+  if (extraIncome > 0) {
+    var extraNeedsProtection = numberFromSheetValue_(facts.sobra_projetada_pos_pagamentos) < 0 || numberFromSheetValue_(facts.destino_obrigacoes) > 0;
+    var extraNeedsReserve = !extraNeedsProtection && numberFromSheetValue_(facts.destino_reserva) > 0;
+    insights.push(copilotInsight_({
+      id: 'INSIGHT_EXTRA_INCOME_DESTINATION',
+      pillar: 'cash_flow',
+      severity: extraNeedsProtection || extraNeedsReserve ? 'warning' : 'positive',
+      confidence: 'high',
+      privacy_level: 'aggregate_only',
+      title: 'Renda extra com destino claro',
+      status: 'A renda extra foi separada do salário para orientar a próxima decisão sem misturar as duas entradas.',
+      evidence: [
+        { label: 'Renda extra do mês', value: roundMoney_(extraIncome) },
+        { label: 'Sobra após pagamentos', value: roundMoney_(facts.sobra_projetada_pos_pagamentos) }
+      ],
+      recommendation: extraNeedsProtection
+        ? 'Use a renda extra primeiro para proteger faturas e compromissos já registrados.'
+        : (extraNeedsReserve
+          ? 'Direcione a renda extra para reforçar a reserva antes de avaliar investimento novo.'
+          : 'Com pagamentos e reserva protegidos, avalie investir a renda extra sem comprometer a liquidez.'),
+      avoid: extraNeedsProtection
+        ? 'Não trate a renda extra como valor livre enquanto a projeção estiver negativa.'
+        : 'Não comprometa todo o valor sem conferir agenda, parcelas e liquidez.',
+      action_key: extraNeedsProtection ? 'safe_to_spend' : 'reserve_first',
     }));
   }
 
@@ -1991,15 +2087,24 @@ function buildPilotCashPositionLines_(summary) {
 
 function buildPilotProjectedFlowLines_(summary) {
   var currentInvoices = numberFromSheetValue_(summary.faturas_atuais);
-  return [
+  var lines = [
     '',
     '🔭 Fluxo projetado',
-    '• Renda prevista ' + formatShortDate_(summary.renda_prevista_data) + ': ' + formatMoney_(summary.renda_prevista_pendente),
+  ];
+  if (numberFromSheetValue_(summary.renda_mensal_confirmada) > 0) {
+    lines.push('• Renda do mês confirmada: ' + formatMoney_(summary.renda_mensal_confirmada));
+    lines.push(numberFromSheetValue_(summary.renda_prevista_pendente) > 0
+      ? '• Ainda a entrar ' + formatShortDate_(summary.renda_prevista_data) + ': ' + formatMoney_(summary.renda_prevista_pendente)
+      : '• Renda já conciliada com o saldo da conta');
+  } else {
+    lines.push('• Renda prevista ' + formatShortDate_(summary.renda_prevista_data) + ': ' + formatMoney_(summary.renda_prevista_pendente));
+  }
+  return lines.concat([
     '• Faturas atuais: ' + formatMoney_(currentInvoices),
     '• Compromissos do ciclo: ' + formatMoney_(summary.obrigacoes_ciclo),
     '• Pagamentos programados: ' + formatMoney_(summary.pagamentos_programados),
     '• Sobra projetada: ' + formatMoney_(summary.sobra_projetada_pos_pagamentos),
-  ];
+  ]);
 }
 
 function buildPilotCurrentInvoiceLines_(summary) {

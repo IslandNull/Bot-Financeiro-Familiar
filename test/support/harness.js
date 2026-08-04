@@ -250,7 +250,7 @@ function postPilotMessage(context, text, options = {}) {
                 update_id: updateId,
                 message: {
                     message_id: messageId,
-                    chat: { id: chatId },
+                    chat: { id: chatId, type: options.chatType || 'private' },
                     from: { id: userId },
                     text,
                 },

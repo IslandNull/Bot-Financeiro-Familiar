@@ -31,6 +31,8 @@ For the current redacted state of the real spreadsheet, use `docs/SPREADSHEET_SN
 
 `id_lancamento | data | competencia | tipo_evento | id_categoria | valor | id_fonte | pessoa | escopo | id_cartao | id_fatura | id_divida | id_ativo | afeta_dre | afeta_patrimonio | afeta_caixa_familiar | visibilidade | status | descricao | parcelas | created_at`
 
+Monthly salary/extra-income declarations use deterministic `receita` rows with `status=agendado`, personal scope/privacy and categories `REC_SALARIO_LIQUIDO` or `REC_RENDA_EXTRA`. They are projection evidence, not actual DRE/cash. A latest destination-account balance with `data_referencia >= data` reconciles the scheduled amount and prevents double counting without a second receipt message.
+
 ### Transferencias_Internas
 
 `id_transferencia | data | competencia | valor | fonte_origem | fonte_destino | pessoa_origem | pessoa_destino | escopo | direcao_caixa_familiar | descricao | created_at`

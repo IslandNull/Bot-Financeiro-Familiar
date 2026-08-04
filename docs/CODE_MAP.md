@@ -23,8 +23,9 @@ OpenAI Responses API
 |---|---|
 | `apps-script/Code.js` | Public entrypoints, constants, protected remote actions, schema migration/audit, digest delivery and trigger wrappers. |
 | `apps-script/infra.js` | Script Properties, authorization, webhook/request parsing, short-lived static-reference cache, bounded OpenAI retry and timing instrumentation. |
+| `apps-script/income.js` | Declaração natural mensal de salário/renda extra, categorias canônicas privadas, agendamento idempotente e resposta sem segunda confirmação. |
 | `apps-script/parser.js` | Telegram routing, per-user expiring context, guided onboarding, risk/duplicate confirmations and strict OpenAI event/correction boundary. |
-| `apps-script/reporting.js` | Read-only summaries and Telegram decision cards, deterministic insights, recurring-income projections, freshness blockers, alert/digest payloads and explicit optional narration. |
+| `apps-script/reporting.js` | Read-only summaries and Telegram decision cards, deterministic insights, monthly/recurring-income projections, balance reconciliation, freshness blockers, alert/digest payloads and explicit optional narration. |
 | `apps-script/mutation.js` | `MutationPlan` runtime adapter, journal reconciliation, batched upserts/deletes, correction flow, balances/assets and other writes. |
 | `apps-script/import.js` | OFX/CSV Telegram lifecycle: validation, origin choice, re-download/hash, preview, rule suggestion/confirmation and batch MutationPlan. |
 | `apps-script/telegram-ui.js` | Telegram message design system: compact home/secondary menus, guided views, contextual inline keyboards, confirmation states and navigation actions. |
@@ -85,6 +86,6 @@ Optional V56 sheets are `Metas_Financeiras`, `Compromissos_Recorrentes` and `Reg
 
 Read-only: `/copiloto`, `/onde_cortar`, `/gasto_seguro`, `/resumo`, `/agenda`, `/revisar_mes`, `/orcamento`, `/metas`, `/compromissos`, `/pendencias`, `/importar`, `/pendencias_importacao`, `/configurar`, `/limpar_contexto`.
 
-Mutating after validation/confirmation: natural financial events, guided setup, balance/asset updates, correction flow and confirmed safe import batches. Invoice payments, internal transfers and recent semantic duplicates always receive an explicit preview before mutation.
+Mutating after validation/confirmation: natural financial events, guided setup, balance/asset updates, correction flow and confirmed safe import batches. A future-dated monthly income declaration with explicit amount, date and account is final on send and needs no receipt confirmation; invoice payments, internal transfers and recent semantic duplicates still receive an explicit preview before mutation.
 
 Messages use a consistent hierarchy: concise title, situational evidence, one priority, one guardrail and contextual actions. Dynamic text is escaped at the edge before Telegram HTML formatting; private line-item rules remain unchanged.

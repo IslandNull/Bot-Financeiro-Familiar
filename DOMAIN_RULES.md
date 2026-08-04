@@ -43,7 +43,10 @@ Every event answers:
 - Reviewed reimbursable advances and their reimbursements are cash movements with `afeta_dre=false`; only the non-reimbursed family portion is an expense.
 - Generic multi-purpose merchants such as marketplaces do not receive automatic import rules from the merchant name alone. Product context or explicit review is required.
 - Card due dates use the configured nominal day and advance to the next Brazilian banking business day for weekends and national banking holidays; an authoritative invoice date always prevails.
-- Recurring income uses its configured receipt day and business-day rule. A scheduled receipt is projected only for its applicable month; a passed occurrence moves to the next month instead of remaining available cash.
+- Recurring-income templates use their configured receipt day and business-day rule; a passed unconfirmed template occurrence moves to the next month.
+- An explicit monthly income declaration with amount, date and destination account is authoritative for that competence and requires no later “received” confirmation. It is stored as private `receita` launches with `status=agendado`, deterministic IDs by person/competence/kind and does not enter actual DRE or cash before reconciliation.
+- A monthly declaration supersedes recurring-income templates for the same person and competence. It remains in projected cash even after its date until an account-balance snapshot dated on or after the scheduled date absorbs it; from that snapshot onward it is not added again.
+- Salary is one net monthly amount. Payroll rubrics, employer bank, portability and unrestricted transport/fuel components are not split into separate income events. A genuinely separate extra income is stored separately so deterministic guidance can prioritize obligations, reserve and only then investment.
 - Variable recurring income requires monthly review for the projected competence. Without that review it is evidence missing, not confident future cash.
 - Internal movement is not revenue, not expense, and not debt.
 - Internal movement must name explicit source and destination in the planned sheet row.
@@ -52,7 +55,7 @@ Every event answers:
 - Emergency reserve counts only assets explicitly flagged with `conta_reserva_emergencia=true`.
 - Immediate obligations have priority over reserve-building advice when cash surplus cannot cover invoices plus debt obligations.
 - Amortization advice is blocked unless debt parameters are complete enough for a reviewed rule.
-- Scheduled or pending launches must use `status`; only `efetivado` launches are treated as already applied cash movement by the current Telegram path.
+- Scheduled or pending launches must use `status`; only `efetivado` launches are treated as already applied DRE/cash movement. Authoritative monthly income with `status=agendado` affects projection only until balance reconciliation.
 - Closed monthly records are not changed silently; use `ajuste`.
 - Financial writes are deterministic `MutationPlan` upserts. Missing IDs are inserted, identical rows are ignored, and divergent rows with the same ID fail with `MUTATION_CONFLICT`.
 - Corrections validate and persist the replacement before physically deleting the original and its dependent invoice lines. Closed periods remain blocked.

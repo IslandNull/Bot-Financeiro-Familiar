@@ -116,6 +116,15 @@ function handleTelegramUpdate_(update, config) {
   var referenceData = readRuntimeReferenceData_(config);
   if (!referenceData.ok) return referenceData;
 
+  var monthlyIncomeDeclaration = parseMonthlyIncomeDeclaration_(text, referenceData);
+  if (monthlyIncomeDeclaration) {
+    if (!monthlyIncomeDeclaration.ok) {
+      return finishConversationTurn_(chatId, text, monthlyIncomeDeclaration, conversation, null);
+    }
+    var monthlyIncomeResult = recordMonthlyIncomeDeclaration_(update, message, monthlyIncomeDeclaration, config, referenceData);
+    return finishConversationTurn_(chatId, text, telegramResponseWithActions_(monthlyIncomeResult, 'summary'), conversation, null);
+  }
+
   if (isSafeFinanceQuestion_(text) && !safeFinanceQuestionNeedsContextResolution_(text)) {
     return finishConversationTurn_(chatId, text, telegramResponseWithActions_(buildSafeFinanceQuestionResponse_(text, config, deterministicReadEvent_(text, referenceData)), 'summary'), conversation, null);
   }
