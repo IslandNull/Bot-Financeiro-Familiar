@@ -7071,6 +7071,24 @@ test('Apps Script monthly income retry is idempotent and a new declaration updat
     assert.deepStrictEqual(values, [850, 3600]);
 });
 
+test('Apps Script MutationPlan treats a Sheets-coerced competencia date as the same month', () => {
+    const { context } = createAppsScriptHarness(null, { failOnFetch: true });
+    const planned = {
+        id_lancamento: 'LANR_SALARY',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        tipo_evento: 'receita',
+        valor: 3442.43,
+    };
+    const readBackFromSheets = {
+        ...planned,
+        data: new Date('2026-04-30T12:00:00Z'),
+        competencia: new Date('2026-04-01T12:00:00Z'),
+    };
+
+    assert.strictEqual(context.runtimeMutationRowsEqual_('Lancamentos', readBackFromSheets, planned), true);
+});
+
 test('Apps Script monthly income recovers after every write boundary without duplicates', () => {
     [1, 2].forEach((boundary) => {
         const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });

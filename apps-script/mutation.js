@@ -318,12 +318,13 @@ function runtimeMutationRowsEqual_(sheetName, left, right) {
   var headers = runtimeMutationHeaders_(sheetName);
   for (var i = 0; i < headers.length; i += 1) {
     var header = headers[i];
-    if (runtimeMutationCell_(left[header]) !== runtimeMutationCell_(right[header])) return false;
+    if (runtimeMutationCell_(left[header], header) !== runtimeMutationCell_(right[header], header)) return false;
   }
   return true;
 }
 
-function runtimeMutationCell_(value) {
+function runtimeMutationCell_(value, header) {
+  if (header === 'competencia') return normalizeSheetCompetencia_(value);
   if (Object.prototype.toString.call(value) === '[object Date]') return formatSheetDate_(value);
   if (value === true || value === false) return String(value);
   if (typeof value === 'number') return String(roundMoney_(value));
