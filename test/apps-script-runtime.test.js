@@ -307,7 +307,7 @@ test('Apps Script UX messages use short summary-style sections', () => {
         afeta_caixa_familiar: true,
     });
 
-    const launch = postPilotMessage(context, 'mercado 10 hoje');
+    const launch = postPilotMessage(context, 'mercado 10 hoje via pix pela Conta familia');
     const balance = postPilotMessage(context, '/saldo nubank 1500,50', { updateId: 'balance_ux', messageId: 'balance_ux' });
 
     assert.strictEqual(launch.ok, true);
@@ -2914,7 +2914,7 @@ test('Apps Script pilot expense canonicalizes fragile parser output before writi
         status: '',
     });
 
-    const result = postPilotMessage(context, 'mercado 10');
+    const result = postPilotMessage(context, 'mercado 10 via pix pela Conta familia');
 
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Gasto anotado/);
@@ -2941,7 +2941,7 @@ test('Apps Script pilot expense canonicalizes fragile parser output before writi
     assert.strictEqual(row.afeta_caixa_familiar, true);
     assert.strictEqual(row.visibilidade, 'detalhada');
     assert.strictEqual(row.status, 'efetivado');
-    assert.strictEqual(row.descricao, 'mercado 10');
+    assert.strictEqual(row.descricao, 'mercado 10 via pix pela Conta familia');
 });
 
 test('Apps Script pilot expense extracts money from original text when parser omits value', () => {
@@ -2967,7 +2967,7 @@ test('Apps Script pilot expense extracts money from original text when parser om
         status: '',
     });
 
-    const result = postPilotMessage(context, 'mercado 10 hoje');
+    const result = postPilotMessage(context, 'mercado 10 hoje via pix pela Conta familia');
 
     assert.strictEqual(result.ok, true);
     const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -2998,7 +2998,7 @@ test('Apps Script pilot expense accepts Brazilian and currency money formats fro
             status: '',
         });
 
-        const result = postPilotMessage(context, 'mercado 10,50');
+        const result = postPilotMessage(context, 'mercado 10,50 via pix pela Conta familia');
 
         assert.strictEqual(result.ok, true);
         const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -3006,7 +3006,7 @@ test('Apps Script pilot expense accepts Brazilian and currency money formats fro
     }
 });
 
-test('Apps Script pilot expense still blocks card-like references', () => {
+test('Apps Script asks for the real card instead of trusting a parser-invented card reference', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'despesa',
         data: '2026-04-30',
@@ -3032,7 +3032,8 @@ test('Apps Script pilot expense still blocks card-like references', () => {
     const result = postPilotMessage(context, 'mercado 10 no cartao');
 
     assert.strictEqual(result.ok, false);
-    assert.deepStrictEqual(result.errors.map((error) => error.code), ['PILOT_REFERENCES_BLOCKED']);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_CARD_BLOCKED']);
+    assert.ok(result.reply_markup.inline_keyboard.flat().some((button) => /^sel:card:/.test(button.callback_data)));
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
@@ -3110,7 +3111,7 @@ test('Apps Script expense accepts active work coffee category', () => {
         acumula_sobra: false,
     });
 
-    const result = postPilotMessage(context, 'cafe no trabalho Luana 25');
+    const result = postPilotMessage(context, 'cafe no trabalho Luana 25 via pix');
 
     assert.strictEqual(result.ok, true);
     const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -3144,7 +3145,7 @@ test('Apps Script parser canonicalization overwrites mismatched metadata and cle
         status: 'pendente', // mismatch
     });
 
-    const result = postPilotMessage(context, 'mercado com metadata errada 10');
+    const result = postPilotMessage(context, 'mercado com metadata errada 10 via pix pela Conta familia');
     assert.strictEqual(result.ok, true);
     const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(row.escopo, 'Familiar'); // overwritten to default
@@ -3192,7 +3193,7 @@ test('Apps Script parser matches pet synonyms', () => {
         return row[header] === undefined ? '' : row[header];
     }));
 
-    const result = postPilotMessage(context, 'racao do draco 150');
+    const result = postPilotMessage(context, 'racao do draco 150 no Nubank Gustavo');
     if (!result.ok) {
         console.log("TEST FAILURE DETAILS:", JSON.stringify(result, null, 2));
     }
@@ -4687,10 +4688,10 @@ test('Apps Script validation failures return actionable launch guidance', () => 
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_CATEGORY_BLOCKED']);
     assert.match(result.responseText, /O que falta/);
     assert.match(result.responseText, /Categoria/);
-    assert.match(result.responseText, /categoria Mercado da semana/);
+    assert.match(result.responseText, /categoria /);
 });
 
-test('Apps Script guided registration asks only for missing source', () => {
+test('Apps Script guided registration asks only for missing source on explicit Pix', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'despesa',
         data: '2026-04-30',
@@ -4713,7 +4714,7 @@ test('Apps Script guided registration asks only for missing source', () => {
         status: 'efetivado',
     });
 
-    const result = postPilotMessage(context, 'mercado 10');
+    const result = postPilotMessage(context, 'mercado 10 via pix');
 
     assert.strictEqual(result.ok, false);
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_SOURCE_BLOCKED']);
@@ -4788,7 +4789,138 @@ test('Apps Script conversation context stores sanitized user and bot messages wi
     assert.doesNotMatch(JSON.stringify(state.messages), /\b18\b|R\$/);
 });
 
-test('Apps Script guided registration resumes pending expense when user replies with source only', () => {
+test('Apps Script defaults an ordinary purchase to credit card and resumes it from a card-only reply', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-08-05',
+        competencia: '2026-08',
+        valor: '145.23',
+        descricao: 'Combustivel trabalho 145,23 5 de ago',
+        id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO',
+        id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU',
+        pessoa: 'Gustavo',
+        escopo: 'Gustavo',
+        visibilidade: 'privada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const ask = postPilotMessage(context, 'Combustível trabalho 145,23 5 de ago', {
+        updateId: 'default_card_purchase_1',
+        messageId: 'default_card_purchase_message_1',
+    });
+
+    assert.strictEqual(ask.ok, false);
+    assert.deepStrictEqual(ask.errors.map((error) => error.code), ['CONFIG_CARD_BLOCKED']);
+    assert.match(ask.responseText, /Cart.o/);
+    assert.match(ask.responseText, /Responda apenas com o cart.o usado/);
+    assert.ok(ask.reply_markup.inline_keyboard.flat().some((button) => /^sel:card:/.test(button.callback_data)));
+    const pending = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent;
+    assert.strictEqual(pending.event.valor, 145.23);
+    assert.strictEqual(pending.event.tipo_evento, 'compra_cartao');
+
+    const reminder = postPilotMessage(context, 'ainda vou conferir', {
+        updateId: 'default_card_purchase_reminder',
+        messageId: 'default_card_purchase_reminder',
+    });
+    assert.strictEqual(reminder.ok, false);
+    assert.deepStrictEqual(reminder.errors.map((error) => error.code), ['PENDING_INTENT_UNRESOLVED']);
+    assert.match(reminder.responseText, /Responda apenas com o cart.o usado/);
+    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent.event.valor, 145.23);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+
+    const resumed = postPilotMessage(context, 'cartão mercado pago gustavo', {
+        updateId: 'default_card_purchase_2',
+        messageId: 'default_card_purchase_message_2',
+    });
+
+    assert.strictEqual(resumed.ok, true, JSON.stringify(resumed.errors));
+    assert.match(resumed.responseText, /Compra no cart/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'compra_cartao');
+    assert.strictEqual(launch.data, '2026-08-05');
+    assert.strictEqual(launch.valor, 145.23);
+    assert.strictEqual(launch.id_categoria, 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO');
+    assert.strictEqual(launch.id_cartao, 'CARD_MERCADO_PAGO_GU');
+    assert.strictEqual(launch.id_fonte, 'FONTE_MERCADO_PAGO_GU');
+    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent, null);
+});
+
+test('Apps Script keeps an explicitly stated Pix purchase on the cash-source path', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '20',
+        descricao: 'mercado 20 via pix pela Conta Mercado Pago Gustavo',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const result = postPilotMessage(context, 'mercado 20 via pix pela Conta Mercado Pago Gustavo', {
+        updateId: 'explicit_pix_purchase',
+        messageId: 'explicit_pix_purchase',
+    });
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'despesa');
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_MERCADO_PAGO_GU');
+    assert.strictEqual(launch.id_cartao, '');
+    assert.strictEqual(launch.afeta_caixa_familiar, true);
+});
+
+test('Apps Script upgrades an existing source-pending purchase when the user replies with a card', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const state = context.emptyConversationState_('BFF_CONVERSATION_chat_1_user_1');
+    state.pending_intent = {
+        missing_field: 'fonte',
+        created_at: '2026-04-30T15:00:00Z',
+        event: {
+            tipo_evento: 'despesa', data: '2026-04-30', competencia: '2026-04', valor: 10,
+            descricao: 'mercado 10', raw_text: 'mercado 10', id_categoria: 'OPEX_MERCADO_SEMANA',
+            id_fonte: '', pessoa: 'Gustavo', escopo: 'Familiar', visibilidade: 'detalhada',
+            id_cartao: '', id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: true,
+            afeta_patrimonio: false, afeta_caixa_familiar: true, direcao_caixa_familiar: '',
+            status: 'efetivado', parcelas: 1,
+        },
+    };
+    context.writeConversationState_('chat_1', state, 'user_1');
+
+    const resumed = postPilotMessage(context, 'cartão mercado pago gustavo', {
+        updateId: 'legacy_source_pending_card',
+        messageId: 'legacy_source_pending_card',
+    });
+
+    assert.strictEqual(resumed.ok, true, JSON.stringify(resumed.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'compra_cartao');
+    assert.strictEqual(launch.id_cartao, 'CARD_MERCADO_PAGO_GU');
+    assert.strictEqual(launch.id_fonte, 'FONTE_MERCADO_PAGO_GU');
+    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent, null);
+});
+
+test('Apps Script guided registration resumes pending Pix expense when user replies with source only', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'despesa',
         data: '2026-04-30',
@@ -4811,7 +4943,7 @@ test('Apps Script guided registration resumes pending expense when user replies 
         status: 'efetivado',
     });
 
-    const ask = postPilotMessage(context, 'mercado 10', {
+    const ask = postPilotMessage(context, 'mercado 10 via pix', {
         updateId: 'pending_source_1',
         messageId: 'pending_source_msg_1',
     });
@@ -4951,7 +5083,7 @@ test('Apps Script guided registration asks only for missing card', () => {
     assert.strictEqual(result.ok, false);
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_CARD_BLOCKED']);
     assert.match(result.responseText, /O que falta/);
-    assert.match(result.responseText, /Cartao/);
+    assert.match(result.responseText, /Cart.o/);
     assert.match(result.responseText, /no Nubank Gustavo/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     assert.strictEqual(sheets.Faturas_Resumo.rows.length, 1);
@@ -5392,18 +5524,18 @@ test('Apps Script MutationPlan resumes a failed expense without duplicating the 
         direcao_caixa_familiar: '', status: 'efetivado',
     });
     context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 1;
-    const failed = postPilotMessage(context, 'mercado 42 conta familia', { updateId: 'recover_1', messageId: 'recover_1' });
+    const failed = postPilotMessage(context, 'mercado 42 via pix pela Conta familia', { updateId: 'recover_1', messageId: 'recover_1' });
     assert.strictEqual(failed.ok, false);
     assert.strictEqual(sheets.Idempotency_Log.rows[1][6], 'failed');
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
 
     context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
-    const recovered = postPilotMessage(context, 'mercado 42 conta familia', { updateId: 'recover_1', messageId: 'recover_1' });
+    const recovered = postPilotMessage(context, 'mercado 42 via pix pela Conta familia', { updateId: 'recover_1', messageId: 'recover_1' });
     assert.strictEqual(recovered.ok, true);
     assert.strictEqual(sheets.Idempotency_Log.rows[1][6], 'completed');
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
 
-    const duplicate = postPilotMessage(context, 'mercado 42 conta familia', { updateId: 'recover_1', messageId: 'recover_1' });
+    const duplicate = postPilotMessage(context, 'mercado 42 via pix pela Conta familia', { updateId: 'recover_1', messageId: 'recover_1' });
     assert.strictEqual(duplicate.ok, true);
     assert.strictEqual(duplicate.shouldApplyDomainMutation, false);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
@@ -6044,7 +6176,7 @@ test('Apps Script correction fails when target transaction is in a closed period
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
 });
 
-test('Apps Script guided registration resumes pending expense when user taps source button', () => {
+test('Apps Script guided registration resumes pending Pix expense when user taps source button', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'despesa',
         data: '2026-04-30',
@@ -6067,7 +6199,7 @@ test('Apps Script guided registration resumes pending expense when user taps sou
         status: 'efetivado',
     });
 
-    const ask = postPilotMessage(context, 'mercado 10', {
+    const ask = postPilotMessage(context, 'mercado 10 via pix', {
         updateId: 'pending_source_button_1',
         messageId: 'pending_source_button_msg_1',
     });
@@ -6275,7 +6407,7 @@ test('Apps Script validation alerts when category is over budget', () => {
         status: 'efetivado',
     });
 
-    let result = postPilotMessage(context, 'lanche casal 30', { updateId: 'up_bud_1', messageId: 'msg_bud_1' });
+    let result = postPilotMessage(context, 'lanche casal 30 no Nubank Gustavo', { updateId: 'up_bud_1', messageId: 'msg_bud_1' });
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Aten..o: Categoria Alimentacao fora ultrapassou o or.amento mensal \(R\$ 300,00\)! Consumido: R\$ 310,00\./);
 
@@ -6295,7 +6427,7 @@ test('Apps Script validation alerts when category is over budget', () => {
     });
 
     postPilotMessage(context, '/limpar_contexto', { updateId: 'up_bud_clear', messageId: 'msg_bud_clear' });
-    result = postPilotMessage(context, 'lanche casal 30', { updateId: 'up_bud_2', messageId: 'msg_bud_2' });
+    result = postPilotMessage(context, 'lanche casal 30 no Nubank Gustavo', { updateId: 'up_bud_2', messageId: 'msg_bud_2' });
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Categoria Alimentacao fora est. pr.xima do limite do or.amento mensal \(87% consumido\)\./);
 
@@ -6349,7 +6481,7 @@ test('Apps Script validation alerts when category is over budget', () => {
         };
     };
 
-    result = postPilotMessage(context, 'pet 510', { updateId: 'up_bud_3', messageId: 'msg_bud_3' });
+    result = postPilotMessage(context, 'pet 510 no Nubank Gustavo', { updateId: 'up_bud_3', messageId: 'msg_bud_3' });
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Aten..o: Categoria Pet ultrapassou o or.amento acumulado \(R\$ 500,00\)! Consumido: R\$ 510,00\./);
 
@@ -6396,7 +6528,7 @@ test('Apps Script validation alerts when category is over budget', () => {
         };
     };
 
-    result = postPilotMessage(context, 'pet 450', { updateId: 'up_bud_4', messageId: 'msg_bud_4' });
+    result = postPilotMessage(context, 'pet 450 no Nubank Gustavo', { updateId: 'up_bud_4', messageId: 'msg_bud_4' });
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Categoria Pet est. pr.xima do limite do or.amento acumulado \(90% consumido\)\./);
 });

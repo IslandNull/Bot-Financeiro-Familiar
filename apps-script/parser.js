@@ -130,6 +130,18 @@ function handleTelegramUpdate_(update, config) {
     var resumedResult = applyParsedFinancialEvent_(update, message, resumed.event, config, referenceData);
     return finishWithPendingIntent_(chatId, text, resumedResult, conversation, resumed.event, referenceData, resumedResult.ok ? null : undefined);
   }
+  if (conversation.pending_intent) {
+    if (isPendingIntentCancellationText_(text)) {
+      return finishConversationTurn_(chatId, text, {
+        ok: true,
+        responseText: 'Tudo bem, descartei a compra pendente.',
+        shouldApplyDomainMutation: false,
+      }, conversation, null);
+    }
+    var retainedPendingIntent = withPendingIntentOptions_(conversation.pending_intent, referenceData);
+    var pendingReminder = pendingIntentReminderResponse_(retainedPendingIntent, referenceData);
+    return finishConversationTurn_(chatId, text, pendingReminder, conversation, retainedPendingIntent);
+  }
 
   if (config.copilotAnalystEnabled) {
     var analystResult = handleConversationalFinancialAnalyst_(text, config, referenceData, conversation, message);
@@ -678,7 +690,7 @@ function handleTelegramFlowCallback_(update, config, state, data, chatId, messag
   }
 
   var labels = {
-    'flow:expense': ['🛒 Nova despesa', 'Escreva valor, data e conta.\nExemplo: mercado 42 hoje no Nubank'],
+    'flow:expense': ['🛒 Nova compra', 'Escreva valor e data. Se não citar o cartão, eu pergunto qual foi usado.\nExemplo: mercado 42 hoje'],
     'flow:card_purchase': ['💳 Compra no cartão', 'Escreva compra, valor, parcelas e cartão.\nExemplo: notebook 3000 em 3x no Nubank'],
     'flow:invoice_payment': ['🧾 Pagamento de fatura', 'Escreva cartão, valor e conta pagadora.\nExemplo: paguei fatura Nubank 300 pelo Mercado Pago'],
     'flow:transfer': ['🔄 Transferência', 'Escreva origem, destino e valor.\nExemplo: transferi 500 do Nubank para Mercado Pago'],
@@ -1807,6 +1819,14 @@ function resumePendingConversationIntent_(pendingIntent, text, referenceData) {
   var event = cloneEventForConversation_(pendingIntent.event);
   var field = pendingIntent.missing_field;
   if (field === 'fonte') {
+    var pendingCard = inferActiveCardFromText_(text, referenceData);
+    if (pendingCard &&
+        (event.tipo_evento === 'despesa' || event.tipo_evento === 'compra_cartao') &&
+        !isExplicitCashPurchaseText_(event.raw_text || event.descricao)) {
+      event = convertSpendingEventToCardPurchase_(event, pendingCard, referenceData);
+      event.raw_text = [event.raw_text || event.descricao, 'no', pendingCard.nome].join(' ');
+      return { ok: true, event: event };
+    }
     var source = findSourceByAlias_(text, referenceData.sources);
     if (!source || source.tipo === 'cartao_credito') return { ok: false };
     event.id_fonte = source.id_fonte;
@@ -1828,6 +1848,26 @@ function resumePendingConversationIntent_(pendingIntent, text, referenceData) {
     return { ok: true, event: event };
   }
   return { ok: false };
+}
+
+function isPendingIntentCancellationText_(text) {
+  var normalized = normalizeAliasText_(text);
+  return normalized === 'cancelar' || normalized === 'cancela' || normalized === 'cancelar compra' ||
+    normalized === 'esquece' || normalized === 'deixa pra la' || normalized === 'deixa para la';
+}
+
+function pendingIntentReminderResponse_(pendingIntent, referenceData) {
+  var event = pendingIntent && pendingIntent.event ? pendingIntent.event : {};
+  var field = stringValue_(pendingIntent && pendingIntent.missing_field);
+  var result = {
+    ok: false,
+    responseText: guidedMissingFieldText_(field, event, referenceData, event.tipo_evento),
+    shouldApplyDomainMutation: false,
+    errors: [{ code: 'PENDING_INTENT_UNRESOLVED', field: field, message: 'Pending financial intent still needs ' + field + '.' }],
+  };
+  var markup = replyMarkupForPendingIntent_(pendingIntent);
+  if (markup) result.reply_markup = markup;
+  return result;
 }
 
 function isStartCommand_(text) {
@@ -2470,7 +2510,9 @@ function parseFinancialCorrectionWithOpenAI_(text, config, referenceData, conver
     if (replacement.tipo_evento === 'correcao_transacao' || replacement.tipo_evento === 'leitura') {
       return fail_('INVALID_CORRECTION_REPLACEMENT', 'tipo_evento', GENERIC_RECORD_FAILURE);
     }
-    var normalizedReplacement = normalizeParsedEvent_(replacement, replacement.descricao || text, referenceData);
+    var normalizedReplacement = normalizeParsedEvent_(replacement, replacement.descricao || text, referenceData, {
+      skipDefaultCreditCardPolicy: true,
+    });
     if (!normalizedReplacement.ok) return normalizedReplacement;
     var targetValue = output.target_valor ? Number(output.target_valor) : 0;
     var targetDate = stringValue_(output.target_data);
@@ -2633,7 +2675,7 @@ function buildParserPrompt_(text, referenceData, conversation) {
     formatDebtDictionaryPrompt_(referenceData),
     '',
     '# PILOT CANONICAL EXAMPLES',
-    'Input: "mercado 10" -> valor "10", tipo_evento "despesa", id_categoria "' + stringValue_(expenseCategory.id_categoria) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", escopo "' + stringValue_(expenseCategory.escopo_padrao || 'Familiar') + '".',
+    'Input: "mercado 10" -> valor "10", tipo_evento "compra_cartao", id_categoria "' + stringValue_(expenseCategory.id_categoria) + '", id_cartao "", id_fonte "", escopo "' + stringValue_(expenseCategory.escopo_padrao || 'Familiar') + '". The runtime will ask only which card was used.',
     'Input: "mercado 10 hoje" -> same event with data ' + todaySaoPaulo_() + ' and competencia ' + todaySaoPaulo_().slice(0, 7) + '.',
     'Input: "farmacia 10 no nubank" -> valor "10", tipo_evento "compra_cartao", id_categoria "' + stringValue_(cardCategory.id_categoria) + '", id_cartao "' + stringValue_(card.id_cartao) + '", id_fonte "' + stringValue_(card.id_fonte) + '", escopo "' + stringValue_(cardCategory.escopo_padrao || 'Familiar') + '", parcelas "1".',
     'Input: "notebook 3000 em 3x no nubank" -> valor "3000", tipo_evento "compra_cartao", id_categoria "' + stringValue_(electronicsCategory.id_categoria) + '", id_cartao "' + stringValue_(card.id_cartao) + '", id_fonte "' + stringValue_(card.id_fonte) + '", escopo "' + stringValue_(electronicsCategory.escopo_padrao || 'Familiar') + '", parcelas "3".',
@@ -2650,7 +2692,8 @@ function buildParserPrompt_(text, referenceData, conversation) {
     'Input: "saldo da conta do mercado pago" -> tipo_evento "leitura", descricao "saldo da conta do mercado pago?", id_fonte "mercado_pago_gustavo" (or matching source ID).',
     'With context "comprei notebook no nubank" -> Input: "qual o valor dessa fatura?" -> tipo_evento "leitura", id_cartao "' + stringValue_(card.id_cartao) + '".',
     'With context "farmacia 50 no mercado pago" -> Input: "quanto ficou o saldo dela?" -> tipo_evento "leitura", id_fonte "mercado_pago_gustavo".',
-    'For a cash expense, use the category default escopo, visibilidade, and afeta_* flags from Config_Categorias; use an active cash source from Config_Fontes; status efetivado.',
+    'Ordinary purchases default to tipo_evento compra_cartao. If the user does not identify the card, leave id_cartao and id_fonte empty so the runtime asks which card was used.',
+    'Use tipo_evento despesa only when the user explicitly says Pix, transfer, cash, debit, boleto, or an account payment. Then use the category default escopo and visibility plus an explicitly identified active cash source; never guess the account.',
     'For receita, aporte, divida_pagamento, and ajuste, use the matching category defaults from Config_Categorias, active references from the canonical dictionaries, and status efetivado.',
     'For a card purchase, use a category whose tipo_evento_padrao is compra_cartao, an active card from Cartoes, that card source from Config_Fontes, and the category default flags; status efetivado.',
     'Never use an unrelated fallback category. If no category clearly matches the user text, leave id_categoria empty so the runtime can ask for confirmation.',
@@ -2810,7 +2853,7 @@ function normalizeParsedEvent_(entry, originalText, referenceData, options) {
   if (!/^\d{4}-\d{2}$/.test(normalized.competencia)) return fail_('INVALID_COMPETENCIA', 'competencia', GENERIC_RECORD_FAILURE);
   var parcelas = Number(entry.parcelas) || 0;
   if (parcelas >= 2 && parcelas <= 24) normalized.parcelas = parcelas;
-  normalized = canonicalizePilotEvent_(normalized, referenceData);
+  normalized = canonicalizePilotEvent_(normalized, referenceData, options);
   return { ok: true, shouldApplyDomainMutation: true, event: normalized };
 }
 
@@ -3009,6 +3052,64 @@ function isCashAccountPaymentText_(normalizedText) {
     containsAliasPhrase_(normalizedText, 'pela conta nubank') ||
     containsAliasPhrase_(normalizedText, 'da conta mercado pago') ||
     containsAliasPhrase_(normalizedText, 'da conta nubank');
+}
+
+function isExplicitCashPurchaseText_(text) {
+  var normalized = normalizeAliasText_(text);
+  if (!normalized) return false;
+  return containsAliasPhrase_(normalized, 'pix') ||
+    /\btransfer(?:encia|i|iu|ido|ir|indo)\b/.test(normalized) ||
+    containsAliasPhrase_(normalized, 'em dinheiro') ||
+    containsAliasPhrase_(normalized, 'dinheiro vivo') ||
+    containsAliasPhrase_(normalized, 'em especie') ||
+    containsAliasPhrase_(normalized, 'cartao de debito') ||
+    containsAliasPhrase_(normalized, 'no debito') ||
+    containsAliasPhrase_(normalized, 'via debito') ||
+    containsAliasPhrase_(normalized, 'boleto') ||
+    containsAliasPhrase_(normalized, 'pela conta') ||
+    containsAliasPhrase_(normalized, 'da conta') ||
+    containsAliasPhrase_(normalized, 'via conta') ||
+    containsAliasPhrase_(normalized, 'usando a conta') ||
+    containsAliasPhrase_(normalized, 'com a conta');
+}
+
+function convertSpendingEventToCardPurchase_(event, card, referenceData) {
+  var category = categoryForEvent_(referenceData, event.id_categoria, 'compra_cartao');
+  event.tipo_evento = 'compra_cartao';
+  event.id_fonte = card ? card.id_fonte : '';
+  event.id_cartao = card ? card.id_cartao : '';
+  event.id_fatura = '';
+  event.id_divida = '';
+  event.id_ativo = '';
+  event.direcao_caixa_familiar = '';
+  event.status = 'efetivado';
+  if (card) event.pessoa = event.pessoa || card.titular || '';
+  if (category) {
+    event.escopo = category.escopo_padrao;
+    event.visibilidade = effectiveCategoryVisibility_(category);
+    applyCategoryDefaults_(event, category);
+  } else {
+    event.afeta_dre = true;
+    event.afeta_patrimonio = false;
+    event.afeta_caixa_familiar = false;
+  }
+  return event;
+}
+
+function enforceDefaultCreditCardPurchasePolicy_(event, referenceData) {
+  if (!event || (event.tipo_evento !== 'despesa' && event.tipo_evento !== 'compra_cartao')) return event;
+  var text = event.raw_text || event.descricao;
+  if (isExplicitCashPurchaseText_(text)) {
+    if (event.tipo_evento === 'compra_cartao') {
+      event.tipo_evento = 'despesa';
+      event.id_cartao = '';
+      event.id_fatura = '';
+      var cashSource = inferCashSourceFromText_(text, referenceData);
+      event.id_fonte = cashSource ? cashSource.id_fonte : '';
+    }
+    return event;
+  }
+  return convertSpendingEventToCardPurchase_(event, inferActiveCardFromText_(text, referenceData), referenceData);
 }
 
 function inferActiveCardFromText_(text, referenceData) {

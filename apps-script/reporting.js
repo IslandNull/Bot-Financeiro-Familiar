@@ -3377,8 +3377,11 @@ function verifyFinancialRuntimeConfig_(config) {
   return { ok: true };
 }
 
-function canonicalizePilotEvent_(event, referenceData) {
+function canonicalizePilotEvent_(event, referenceData, options) {
   event = overrideParserForDeterministicMoneyMovement_(event, referenceData);
+  if (!(options && options.skipDefaultCreditCardPolicy)) {
+    event = enforceDefaultCreditCardPurchasePolicy_(event, referenceData);
+  }
   if (event.tipo_evento === 'despesa') return canonicalizePilotExpenseEvent_(event, referenceData);
   if (event.tipo_evento === 'compra_cartao') return canonicalizePilotCardPurchaseEvent_(event, referenceData);
   if (event.tipo_evento === 'pagamento_fatura') return canonicalizePilotInvoicePaymentEvent_(event, referenceData);
@@ -3440,7 +3443,7 @@ function canonicalizePilotCardPurchaseEvent_(event, referenceData) {
   if (!category) return event;
   var ownerPreferredCard = ownerPreferredCardFromText_(event, referenceData);
   var card = ownerPreferredCard ||
-    (event.id_cartao ? cardForEvent_(referenceData, event.id_cartao) : (inferActiveCardFromText_(event.raw_text || event.descricao, referenceData) || defaultActiveCard_(referenceData)));
+    (event.id_cartao ? cardForEvent_(referenceData, event.id_cartao) : inferActiveCardFromText_(event.raw_text || event.descricao, referenceData));
   if (!card) return event;
   if (event.id_fonte && event.id_fonte !== card.id_fonte && !ownerPreferredCard) return event;
   if (event.id_fatura || event.id_divida || event.id_ativo) return event;
@@ -3923,7 +3926,7 @@ function guidedMissingFieldText_(field, event, referenceData, eventType) {
   var labelByField = {
     categoria: 'Categoria',
     fonte: 'Fonte',
-    cartao: 'Cartao',
+    cartao: 'Cartão',
     fatura: 'Fatura',
   };
   var example = guidedMissingFieldExample_(field, event, referenceData, eventType);
@@ -3933,7 +3936,7 @@ function guidedMissingFieldText_(field, event, referenceData, eventType) {
     '📌 O que falta',
     labelByField[field] || 'Dado faltante',
     '',
-    'Responda reenviando a frase com esse dado.',
+    field === 'cartao' ? 'Responda apenas com o cartão usado.' : 'Responda apenas com esse dado.',
   ];
   if (example) {
     lines.push('');

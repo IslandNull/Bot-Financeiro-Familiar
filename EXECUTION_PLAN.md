@@ -30,6 +30,7 @@ Operational authority for Bot Financeiro Familiar V56.
 - House-work commitment computes DRE purchases/expenses excluding invoice payment and reports both effective and planned-income ratios, blocking incomplete bases. “Salário caiu” investigates declaration/reconciliation without creating income.
 - Val Town proxy now acknowledges Telegram immediately and invokes an authenticated internal worker; Apps Script caches sanitized results by `update_id` without Sheet rows. Versioned edge activation still waits for the normal main-branch workflow.
 - One natural monthly message can schedule net salary and separate extra income atomically with explicit date/account; it is final without a later receipt confirmation.
+- Natural purchases default to credit card; an omitted card creates a resumable 24-hour pending intent answered with only the card name. Explicit Pix/transfer/cash/debit/boleto/account wording keeps the cash-source path.
 - Monthly income uses deterministic private scheduled launches, supersedes that person's recurring templates for the competence and reconciles against a destination-account balance dated on/after receipt to prevent double counting.
 - Copilot and summary show confirmed monthly income, separate extra-income guidance and accurate “considered vs reconciled” wording; employer bank and portability are outside the model.
 
@@ -38,6 +39,7 @@ Operational authority for Bot Financeiro Familiar V56.
 - VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 252 is published.
 - VERIFIED: anonymous Apps Script HTTP execution recovered on 2026-08-09; quick smoke passed before the migration publish and again on runtime 254.
 - VERIFIED: runtime 254 contains the flagged conversational analyst. Its protected synthetic two-call smoke returned `read`, deterministic evidence, valid answer, `store=false` and zero mutation using `gpt-5.6-luna`.
+- VERIFIED: runtime 255 defaults natural purchases to credit card, retains missing-card writes for 24 hours and accepts a card-only follow-up; quick smoke and the protected parser self-test passed after publish.
 - UNVERIFIED: the new conversational analyst remains disabled until anonymous HTTP access is restored and the 20-query latency/quality pilot passes.
 - VERIFIED: production parser and narrator resolve to `gpt-5.6-luna`; protected synthetic Responses and financial-parser checks passed with `reasoning.effort=none`, strict structured output, `store=false` and no spreadsheet mutation.
 - VERIFIED: the Telegram UX redesign is live in Apps Script; quick/full read-only smokes pass and the sheet audit reports zero findings. Safe HTML hierarchy remains staged in the versioned Val Town proxy until merge to `main`.
