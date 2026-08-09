@@ -3401,8 +3401,14 @@ function canonicalizePilotExpenseEvent_(event, referenceData) {
   }
   var category = categoryForEvent_(referenceData, event.id_categoria, 'despesa');
   if (!category) return event;
+  var eventText = event.raw_text || event.descricao;
+  var explicitCashSource = inferCashSourceFromText_(eventText, referenceData);
+  var requiresNamedCashSource = category.afeta_caixa_familiar_padrao === true &&
+    isExplicitCashPurchaseText_(eventText) && !explicitCashSource;
   var source = ownerPreferredCashSourceFromText_(event, referenceData) ||
-    (event.id_fonte ? sourceForEvent_(referenceData, event.id_fonte) : defaultCashSourceForScope_(referenceData, category.escopo_padrao));
+    (event.id_fonte
+      ? sourceForEvent_(referenceData, event.id_fonte)
+      : (requiresNamedCashSource ? null : (explicitCashSource || defaultCashSourceForScope_(referenceData, category.escopo_padrao))));
   if (!source || source.tipo === 'cartao_credito') return event;
   if (event.id_cartao || event.id_fatura || event.id_divida || event.id_ativo) return event;
   event.id_fonte = source.id_fonte;
@@ -3947,7 +3953,7 @@ function guidedMissingFieldText_(field, event, referenceData, eventType) {
     labelByField[field] || 'Dado faltante',
     '',
     field === 'cartao'
-      ? 'Responda apenas com o cartão usado.'
+      ? 'Responda com o cartão usado. Se saiu direto da conta, diga débito e o nome da conta.'
       : (field === 'categoria' ? 'Responda apenas com o nome da categoria.' : 'Responda apenas com esse dado.'),
   ];
   if (example) {

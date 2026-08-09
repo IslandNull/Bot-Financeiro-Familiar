@@ -130,6 +130,7 @@ function handleTelegramUpdate_(update, config) {
     var resumedResult = applyParsedFinancialEvent_(update, message, resumed.event, config, referenceData);
     return finishWithPendingIntent_(chatId, text, resumedResult, conversation, resumed.event, referenceData, resumedResult.ok ? null : undefined);
   }
+  if (resumed.pending_intent) conversation.pending_intent = resumed.pending_intent;
   if (conversation.pending_intent) {
     if (isPendingIntentCancellationText_(text)) {
       return finishConversationTurn_(chatId, text, {
@@ -1928,6 +1929,26 @@ function resumePendingConversationIntent_(pendingIntent, text, referenceData) {
     return { ok: true, event: canonicalizePilotEvent_(event, referenceData) };
   }
   if (field === 'cartao') {
+    var combinedPaymentText = [event.raw_text || event.descricao, text].join(' ');
+    var cashModeRequested = isExplicitCashPurchaseText_(text) ||
+      (isExplicitCashPurchaseText_(event.raw_text || event.descricao) && !isExplicitCreditCardSelectionText_(text));
+    if (cashModeRequested) {
+      var cashSource = inferCashSourceFromText_(text, referenceData) || inferCashSourceFromText_(combinedPaymentText, referenceData);
+      event.raw_text = combinedPaymentText;
+      event = convertSpendingEventToCashExpense_(event, cashSource, referenceData);
+      event = canonicalizePilotEvent_(event, referenceData);
+      if (!cashSource) {
+        return {
+          ok: false,
+          pending_intent: {
+            missing_field: 'fonte',
+            event: event,
+            created_at: pendingIntent.created_at || isoNow_(),
+          },
+        };
+      }
+      return { ok: true, event: event };
+    }
     var card = inferActiveCardFromText_(text, referenceData);
     if (!card) return { ok: false };
     event.id_cartao = card.id_cartao;
@@ -3159,11 +3180,7 @@ function isHouseDebtPaymentText_(normalizedText) {
 
 function isCashAccountPaymentText_(normalizedText) {
   if (!normalizedText) return false;
-  return containsAliasPhrase_(normalizedText, 'pela conta') ||
-    containsAliasPhrase_(normalizedText, 'pela conta mercado pago') ||
-    containsAliasPhrase_(normalizedText, 'pela conta nubank') ||
-    containsAliasPhrase_(normalizedText, 'da conta mercado pago') ||
-    containsAliasPhrase_(normalizedText, 'da conta nubank');
+  return isExplicitCashPurchaseText_(normalizedText);
 }
 
 function isExplicitCashPurchaseText_(text) {
@@ -3175,6 +3192,7 @@ function isExplicitCashPurchaseText_(text) {
     containsAliasPhrase_(normalized, 'dinheiro vivo') ||
     containsAliasPhrase_(normalized, 'em especie') ||
     containsAliasPhrase_(normalized, 'cartao de debito') ||
+    containsAliasPhrase_(normalized, 'debito') ||
     containsAliasPhrase_(normalized, 'no debito') ||
     containsAliasPhrase_(normalized, 'via debito') ||
     containsAliasPhrase_(normalized, 'boleto') ||
@@ -3182,7 +3200,43 @@ function isExplicitCashPurchaseText_(text) {
     containsAliasPhrase_(normalized, 'da conta') ||
     containsAliasPhrase_(normalized, 'via conta') ||
     containsAliasPhrase_(normalized, 'usando a conta') ||
-    containsAliasPhrase_(normalized, 'com a conta');
+    containsAliasPhrase_(normalized, 'com a conta') ||
+    containsAliasPhrase_(normalized, 'com conta') ||
+    containsAliasPhrase_(normalized, 'direto da conta') ||
+    containsAliasPhrase_(normalized, 'direto na conta') ||
+    containsAliasPhrase_(normalized, 'saiu da conta') ||
+    containsAliasPhrase_(normalized, 'conta mercado pago') ||
+    containsAliasPhrase_(normalized, 'conta nubank');
+}
+
+function isExplicitCreditCardSelectionText_(text) {
+  var normalized = normalizeAliasText_(text);
+  return containsAliasPhrase_(normalized, 'cartao') &&
+    !containsAliasPhrase_(normalized, 'debito') &&
+    !containsAliasPhrase_(normalized, 'nao foi cartao');
+}
+
+function convertSpendingEventToCashExpense_(event, source, referenceData) {
+  var category = categoryForEvent_(referenceData, event.id_categoria, 'despesa');
+  event.tipo_evento = 'despesa';
+  event.id_fonte = source ? source.id_fonte : '';
+  event.id_cartao = '';
+  event.id_fatura = '';
+  event.id_divida = '';
+  event.id_ativo = '';
+  event.direcao_caixa_familiar = '';
+  event.status = 'efetivado';
+  if (category) {
+    event.escopo = category.escopo_padrao;
+    if (event.escopo === 'Gustavo' || event.escopo === 'Luana') event.pessoa = event.escopo;
+    event.visibilidade = effectiveCategoryVisibility_(category);
+    applyCategoryDefaults_(event, category);
+  } else {
+    event.afeta_dre = true;
+    event.afeta_patrimonio = false;
+    event.afeta_caixa_familiar = true;
+  }
+  return event;
 }
 
 function convertSpendingEventToCardPurchase_(event, card, referenceData) {
@@ -3212,14 +3266,7 @@ function enforceDefaultCreditCardPurchasePolicy_(event, referenceData) {
   if (!event || (event.tipo_evento !== 'despesa' && event.tipo_evento !== 'compra_cartao')) return event;
   var text = event.raw_text || event.descricao;
   if (isExplicitCashPurchaseText_(text)) {
-    if (event.tipo_evento === 'compra_cartao') {
-      event.tipo_evento = 'despesa';
-      event.id_cartao = '';
-      event.id_fatura = '';
-      var cashSource = inferCashSourceFromText_(text, referenceData);
-      event.id_fonte = cashSource ? cashSource.id_fonte : '';
-    }
-    return event;
+    return convertSpendingEventToCashExpense_(event, inferCashSourceFromText_(text, referenceData), referenceData);
   }
   return convertSpendingEventToCardPurchase_(event, inferActiveCardFromText_(text, referenceData), referenceData);
 }
@@ -3651,6 +3698,8 @@ function inferCashSourceFromText_(text, referenceData) {
   if (containsAliasPhrase_(normalized, 'fatura')) return null;
   if (nubank && containsAliasPhrase_(normalized, 'nubank')) return nubank;
   if (mercadoPago && (containsAliasPhrase_(normalized, 'mercado pago') || containsAliasPhrase_(normalized, 'mp'))) return mercadoPago;
+  var namedSource = findSourceByAlias_(text, referenceData.sources);
+  if (namedSource && namedSource.tipo !== 'cartao_credito') return namedSource;
   return null;
 }
 

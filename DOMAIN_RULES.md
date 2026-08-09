@@ -40,7 +40,7 @@ Every event answers:
 - Card invoice payment is not an expense.
 - Card purchase is the expense event.
 - Spending categories describe the purpose of the purchase, not its payment medium. The same category may be used for cash or card; cash affects family cash immediately and card affects only invoice exposure until payment.
-- Natural purchase messages default to credit card. When the card is omitted, the bot preserves the pending purchase and asks only which card was used; Pix, transfer, cash, debit, boleto or account payment must be explicit to use a cash source.
+- Natural purchase messages default to credit card. When the card is omitted, the bot preserves the pending purchase and asks which card was used; Pix, transfer, cash, debit, boleto or account payment must be explicit to use a cash source. A natural follow-up such as `débito conta Mercado Pago` or `não foi cartão, foi direto da conta` changes the preserved purchase to the cash path without losing its other fields; if the account is still unknown, the bot asks only for that source.
 - A single unambiguous purpose match may deterministically correct or fill the spending category (for example, drain/renovation material as house maintenance). If category confirmation is still required, the pending purchase accepts the category name alone and preserves the other fields.
 - A person named next to a spending purpose identifies the beneficiary and personal scope, independently of the card owner. Thus a purchase on Gustavo's card described as `lazer Luana` uses Luana's private leisure category; explicit family/couple wording keeps family scope.
 - Reviewed reimbursable advances and their reimbursements are cash movements with `afeta_dre=false`; only the non-reimbursed family portion is an expense.

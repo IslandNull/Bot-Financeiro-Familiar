@@ -4940,7 +4940,8 @@ test('Apps Script defaults an ordinary purchase to credit card and resumes it fr
     assert.strictEqual(ask.ok, false);
     assert.deepStrictEqual(ask.errors.map((error) => error.code), ['CONFIG_CARD_BLOCKED']);
     assert.match(ask.responseText, /Cart.o/);
-    assert.match(ask.responseText, /Responda apenas com o cart.o usado/);
+    assert.match(ask.responseText, /Responda com o cart.o usado/);
+    assert.match(ask.responseText, /d.bito e o nome da conta/);
     assert.ok(ask.reply_markup.inline_keyboard.flat().some((button) => /^sel:card:/.test(button.callback_data)));
     const pending = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent;
     assert.strictEqual(pending.event.valor, 145.23);
@@ -4952,7 +4953,7 @@ test('Apps Script defaults an ordinary purchase to credit card and resumes it fr
     });
     assert.strictEqual(reminder.ok, false);
     assert.deepStrictEqual(reminder.errors.map((error) => error.code), ['PENDING_INTENT_UNRESOLVED']);
-    assert.match(reminder.responseText, /Responda apenas com o cart.o usado/);
+    assert.match(reminder.responseText, /Responda com o cart.o usado/);
     assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent.event.valor, 145.23);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 
@@ -5008,6 +5009,119 @@ test('Apps Script keeps an explicitly stated Pix purchase on the cash-source pat
     assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_MERCADO_PAGO_GU');
     assert.strictEqual(launch.id_cartao, '');
     assert.strictEqual(launch.afeta_caixa_familiar, true);
+});
+
+test('Apps Script treats com conta as an explicit debit purchase even when the parser returns a card', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '2026-08-09',
+        competencia: '2026-08',
+        valor: '90',
+        descricao: 'estacionamento trabalho',
+        id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        pessoa: 'Gustavo',
+        escopo: 'Gustavo',
+        visibilidade: 'privada',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const result = postPilotMessage(context, 'paguei estacionamento trabalho com conta mercado pago gustavo 90 reais', {
+        updateId: 'explicit_account_debit',
+        messageId: 'explicit_account_debit',
+    });
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.match(result.responseText, /Gasto anotado/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 1);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'despesa');
+    assert.strictEqual(launch.valor, 90);
+    assert.strictEqual(launch.id_categoria, 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO');
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_MERCADO_PAGO_GU');
+    assert.strictEqual(launch.id_cartao, '');
+    assert.strictEqual(launch.afeta_caixa_familiar, true);
+});
+
+test('Apps Script converts a card-pending purchase to debit from either natural correction reply', () => {
+    ['débito conta mercado pago gustavo', 'não foi cartão, foi direto da conta'].forEach((reply, index) => {
+        const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+        const state = context.emptyConversationState_('BFF_CONVERSATION_chat_1_user_1');
+        state.pending_intent = {
+            missing_field: 'cartao',
+            created_at: '2026-08-09T12:00:00Z',
+            event: {
+                tipo_evento: 'compra_cartao', data: '2026-08-09', competencia: '2026-08', valor: 90,
+                descricao: 'estacionamento trabalho',
+                raw_text: 'paguei estacionamento trabalho com conta mercado pago gustavo 90 reais',
+                id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO', id_fonte: '',
+                pessoa: 'Gustavo', escopo: 'Gustavo', visibilidade: 'privada', id_cartao: '',
+                id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: true,
+                afeta_patrimonio: false, afeta_caixa_familiar: false, direcao_caixa_familiar: '',
+                status: 'efetivado', parcelas: 1,
+            },
+        };
+        context.writeConversationState_('chat_1', state, 'user_1');
+
+        const result = postPilotMessage(context, reply, {
+            updateId: `pending_debit_reply_${index}`,
+            messageId: `pending_debit_reply_${index}`,
+        });
+
+        assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+        assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+        assert.strictEqual(sheets.Faturas_Linhas.rows.length, 1);
+        const launch = Object.fromEntries(lancamentosHeaders.map((header, rowIndex) => [header, sheets.Lancamentos.rows[1][rowIndex]]));
+        assert.strictEqual(launch.tipo_evento, 'despesa');
+        assert.strictEqual(launch.data, '2026-08-09');
+        assert.strictEqual(launch.valor, 90);
+        assert.strictEqual(launch.id_categoria, 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO');
+        assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_MERCADO_PAGO_GU');
+        assert.strictEqual(launch.id_cartao, '');
+        assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent, null);
+    });
+});
+
+test('Apps Script changes a card pending question to source when debit is explicit but the account is missing', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const state = context.emptyConversationState_('BFF_CONVERSATION_chat_1_user_1');
+    state.pending_intent = {
+        missing_field: 'cartao',
+        created_at: '2026-08-09T12:00:00Z',
+        event: {
+            tipo_evento: 'compra_cartao', data: '2026-08-09', competencia: '2026-08', valor: 90,
+            descricao: 'estacionamento trabalho', raw_text: 'estacionamento trabalho 90',
+            id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO', id_fonte: '',
+            pessoa: 'Gustavo', escopo: 'Gustavo', visibilidade: 'privada', id_cartao: '',
+            id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: true,
+            afeta_patrimonio: false, afeta_caixa_familiar: false, direcao_caixa_familiar: '',
+            status: 'efetivado', parcelas: 1,
+        },
+    };
+    context.writeConversationState_('chat_1', state, 'user_1');
+
+    const askSource = postPilotMessage(context, 'não foi cartão, foi direto da conta', {
+        updateId: 'pending_debit_needs_source',
+        messageId: 'pending_debit_needs_source',
+    });
+
+    assert.strictEqual(askSource.ok, false);
+    assert.match(askSource.responseText, /O que falta\s+Fonte/);
+    assert.doesNotMatch(askSource.responseText, /O que falta\s+Cartão/);
+    const pending = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent;
+    assert.strictEqual(pending.missing_field, 'fonte');
+    assert.strictEqual(pending.event.tipo_evento, 'despesa');
+    assert.strictEqual(pending.event.valor, 90);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
 
 test('Apps Script upgrades an existing source-pending purchase when the user replies with a card', () => {
