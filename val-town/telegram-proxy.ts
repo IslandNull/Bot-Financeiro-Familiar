@@ -3,8 +3,12 @@ const WEBHOOK_SECRET_ENV = "WEBHOOK_SECRET";
 const TELEGRAM_BOT_TOKEN_ENV = "TELEGRAM_BOT_TOKEN";
 const AUTHORIZED_USER_IDS_ENV = "AUTHORIZED_USER_IDS";
 const AUTHORIZED_CHAT_IDS_ENV = "AUTHORIZED_CHAT_IDS";
+const INTERNAL_WORKER_SECRET_ENV = "INTERNAL_WORKER_SECRET";
 const TELEGRAM_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token";
-const APPS_SCRIPT_TIMEOUT_MS = 25_000;
+const INTERNAL_WORKER_HEADER = "X-BFF-Internal-Worker-Secret";
+const APPS_SCRIPT_WORKER_HEADER = "X-BFF-Worker-Request";
+const INTERNAL_WORKER_PATH = "/__bff_process";
+const APPS_SCRIPT_TIMEOUT_MS = 55_000;
 const TELEGRAM_API_TIMEOUT_MS = 10_000;
 const TELEGRAM_PREFLIGHT_TIMEOUT_MS = 800;
 const TELEGRAM_MAX_TEXT_LENGTH = 4096;
@@ -12,6 +16,11 @@ const TELEGRAM_SAFE_TEXT_LENGTH = 3900;
 const MAX_REQUEST_BYTES = 1024 * 1024;
 
 export default async function (req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  if (url.pathname.endsWith(INTERNAL_WORKER_PATH)) {
+    return handleProcessingRequest(req);
+  }
+
   const startedAt = Date.now();
   const ingress = await validateIngressRequest(req);
   if (!ingress.ok) return ingress.response;
@@ -29,34 +38,65 @@ export default async function (req: Request): Promise<Response> {
     : [];
   const preflightAnsweredCallbackId = firstSuccessfulCallbackAnswerId(preflightActions, preflightResults);
 
+  const workerSecret = stringOrEmpty(Deno.env.get(INTERNAL_WORKER_SECRET_ENV));
+  if (!workerSecret || !hasTelegramBotToken()) {
+    console.error("Missing internal worker or Telegram delivery configuration");
+    return new Response("worker unavailable", { status: 503 });
+  }
+
+  const workerStartedAt = Date.now();
+  const workerPromise = fetch(internalWorkerUrl(req.url), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      [INTERNAL_WORKER_HEADER]: workerSecret,
+    },
+    body: JSON.stringify({ updateBody: body, preflightAnsweredCallbackId }),
+  });
+  void workerPromise.catch((error) => {
+    console.error("Internal worker dispatch error:", redactedError(error));
+  });
+  logEdgeTiming(startedAt, preflightStartedAt, workerStartedAt, workerStartedAt, Date.now(), "worker_dispatched", "ok");
+  return new Response("ok", { status: 200 });
+}
+
+export async function handleProcessingRequest(req: Request): Promise<Response> {
+  const startedAt = Date.now();
+  const worker = await validateWorkerRequest(req);
+  if (!worker.ok) return worker.response;
+
+  const authorization = authorizeTelegramUpdate(worker.update);
+  if (!authorization.ok) {
+    console.warn("Internal Telegram update rejected:", authorization.reason);
+    return new Response("forbidden", { status: 403 });
+  }
+
   const appsScriptStartedAt = Date.now();
-  const forwarded = await forwardToAppsScript(body);
+  const forwarded = await forwardToAppsScript(worker.updateBody);
   const appsScriptFinishedAt = Date.now();
   if (!forwarded.ok) {
-    logEdgeTiming(startedAt, preflightStartedAt, appsScriptStartedAt, appsScriptFinishedAt, Date.now(), "upstream_retry", forwarded.reason);
+    await dispatchWorkerFailure(worker.update);
+    logEdgeTiming(startedAt, appsScriptStartedAt, appsScriptStartedAt, appsScriptFinishedAt, Date.now(), "upstream_failed", forwarded.reason);
     return new Response("upstream unavailable", { status: forwarded.status });
   }
-  const appsScriptResult = forwarded.value;
-  let actions = telegramActions(body, appsScriptResult);
-  if (preflightAnsweredCallbackId) {
-    actions = filterAnsweredCallbackActions(actions, preflightAnsweredCallbackId);
+
+  let actions = telegramActions(worker.updateBody, forwarded.value);
+  if (worker.preflightAnsweredCallbackId) {
+    actions = filterAnsweredCallbackActions(actions, worker.preflightAnsweredCallbackId);
   }
-  if (actions.length === 0) actions = telegramResponseActions(body, appsScriptResult);
-  if (actions.length === 1 && canUseTelegramWebhookResponse(actions[0])) {
-    logEdgeTiming(startedAt, preflightStartedAt, appsScriptStartedAt, appsScriptFinishedAt, Date.now(), "webhook_reply", "ok");
-    return telegramActionWebhookReply(actions[0]);
+  if (actions.length === 0) actions = telegramResponseActions(worker.updateBody, forwarded.value);
+  if (actions.length === 0) {
+    logEdgeTiming(startedAt, appsScriptStartedAt, appsScriptStartedAt, appsScriptFinishedAt, Date.now(), "invalid_upstream_result", "missing_user_response");
+    return new Response("invalid upstream result", { status: 502 });
   }
-  if (actions.length > 0) {
-    const dispatchResults = await dispatchTelegramActions(actions);
-    if (dispatchResults.some((result) => !result.ok)) {
-      logEdgeTiming(startedAt, preflightStartedAt, appsScriptStartedAt, appsScriptFinishedAt, Date.now(), "telegram_retry", "dispatch_failed");
-      return new Response("telegram dispatch unavailable", { status: 502 });
-    }
-    logEdgeTiming(startedAt, preflightStartedAt, appsScriptStartedAt, appsScriptFinishedAt, Date.now(), "telegram_dispatch", "ok");
-    return new Response("ok", { status: 200 });
+
+  const dispatchResults = await dispatchTelegramActions(actions);
+  if (dispatchResults.some((result) => !result.ok)) {
+    logEdgeTiming(startedAt, appsScriptStartedAt, appsScriptStartedAt, appsScriptFinishedAt, Date.now(), "telegram_failed", "dispatch_failed");
+    return new Response("telegram dispatch unavailable", { status: 502 });
   }
-  logEdgeTiming(startedAt, preflightStartedAt, appsScriptStartedAt, appsScriptFinishedAt, Date.now(), "invalid_upstream_result", "missing_user_response");
-  return new Response("invalid upstream result", { status: 502 });
+  logEdgeTiming(startedAt, appsScriptStartedAt, appsScriptStartedAt, appsScriptFinishedAt, Date.now(), "telegram_dispatch", "ok");
+  return new Response("ok", { status: 200 });
 }
 
 type IngressValidation =
@@ -64,6 +104,10 @@ type IngressValidation =
   | { ok: false; response: Response };
 
 type AuthorizationDecision = { ok: true } | { ok: false; reason: string };
+
+type WorkerValidation =
+  | { ok: true; updateBody: string; update: unknown; preflightAnsweredCallbackId: string }
+  | { ok: false; response: Response };
 
 export async function validateIngressRequest(req: Request): Promise<IngressValidation> {
   if (req.method !== "POST") {
@@ -97,6 +141,40 @@ export async function validateIngressRequest(req: Request): Promise<IngressValid
   return { ok: true, body: bodyResult.body, update };
 }
 
+export async function validateWorkerRequest(req: Request): Promise<WorkerValidation> {
+  if (req.method !== "POST") {
+    return { ok: false, response: new Response("method not allowed", { status: 405, headers: { Allow: "POST" } }) };
+  }
+  const contentType = stringOrEmpty(req.headers.get("content-type")).toLowerCase();
+  if (!/^application\/json(?:\s*;|$)/.test(contentType)) {
+    return { ok: false, response: new Response("unsupported media type", { status: 415 }) };
+  }
+  const configuredSecret = stringOrEmpty(Deno.env.get(INTERNAL_WORKER_SECRET_ENV));
+  const receivedSecret = stringOrEmpty(req.headers.get(INTERNAL_WORKER_HEADER));
+  if (!configuredSecret || !constantTimeEqual(receivedSecret, configuredSecret)) {
+    return { ok: false, response: new Response("unauthorized", { status: 401 }) };
+  }
+  const bodyResult = await readBodyWithLimit(req, MAX_REQUEST_BYTES);
+  if (!bodyResult.ok) {
+    return { ok: false, response: new Response("payload too large", { status: 413 }) };
+  }
+  const envelope = parseJson(bodyResult.body) as {
+    updateBody?: unknown;
+    preflightAnsweredCallbackId?: unknown;
+  } | null;
+  const updateBody = stringOrEmpty(envelope?.updateBody);
+  const update = parseJson(updateBody);
+  if (!updateBody || !update || typeof update !== "object" || Array.isArray(update)) {
+    return { ok: false, response: new Response("invalid worker payload", { status: 400 }) };
+  }
+  return {
+    ok: true,
+    updateBody,
+    update,
+    preflightAnsweredCallbackId: stringOrEmpty(envelope?.preflightAnsweredCallbackId),
+  };
+}
+
 export function authorizeTelegramUpdate(update: unknown): AuthorizationDecision {
   const allowedUserIds = envIdSet(AUTHORIZED_USER_IDS_ENV);
   const allowedChatIds = envIdSet(AUTHORIZED_CHAT_IDS_ENV);
@@ -128,6 +206,7 @@ async function forwardToAppsScript(body: string): Promise<AppsScriptForwardResul
   const webhookSecret = stringOrEmpty(Deno.env.get(WEBHOOK_SECRET_ENV));
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    [APPS_SCRIPT_WORKER_HEADER]: "1",
   };
   if (webhookSecret) headers[TELEGRAM_SECRET_HEADER] = webhookSecret;
 
@@ -153,6 +232,17 @@ async function forwardToAppsScript(body: string): Promise<AppsScriptForwardResul
     console.error("Apps Script fetch error:", redactedError(error));
     return { ok: false, reason: "fetch_failed", status: 503 };
   }
+}
+
+async function dispatchWorkerFailure(update: unknown): Promise<void> {
+  const chatId = telegramChatId(update);
+  if (!chatId || !hasTelegramBotToken()) return;
+  await dispatchTelegramActions([{
+    method: "sendMessage",
+    chat_id: chatId,
+    text: "⚠️ Não consegui concluir esta consulta agora. Tente novamente em instantes.",
+    disable_web_page_preview: true,
+  }]);
 }
 
 type TelegramAction = {
@@ -537,6 +627,14 @@ function isTelegramReplyMarkup(value: unknown): boolean {
 function appsScriptForwardUrl(appsScriptUrl: string): string {
   const url = new URL(String(appsScriptUrl || "").trim());
   if (url.protocol !== "https:") throw new Error("APPS_SCRIPT_WEBAPP_URL must use https");
+  return url.toString();
+}
+
+function internalWorkerUrl(requestUrl: string): string {
+  const url = new URL(requestUrl);
+  url.pathname = url.pathname.replace(/\/$/, "") + INTERNAL_WORKER_PATH;
+  url.search = "";
+  url.hash = "";
   return url.toString();
 }
 

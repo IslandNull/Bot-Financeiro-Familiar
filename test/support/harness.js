@@ -119,6 +119,9 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
         ...(options.properties || {}),
     };
     const scriptProperties = { ...properties };
+    const scriptCache = new Map();
+    const openAiEvents = Array.isArray(options.openAiEvents) ? options.openAiEvents.slice() : null;
+    let openAiCallIndex = 0;
     const context = {
         console,
         __scriptProperties: scriptProperties,
@@ -142,6 +145,9 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
                 if (options.failOnFetch) throw new Error('UrlFetchApp.fetch should not be called');
                 assert.strictEqual(url, 'https://api.openai.com/v1/responses');
                 if (typeof options.onOpenAiRequest === 'function') options.onOpenAiRequest(JSON.parse(fetchOptions.payload));
+                const selectedEvent = openAiEvents
+                    ? openAiEvents[Math.min(openAiCallIndex++, Math.max(0, openAiEvents.length - 1))]
+                    : openAiEvent;
                 return {
                     getResponseCode() {
                         return 200;
@@ -150,7 +156,7 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
                         return JSON.stringify({
                             output: [{
                                 content: [{
-                                    text: JSON.stringify(openAiEvent),
+                                    text: JSON.stringify(selectedEvent),
                                 }],
                             }],
                         });
@@ -158,9 +164,25 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
                 };
             },
         },
+        CacheService: {
+            getScriptCache() {
+                return {
+                    get(key) {
+                        return scriptCache.has(key) ? scriptCache.get(key) : null;
+                    },
+                    put(key, value) {
+                        scriptCache.set(String(key), String(value));
+                    },
+                    remove(key) {
+                        scriptCache.delete(String(key));
+                    },
+                };
+            },
+        },
         SpreadsheetApp: {
             openById(id) {
                 assert.strictEqual(id, 'sheet_1');
+                if (typeof options.onSpreadsheetOpen === 'function') options.onSpreadsheetOpen(id);
                 return {
                     getName() {
                         return 'Bot Financeiro Familiar';
@@ -817,6 +839,7 @@ function appendFakeCommitment(sheets, overrides = {}) {
 function postTelegramDocument(context, document, options = {}) {
     const output = context.doPost({
         parameter: { secret: 'test_secret' },
+        headers: options.headers || {},
         postData: {
             contents: JSON.stringify({
                 update_id: options.updateId || 'document_update_1',

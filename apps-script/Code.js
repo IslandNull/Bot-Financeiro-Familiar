@@ -86,7 +86,19 @@ function doPost(e) {
       return json_(update);
     }
 
+    var workerRequest = headerValue_(e, 'x-bff-worker-request') === '1';
+    var dedupe = workerRequest ? beginTelegramUpdateProcessing_(update.value) : { process: true, key: '' };
+    if (dedupe.cached) {
+      outcome = 'cached';
+      return json_(dedupe.result);
+    }
+    if (!dedupe.process) {
+      outcome = 'duplicate_processing';
+      return json_(fail_('DUPLICATE_PROCESSING', 'update_id', GENERIC_RECORD_FAILURE));
+    }
+
     var result = handleTelegramUpdate_(update.value, config);
+    if (dedupe.key) finishTelegramUpdateProcessing_(dedupe.key, result);
     outcome = result && result.ok ? 'ok' : 'handled_error';
     return json_(result);
   } finally {
@@ -138,6 +150,9 @@ function doGet(e) {
   }
   if (action === 'openai_selftest') {
     return json_(runOpenAIModelSelfTest());
+  }
+  if (action === 'copilot_analyst_selftest') {
+    return json_(runCopilotAnalystSyntheticSelfTestV56());
   }
   if (action === 'optional_v56_template') {
     return json_(exportOptionalV56Template());
@@ -939,6 +954,73 @@ function runOpenAIModelSelfTest() {
     financial_parser_ok: financialParserOk,
     checks: checks,
   };
+}
+
+function runCopilotAnalystSyntheticSelfTestV56() {
+  var config = readConfig_();
+  if (!config.openAiApiKey || !config.openAiAnalystModel) return fail_('MISSING_OPENAI_API_KEY', 'openai', GENERIC_REQUEST_FAILURE);
+  var competencia = todaySaoPaulo_().slice(0, 7);
+  var message = 'Quanto da minha renda está comprometida por despesas de obra da casa?';
+  var categoryReferences = [{
+    ref: 'cat_1', id: 'SYNTH_HOUSE', name: 'Manutenção da casa', group: 'Moradia',
+    scope: 'Familiar', visibility: 'detalhada', monthly_limit: 0, accumulates: false,
+  }];
+  try {
+    var plannerResponse = fetchOpenAIResponseOnce_(buildCopilotAnalysisPlannerPayload_(
+      message,
+      config,
+      categoryReferences,
+      { messages: [], analysis_context: emptyConversationAnalysisContext_() },
+      'Gustavo'
+    ), config, 'analyst_synthetic_plan');
+    var plannerOutput = parseOpenAiJsonObject_(plannerResponse);
+    var validation = BFFCore.validateAnalysisPlan(plannerOutput, {
+      currentCompetencia: competencia,
+      allowedCategoryRefs: ['cat_1'],
+    });
+    if (!validation.ok || validation.plan.route !== 'read' || !validation.plan.queries.some(function(query) {
+      return query.kind === 'spending_analysis';
+    })) {
+      return {
+        ok: false, shouldApplyDomainMutation: false, stage: 'plan',
+        code: validation.ok ? 'SYNTHETIC_ROUTE_MISMATCH' : validation.code,
+      };
+    }
+    var plan = validation.plan;
+    var snapshot = {
+      current_competencia: competencia,
+      categories: categoryReferences,
+      launches: [
+        { data: competencia + '-02', competencia: competencia, tipo_evento: 'despesa', id_categoria: 'SYNTH_HOUSE', valor: 250, pessoa: 'Gustavo', escopo: 'Familiar', afeta_dre: true, visibilidade: 'detalhada', status: 'efetivado', descricao: 'material de obra' },
+        { data: competencia + '-05', competencia: competencia, tipo_evento: 'receita', id_categoria: 'REC_SALARIO_LIQUIDO', id_fonte: 'SYNTH_ACCOUNT', valor: 1000, pessoa: 'Gustavo', escopo: 'Gustavo', afeta_dre: true, visibilidade: 'privada', status: 'efetivado', descricao: 'renda' },
+        { data: competencia + '-05', competencia: competencia, tipo_evento: 'receita', id_categoria: 'REC_SALARIO_LIQUIDO', id_fonte: 'SYNTH_ACCOUNT', valor: 1200, pessoa: 'Gustavo', escopo: 'Gustavo', afeta_dre: true, visibilidade: 'privada', status: 'agendado', descricao: 'renda declarada' },
+      ],
+      recurring_incomes: [],
+      source_balances: [{ competencia: competencia, data_referencia: competencia + '-06', id_fonte: 'SYNTH_ACCOUNT', saldo_disponivel: 1000 }],
+      summaries: {},
+      current_summary: { pending_attention: { blocking: false, items: [] } },
+      closed_competencias: [],
+    };
+    snapshot.summaries[competencia] = snapshot.current_summary;
+    var execution = BFFCore.executeCopilotAnalysis(snapshot, plan);
+    if (!execution.ok) return { ok: false, shouldApplyDomainMutation: false, stage: 'execution', code: execution.code };
+    var fallback = BFFCore.formatDeterministicCopilotAnswer(execution.evidence, { title: 'Teste sintético' });
+    var answerResponse = fetchOpenAIResponseOnce_(buildCopilotAnalysisAnswerPayload_(message, config, plan, execution.evidence, fallback), config, 'analyst_synthetic_answer');
+    var answer = BFFCore.validateCopilotAnswer(parseOpenAiJsonObject_(answerResponse), execution.evidence, fallback);
+    return {
+      ok: Boolean(answer.ok),
+      shouldApplyDomainMutation: false,
+      analyst_model: config.openAiAnalystModel,
+      route: plan.route,
+      query_kinds: plan.queries.map(function(query) { return query.kind; }),
+      evidence_count: execution.evidence.length,
+      answer_valid: Boolean(answer.ok),
+      store: false,
+      code: answer.ok ? '' : answer.code,
+    };
+  } catch (_err) {
+    return { ok: false, shouldApplyDomainMutation: false, stage: 'fetch', code: 'SYNTHETIC_ANALYST_FAILED' };
+  }
 }
 
 function isoWeekKey_(isoDate) {

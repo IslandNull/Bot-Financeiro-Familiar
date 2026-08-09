@@ -6,8 +6,9 @@ Navigation guide for the V56 Telegram-first financial copilot.
 
 ```text
 Telegram
-  -> val-town/telegram-proxy.ts (signed edge/auth/body limit)
-  -> apps-script/doPost (commands, callbacks, import documents)
+  -> val-town/telegram-proxy.ts (signed ingress, immediate 200, authenticated worker)
+  -> apps-script/doPost (dedupe, commands, callbacks, import documents)
+  -> AnalysisPlan -> FinancialSnapshot -> EvidencePacket -> validated answer
   -> deterministic validation and MutationPlan
   -> Google Sheets
 
@@ -22,17 +23,17 @@ OpenAI Responses API
 | Path | Responsibility |
 |---|---|
 | `apps-script/Code.js` | Public entrypoints, constants, protected remote actions, schema migration/audit, digest delivery and trigger wrappers. |
-| `apps-script/infra.js` | Script Properties, authorization, webhook/request parsing, short-lived static-reference cache, bounded OpenAI retry and timing instrumentation. |
+| `apps-script/infra.js` | Script Properties, authorization, webhook/request parsing, `update_id` response cache, person mapping, static-reference cache and redacted OpenAI/timing instrumentation. |
 | `apps-script/income.js` | Declaração natural mensal de salário/renda extra, categorias canônicas privadas, agendamento idempotente e resposta sem segunda confirmação. |
-| `apps-script/parser.js` | Telegram routing, per-user expiring context, guided onboarding, risk/duplicate confirmations and strict OpenAI event/correction boundary. |
-| `apps-script/reporting.js` | Read-only summaries and Telegram decision cards, deterministic insights, monthly/recurring-income projections, balance reconciliation, freshness blockers, alert/digest payloads and explicit optional narration. |
+| `apps-script/parser.js` | Preserved command/write routing plus flagged conversational `AnalysisPlan`/`CopilotAnswer` orchestration, structured 24-hour context, guided onboarding and strict event/correction boundary. |
+| `apps-script/reporting.js` | One-read `FinancialSnapshot` adapter, read-only summaries/decision cards, deterministic insights, income reconciliation, freshness blockers, alert/digest payloads and optional narration. |
 | `apps-script/mutation.js` | `MutationPlan` runtime adapter, journal reconciliation, batched upserts/deletes, correction flow, balances/assets and other writes. |
 | `apps-script/import.js` | OFX/CSV Telegram lifecycle: validation, origin choice, re-download/hash, preview, rule suggestion/confirmation and batch MutationPlan. |
 | `apps-script/telegram-ui.js` | Telegram message design system: compact home/secondary menus, guided views, contextual inline keyboards, confirmation states and navigation actions. |
 | `apps-script/generated-core.js` | Generated ignored bundle exposing `BFFCore`; build with `npm run build:gas`. |
 | `apps-script/appsscript.json` | Apps Script manifest, timezone, scopes and anonymous web-app execution policy. |
 
-Public `doGet` read-only actions include `summary`, `cut_first`, `safe_to_spend`, `goals_preview`, `commitments_preview`, `pending_attention_preview`, `alerts_preview`, `copilot_digest_preview`, `import_selftest`, `openai_selftest`, `optional_v56_template`, `selftest`, `snapshot` and `sheet_audit`. Explicit mutation/operation actions remain schema upgrade, closing and gated digest delivery.
+Public `doGet` read-only actions include `summary`, `cut_first`, `safe_to_spend`, `goals_preview`, `commitments_preview`, `pending_attention_preview`, `alerts_preview`, `copilot_digest_preview`, `import_selftest`, `openai_selftest`, `copilot_analyst_selftest`, `optional_v56_template`, `selftest`, `snapshot` and `sheet_audit`. Explicit mutation/operation actions remain schema upgrade, closing and gated digest delivery.
 
 ## Pure core (`src/`)
 
@@ -44,6 +45,7 @@ Public `doGet` read-only actions include `summary`, `cut_first`, `safe_to_spend`
 | `proactive-alerts.js` | Preview-only 85%/100% budget alert hysteresis and privacy. |
 | `import-parser.js` | OFX 1/2, CSV/encoding normalization, safe-batch classification, idempotency keys and privacy-aware preview. |
 | `copilot-insights.js` | Ranked decision cards and weekly digest facts. |
+| `copilot-analyst.js` | Strict read plan validation, six deterministic investigations, evidence/privacy contracts, detail limits and answer-number/recommendation validation. |
 | `copilot-narrator.js` | Optional narration payload plus number/internal-ID guardrails. |
 | `schema.js` | Required V55 and optional V56 sheet/header contracts. |
 | `domain.js`, `validator.js` | Financial calculations and deterministic event invariants. |
@@ -56,7 +58,7 @@ Public `doGet` read-only actions include `summary`, `cut_first`, `safe_to_spend`
 | Path | Responsibility |
 |---|---|
 | `val-town/main.ts` | Versioned relative entry import. |
-| `val-town/telegram-proxy.ts` | `POST`/JSON/1 MB/secret/user+chat gate; safe Telegram HTML hierarchy, typing feedback, chunked delivery and retryable upstream/Telegram failures. |
+| `val-town/telegram-proxy.ts` | `POST`/JSON/1 MB/secret/user+chat gate; immediate Telegram acknowledgment; authenticated internal worker; 55-second Apps Script boundary; safe HTML and chunked delivery. |
 | `val-town/deno.json`, `.vtignore` | Local Val Town project configuration. |
 | `.github/workflows/ci.yml` | `npm ci` plus `npm run check` on push and PR. |
 | `.github/workflows/deploy-val-town.yml` | Pinned `vt` deploy after changes land on `main`; reads only GitHub secret/variable. |
@@ -75,6 +77,7 @@ Public `doGet` read-only actions include `summary`, `cut_first`, `safe_to_spend`
 | `test/import-parser.test.js` | Synthetic OFX/CSV fixtures, encoding, duplicates, closed periods, rules and privacy. |
 | `test/pending-attention.test.js`, `test/proactive-alerts.test.js` | Freshness edges and alert thresholds. |
 | `test/apps-script-runtime.test.js` | End-to-end simulated Apps Script commands, writes, imports, callbacks, digest and correction recovery. |
+| `test/copilot-analyst.test.js`, `test/copilot-routing-corpus.test.js` | Pure investigation/privacy/schema guardrails and the 40-utterance Portuguese routing contract corpus. |
 
 ## Sheet topology
 

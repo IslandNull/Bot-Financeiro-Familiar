@@ -392,3 +392,16 @@ Rejected:
 - Letting the LLM invent financial numbers, thresholds or recommendations.
 - Sending proactive messages that mutate the spreadsheet.
 - Bundling bank integration into the first copilot implementation batch.
+
+## V56-D027 - Conversational Read Planner With Deterministic Evidence
+
+Status: Accepted
+Date: 2026-08-09
+
+Decision:
+For authorized Telegram reads, use at most two strict, store-false Responses calls: one to produce an allowlisted `AnalysisPlan` and one to phrase deterministic `EvidencePacket` results. The model may select read queries, period, scope and conservative semantic filters, but it cannot calculate money, set confidence/privacy, mutate Sheets or create financial recommendations. Commands and every write continue through the existing deterministic parser and `MutationPlan` boundary.
+
+Each message normalizes one current `FinancialSnapshot`. Only filtered `Familiar + detalhada` examples can reach the phrasing call; private/personal data stays aggregate-only. Invalid model output or time-budget exhaustion uses the deterministic formatter. Rollout is gated by `COPILOT_ANALYST_ENABLED`, with the legacy free-read handlers retained only until the pilot gates pass.
+
+Reason:
+The previous regex-first free conversation rejected valid observations such as “salário caiu” and could not investigate follow-up questions. Separating language understanding from calculations expands the conversational surface without increasing the model's financial or write authority.

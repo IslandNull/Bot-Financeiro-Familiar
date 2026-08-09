@@ -31,6 +31,8 @@ module.exports = (async function runValTownProxyTests() {
         env.set('APPS_SCRIPT_WEBAPP_URL', 'https://script.google.com/macros/s/example/exec');
         env.set('AUTHORIZED_USER_IDS', '101');
         env.set('AUTHORIZED_CHAT_IDS', '-202');
+        env.set('TELEGRAM_BOT_TOKEN', '123:test-token');
+        env.set('INTERNAL_WORKER_SECRET', 'worker-secret');
         Object.entries(overrides).forEach(([key, value]) => {
             if (value === undefined) env.delete(key);
             else env.set(key, value);
@@ -63,6 +65,21 @@ module.exports = (async function runValTownProxyTests() {
         });
     }
 
+    function workerRequest(body = telegramBody(), overrides = {}) {
+        return new Request(overrides.url || 'https://example.val.run/__bff_process', {
+            method: overrides.method || 'POST',
+            headers: new Headers({
+                'content-type': 'application/json',
+                'x-bff-internal-worker-secret': 'worker-secret',
+                ...(overrides.headers || {}),
+            }),
+            body: JSON.stringify({
+                updateBody: body,
+                preflightAnsweredCallbackId: overrides.preflightAnsweredCallbackId || '',
+            }),
+        });
+    }
+
     async function withFetchSpy(responseBody, fn) {
         const previousFetch = globalThis.fetch;
         const calls = [];
@@ -84,21 +101,46 @@ module.exports = (async function runValTownProxyTests() {
         assert.strictEqual(mainModule.default, handler);
     });
 
-    await test('valid signed JSON is forwarded once with the configured secret only in the header', async () => {
+    await test('valid signed JSON returns immediately and dispatches the authenticated internal worker', async () => {
         configure();
-        await withFetchSpy({ ok: true, responseText: 'Tudo certo.' }, async (calls) => {
+        await withFetchSpy({ ok: true }, async (calls) => {
             const response = await handler(request());
             assert.strictEqual(response.status, 200);
             assert.strictEqual(calls.length, 1);
-            assert.ok(calls[0].url.startsWith('https://script.google.com/'));
+            assert.strictEqual(calls[0].url, 'https://example.val.run/__bff_process');
             assert.ok(!calls[0].url.includes('secret='));
+            assert.strictEqual(calls[0].options.headers['X-BFF-Internal-Worker-Secret'], 'worker-secret');
+            assert.strictEqual(await response.text(), 'ok');
+            assert.strictEqual(JSON.parse(calls[0].options.body).updateBody, telegramBody());
+        });
+    });
+
+    await test('internal worker revalidates the update, forwards it to Apps Script, and delivers through Telegram', async () => {
+        configure();
+        const previousFetch = globalThis.fetch;
+        const calls = [];
+        globalThis.fetch = async (url, options) => {
+            calls.push({ url: String(url), options });
+            if (String(url).startsWith('https://script.google.com/')) {
+                return new Response(JSON.stringify({ ok: true, responseText: 'Tudo certo.' }), { status: 200 });
+            }
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        };
+        try {
+            const response = await proxyModule.handleProcessingRequest(workerRequest());
+            assert.strictEqual(response.status, 200);
+            assert.strictEqual(calls.length, 2);
+            assert.ok(calls[0].url.startsWith('https://script.google.com/'));
             assert.strictEqual(calls[0].options.headers['X-Telegram-Bot-Api-Secret-Token'], 'edge-secret');
-            const payload = JSON.parse(await response.text());
+            assert.strictEqual(calls[0].options.headers['X-BFF-Worker-Request'], '1');
+            const payload = JSON.parse(calls[1].options.body);
             assert.strictEqual(payload.method, 'sendMessage');
             assert.strictEqual(payload.chat_id, '-202');
             assert.strictEqual(payload.parse_mode, 'HTML');
             assert.strictEqual(payload.text, '<b>Tudo certo.</b>');
-        });
+        } finally {
+            globalThis.fetch = previousFetch;
+        }
     });
 
     for (const scenario of [
@@ -196,18 +238,47 @@ module.exports = (async function runValTownProxyTests() {
         assert.strictEqual(proxyModule.authorizeTelegramUpdate(JSON.parse(telegramBody())).ok, false);
     });
 
-    await test('upstream HTTP, invalid JSON, and network failures are retryable webhook errors', async () => {
+    await test('internal worker rejects a forged secret and unauthorized update before external APIs', async () => {
+        configure();
+        await withFetchSpy({ ok: true }, async (calls) => {
+            const forgedSecret = await proxyModule.handleProcessingRequest(workerRequest(telegramBody(), {
+                headers: { 'x-bff-internal-worker-secret': 'forged' },
+            }));
+            assert.strictEqual(forgedSecret.status, 401);
+            const forgedUpdate = telegramBody({
+                message: { message_id: 2, from: { id: 999 }, chat: { id: -202 }, text: '/help' },
+            });
+            const unauthorized = await proxyModule.handleProcessingRequest(workerRequest(forgedUpdate));
+            assert.strictEqual(unauthorized.status, 403);
+            assert.strictEqual(calls.length, 0);
+        });
+    });
+
+    await test('upstream HTTP, invalid JSON, and network failures notify Telegram from the worker', async () => {
         configure();
         const previousFetch = globalThis.fetch;
         try {
-            globalThis.fetch = async () => new Response('temporary', { status: 500 });
-            assert.strictEqual((await handler(request())).status, 503);
+            const calls = [];
+            globalThis.fetch = async (url, options) => {
+                calls.push({ url: String(url), options });
+                if (String(url).startsWith('https://script.google.com/')) return new Response('temporary', { status: 500 });
+                return new Response(JSON.stringify({ ok: true }), { status: 200 });
+            };
+            assert.strictEqual((await proxyModule.handleProcessingRequest(workerRequest())).status, 503);
+            assert.strictEqual(calls.length, 2);
+            assert.match(JSON.parse(calls[1].options.body).text, /concluir esta consulta/);
 
-            globalThis.fetch = async () => new Response('not json', { status: 200 });
-            assert.strictEqual((await handler(request())).status, 502);
+            globalThis.fetch = async (url) => {
+                if (String(url).startsWith('https://script.google.com/')) return new Response('not json', { status: 200 });
+                return new Response(JSON.stringify({ ok: true }), { status: 200 });
+            };
+            assert.strictEqual((await proxyModule.handleProcessingRequest(workerRequest())).status, 502);
 
-            globalThis.fetch = async () => { throw new Error('connection timeout'); };
-            assert.strictEqual((await handler(request())).status, 503);
+            globalThis.fetch = async (url) => {
+                if (String(url).startsWith('https://script.google.com/')) throw new Error('connection timeout');
+                return new Response(JSON.stringify({ ok: true }), { status: 200 });
+            };
+            assert.strictEqual((await proxyModule.handleProcessingRequest(workerRequest())).status, 503);
         } finally {
             globalThis.fetch = previousFetch;
         }
@@ -230,9 +301,9 @@ module.exports = (async function runValTownProxyTests() {
             assert.strictEqual(response.status, 200);
             assert.strictEqual(calls.length, 2);
             assert.match(calls[0].url, /sendChatAction$/);
-            assert.ok(calls[1].url.startsWith('https://script.google.com/'));
             assert.strictEqual(JSON.parse(calls[0].options.body).action, 'typing');
-            assert.strictEqual(JSON.parse(await response.text()).method, 'sendMessage');
+            assert.strictEqual(await response.text(), 'ok');
+            assert.strictEqual(calls[1].url, 'https://example.val.run/__bff_process');
         } finally {
             globalThis.fetch = previousFetch;
         }
@@ -251,7 +322,7 @@ module.exports = (async function runValTownProxyTests() {
             return new Response(JSON.stringify({ ok: true }), { status: 200 });
         };
         try {
-            const response = await handler(request());
+            const response = await proxyModule.handleProcessingRequest(workerRequest());
             assert.strictEqual(response.status, 200);
             assert.ok(telegramPayloads.length > 1);
             assert.ok(telegramPayloads.every((payload) => payload.text.length <= 4096));

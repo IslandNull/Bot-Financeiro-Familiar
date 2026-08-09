@@ -62,9 +62,13 @@ Every event answers:
 - Invoice payments and internal transfers require an explicit preview confirmation. A semantically identical event repeated within two minutes also requires confirmation before mutation.
 - Safe spending, investment and amortization are blocked when an active non-card source has no balance, its latest balance is older than `BALANCE_FRESHNESS_DAYS` (default 7), or an upcoming invoice has no authority value. Exactly 7 days is valid; 8 days is stale.
 - Every copilot insight or pending-attention item carries evidence, confidence and privacy level. Missing evidence produces a blocker, not a guessed recommendation.
+- Conversational read planning may select only the allowlisted read-only investigations. The LLM may interpret intent, period, scope, category references and conservative text filters; deterministic code owns every value, percentage, confidence level, privacy decision and recommendation.
+- A read investigation uses one current `FinancialSnapshot` per message. Card purchases count as DRE spending and invoice payments do not. Personal/private launches are aggregate-only; only filtered `Familiar + detalhada` launches may provide date, category, description and value to the phrasing model.
+- Conversation continuity stores `topic`, `period`, `scope`, `entities` and `open_question` for 24 hours. Persisted message text is value-sanitized, and financial values are always re-read from Sheets.
+- “Minha/meu” financial scope requires a trusted `TELEGRAM_PERSON_MAP` entry or an explicit Gustavo/Luana answer. A received-income observation never creates or realizes income by assumption; it checks declaration, reconciliation and destination balance first.
 - Statement imports never treat transfers, invoice payments, card refunds/reversals, closed periods or ambiguous signs as safe automatic events.
 - OFX idempotency uses `file_unique_id + FITID`; CSV idempotency uses origin + date + signed value + normalized description. A possible manual duplicate stays outside the batch.
 - Only active import rules with `status_revisao=revisado` may include a transaction automatically. An AI category suggestion is non-binding and must be confirmed individually before a reviewed rule is saved.
 - Raw OFX/CSV bytes are transient: they are not written to Sheets, logs or Script Properties.
-- The LLM may parse text, phrase deterministic facts or suggest an import category. It never invents values, creates financial rules or authorizes spending/investment/amortization.
-- Standard copilot answers remain deterministic. Friendly LLM narration runs only after an explicit user action and may not introduce numbers or private details outside the deterministic payload.
+- The LLM may parse text, select allowlisted read investigations, phrase deterministic facts or suggest an import category. It never invents values, creates financial rules or authorizes spending/investment/amortization.
+- Conversational read answers may be phrased automatically from validated `EvidencePacket` values. Invalid output, timeout or unsupported recommendation falls back to the deterministic formatter without exposing a technical error.

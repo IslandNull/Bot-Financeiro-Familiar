@@ -322,6 +322,158 @@ function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
   return result;
 }
 
+function buildCopilotCategoryReferences_(categoryRows) {
+  return (categoryRows || []).filter(function(row) {
+    return row && row.ativo !== false && stringValue_(row.id_categoria);
+  }).slice().sort(function(left, right) {
+    return stringValue_(left.id_categoria) < stringValue_(right.id_categoria) ? -1 : 1;
+  }).map(function(row, index) {
+    var scope = stringValue_(row.escopo_padrao) || 'Familiar';
+    var visibility = stringValue_(row.visibilidade_padrao) || 'detalhada';
+    var privateCategory = scope !== 'Familiar' || visibility !== 'detalhada';
+    return {
+      ref: 'cat_' + String(index + 1),
+      id: stringValue_(row.id_categoria),
+      name: privateCategory ? 'Gastos pessoais privados' : (stringValue_(row.nome) || friendlyIdentifier_(row.id_categoria)),
+      group: privateCategory ? 'Pessoal privado' : stringValue_(row.grupo),
+      scope: scope,
+      visibility: visibility,
+      monthly_limit: numberFromSheetValue_(row.limite_mensal),
+      accumulates: row.acumula_sobra === true,
+    };
+  });
+}
+
+function readCopilotFinancialSnapshot_(config, plan, referenceData) {
+  var startedAt = new Date().getTime();
+  var runtimeCheck = verifyReportingRuntimeConfig_(config);
+  if (!runtimeCheck.ok) return runtimeCheck;
+  try {
+    var spreadsheet = referenceData && referenceData.__spreadsheet
+      ? referenceData.__spreadsheet
+      : SpreadsheetApp.openById(config.spreadsheetId);
+    var preloaded = referenceData && referenceData.__raw ? referenceData.__raw : {};
+    var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+    var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
+    var transferSheet = spreadsheet.getSheetByName(SHEETS.TRANSFERENCIAS_INTERNAS);
+    var assetSheet = spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS);
+    var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
+    var recurringIncomeSheet = spreadsheet.getSheetByName(SHEETS.RENDAS_RECORRENTES);
+    var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
+    var categorySheet = spreadsheet.getSheetByName(SHEETS.CONFIG_CATEGORIAS);
+    var cardSheet = spreadsheet.getSheetByName(SHEETS.CARTOES);
+    var sourceSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_FONTES);
+    var commitmentSheet = spreadsheet.getSheetByName(OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES);
+
+    verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+    verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS_RESUMO);
+    verifySheetHeaders_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS);
+    verifySheetHeaders_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
+    verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
+    verifySheetHeaders_(recurringIncomeSheet, SHEETS.RENDAS_RECORRENTES);
+    verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
+    verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
+    verifySheetHeaders_(cardSheet, SHEETS.CARTOES);
+    verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
+
+    var launches = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS).map(function(row) {
+      row.data = formatSheetDate_(row.data);
+      row.competencia = normalizeSheetCompetencia_(row.competencia);
+      return row;
+    });
+    var invoices = preloaded.invoices || readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS_RESUMO);
+    var transfers = readRowsAsObjects_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS).map(function(row) {
+      row.data = formatSheetDate_(row.data);
+      row.competencia = normalizeSheetCompetencia_(row.competencia);
+      return row;
+    });
+    var assets = preloaded.assets || readRowsAsObjects_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
+    var debts = preloaded.debts || readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS);
+    var recurringIncomes = readRowsAsObjects_(recurringIncomeSheet, SHEETS.RENDAS_RECORRENTES).map(function(row) {
+      row.revisado_em = formatSheetDate_(row.revisado_em);
+      return row;
+    });
+    var sourceBalances = (preloaded.sourceBalances || readRowsAsObjects_(sourceBalanceSheet, SHEETS.SALDOS_FONTES)).map(function(row) {
+      row.data_referencia = formatSheetDate_(row.data_referencia);
+      row.competencia = normalizeSheetCompetencia_(row.competencia);
+      return row;
+    });
+    var categoryRows = preloaded.categories || readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
+    var cardRows = preloaded.cards || readRowsAsObjects_(cardSheet, SHEETS.CARTOES);
+    var sourceRows = preloaded.sources || readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES);
+    var commitments = [];
+    if (commitmentSheet) {
+      verifyOptionalV56SheetHeaders_(commitmentSheet, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES);
+      commitments = readOptionalV56RowsAsObjects_(commitmentSheet, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES);
+    }
+
+    var categoriesById = indexBy_(categoryRows, 'id_categoria');
+    var cardsById = indexBy_(cardRows, 'id_cartao');
+    var sourcesById = indexBy_(sourceRows, 'id_fonte');
+    var reserveTarget = Number(config.essentialCostOfLife || 5000) * Number(config.reserveMonths || 3);
+    var competencias = BFFCore.competenciaRange(plan.period.start, plan.period.end, 60);
+    (plan.queries || []).forEach(function(query) {
+      (query.args && query.args.compare_competencias || []).forEach(function(competencia) {
+        if (competencias.indexOf(competencia) === -1) competencias.push(competencia);
+      });
+    });
+    var currentCompetencia = todaySaoPaulo_().slice(0, 7);
+    if (competencias.indexOf(currentCompetencia) === -1) competencias.push(currentCompetencia);
+
+    var summaries = {};
+    competencias.forEach(function(competencia) {
+      var competenceLaunches = launches.filter(function(row) { return row.competencia === competencia; });
+      var effectiveLaunches = competenceLaunches.filter(function(row) { return row.status === 'efetivado'; });
+      var scheduledIncomeLaunches = competenceLaunches.filter(function(row) {
+        return row.status === 'agendado' && row.tipo_evento === 'receita' && isMonthlyIncomeCategoryId_(row.id_categoria);
+      });
+      var competenceTransfers = transfers.filter(function(row) {
+        return row.competencia === competencia && row.escopo === 'Familiar';
+      });
+      var summary = computePilotFamilySummary_(competencia, effectiveLaunches, competenceTransfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget, commitments, scheduledIncomeLaunches);
+      if (competencia === currentCompetencia) {
+        var declaredIncomePeople = {};
+        scheduledIncomeLaunches.forEach(function(row) { declaredIncomePeople[stringValue_(row.pessoa)] = true; });
+        summary.pending_attention = BFFCore.buildPendingAttention({
+          today: todaySaoPaulo_(),
+          freshnessDays: config.balanceFreshnessDays,
+          sources: sourceRows,
+          balances: sourceBalances,
+          invoices: invoices,
+          assets: assets,
+          debts: debts,
+          goals: [],
+          commitments: commitments,
+          importRules: [],
+          recurringIncomes: recurringIncomes.filter(function(row) { return !declaredIncomePeople[stringValue_(row.pessoa)]; }),
+        });
+      }
+      summaries[competencia] = summary;
+    });
+
+    var snapshot = {
+      read_at: isoNow_(),
+      current_competencia: currentCompetencia,
+      launches: launches,
+      recurring_incomes: recurringIncomes,
+      source_balances: sourceBalances,
+      categories: buildCopilotCategoryReferences_(referenceData && referenceData.categories ? referenceData.categories : categoryRows),
+      closed_competencias: referenceData && referenceData.closedCompetencias ? referenceData.closedCompetencias.slice() : [],
+      summaries: summaries,
+      current_summary: summaries[currentCompetencia] || summaries[plan.period.end] || {},
+    };
+    logRuntimeTiming_('sheets_analyst_snapshot', startedAt, {
+      ok: true,
+      periods: competencias.length,
+      launches: launches.length,
+    });
+    return { ok: true, snapshot: snapshot, shouldApplyDomainMutation: false };
+  } catch (_err) {
+    logRuntimeTiming_('sheets_analyst_snapshot', startedAt, { ok: false });
+    return fail_('ANALYST_SNAPSHOT_READ_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+  }
+}
+
 function readCurrentPilotFamilySummaryInternal_(config, requestedCompetencia) {
   var runtimeCheck = verifyReportingRuntimeConfig_(config);
   if (!runtimeCheck.ok) return runtimeCheck;

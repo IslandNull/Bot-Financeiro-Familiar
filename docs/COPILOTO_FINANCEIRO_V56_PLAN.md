@@ -286,6 +286,20 @@ Acceptance:
 - Raw file bytes never enter logs, Sheets or Script Properties.
 - Reupload and boundary retries never duplicate launches or invoice exposure.
 
+### Phase 10 - Conversational Financial Analyst
+
+- Route natural messages as `read`, `write_handoff`, `clarify` or `help`; commands, callbacks and pending write flows keep precedence.
+- Execute up to four of six pure read investigations over one normalized `FinancialSnapshot`, returning evidence with basis, confidence, privacy, missing data and truncation.
+- Use at most two strict/store-false Responses calls. Every number and evidence reference is validated; unsupported financial advice and private/internal details force deterministic fallback.
+- Persist only value-sanitized message text plus structured 24-hour context. Resolve personal pronouns only through `TELEGRAM_PERSON_MAP` or explicit clarification.
+- Return the Telegram webhook immediately and process through an authenticated Val Town worker; Apps Script deduplicates `update_id` responses in cache without new Sheet rows.
+- Roll out behind `COPILOT_ANALYST_ENABLED=YES`; remove legacy free-read regex handlers only after the 20-query latency/quality pilot passes.
+
+Acceptance:
+- Pure and runtime tests cover all six queries, DRE/card/invoice semantics, private aggregation, 50-detail/12-month limits, schema/prompt injection, invented numbers, three-turn continuity and existing writes.
+- A 40-utterance Portuguese contract corpus is versioned; live planner evaluation must reach at least 95% before activation.
+- Production pilot requires 20 read queries with p95 at most 25 seconds and zero mutations/leaks.
+
 ### Future Epic - Direct Banking/Open Finance
 
 Do not start in V56 v1. Evaluate only after the copilot produces useful recommendations from current data.

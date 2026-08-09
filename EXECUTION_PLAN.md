@@ -2,7 +2,7 @@
 
 Operational authority for Bot Financeiro Familiar V56.
 
-## Current State (2026-08-04)
+## Current State (2026-08-09)
 
 ### VERIFIED locally
 
@@ -25,9 +25,10 @@ Operational authority for Bot Financeiro Familiar V56.
 - Nominal card due dates advance through weekends and Brazilian national banking holidays; authoritative invoice dates still prevail.
 - Telegram UX uses a compact home plus secondary menu, scannable emoji decision cards, contextual inline actions, immediate processing feedback, chunked long replies, guided `/configurar` onboarding and explicit previews for high-risk or recently duplicated events.
 - Telegram copy prioritizes situation, evidence, one next action and one guardrail; the edge adds safe HTML hierarchy only after escaping dynamic text.
-- Conversation context is isolated by chat and user, expires after 24 hours, and deterministic read questions bypass OpenAI when no contextual resolution is needed.
-- House-work questions deterministically aggregate the reviewed `Moradia` categories and compare monthly versus total commitment with confirmed income; receipt wording for already scheduled salary/extra income asks for a balance reconciliation instead of creating a duplicate launch.
-- Standard copilot output is deterministic; narration is opt-in. OpenAI calls use bounded transient retry, while static reference data uses a short cache and every slow boundary emits redacted timing telemetry.
+- V56 conversational reads are implemented behind `COPILOT_ANALYST_ENABLED=YES`: strict `AnalysisPlan`, one `FinancialSnapshot`, six deterministic investigations, validated `EvidencePacket` answers and deterministic fallback. Commands and writes keep their existing parser/`MutationPlan` authority.
+- Structured conversation context is isolated by chat/user for 24 hours; persisted message text is value-sanitized. `TELEGRAM_PERSON_MAP` is required to resolve personal pronouns without guessing.
+- House-work commitment computes DRE purchases/expenses excluding invoice payment and reports both effective and planned-income ratios, blocking incomplete bases. “Salário caiu” investigates declaration/reconciliation without creating income.
+- Val Town proxy now acknowledges Telegram immediately and invokes an authenticated internal worker; Apps Script caches sanitized results by `update_id` without Sheet rows. Versioned edge activation still waits for the normal main-branch workflow.
 - One natural monthly message can schedule net salary and separate extra income atomically with explicit date/account; it is final without a later receipt confirmation.
 - Monthly income uses deterministic private scheduled launches, supersedes that person's recurring templates for the competence and reconciles against a destination-account balance dated on/after receipt to prevent double counting.
 - Copilot and summary show confirmed monthly income, separate extra-income guidance and accurate “considered vs reconciled” wording; employer bank and portability are outside the model.
@@ -35,8 +36,9 @@ Operational authority for Bot Financeiro Familiar V56.
 ### Remote rollout state
 
 - VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 252 is published.
-- VERIFIED: runtime 252 contains the monthly-income flow, GPT-5.6 Luna migration and the income/house-work conversation correction; local validation passes and the Apps Script deployment API reports `ANYONE_ANONYMOUS`.
-- RISK: on 2026-08-09 Google returned HTTP 403 before runtime execution for the current and historical anonymous web-app deployments, so quick smoke could not validate runtime 252 despite the deployment configuration remaining anonymous.
+- VERIFIED: anonymous Apps Script HTTP execution recovered on 2026-08-09; quick smoke passed before the migration publish and again on runtime 254.
+- VERIFIED: runtime 254 contains the flagged conversational analyst. Its protected synthetic two-call smoke returned `read`, deterministic evidence, valid answer, `store=false` and zero mutation using `gpt-5.6-luna`.
+- UNVERIFIED: the new conversational analyst remains disabled until anonymous HTTP access is restored and the 20-query latency/quality pilot passes.
 - VERIFIED: production parser and narrator resolve to `gpt-5.6-luna`; protected synthetic Responses and financial-parser checks passed with `reasoning.effort=none`, strict structured output, `store=false` and no spreadsheet mutation.
 - VERIFIED: the Telegram UX redesign is live in Apps Script; quick/full read-only smokes pass and the sheet audit reports zero findings. Safe HTML hierarchy remains staged in the versioned Val Town proxy until merge to `main`.
 - VERIFIED: `Rendas_Recorrentes` was migrated append-only from 8 to 13 columns; the post-deploy dry-run reports `no_change` and the sheet audit has zero findings.
@@ -60,15 +62,18 @@ Operational authority for Bot Financeiro Familiar V56.
 
 ## Remaining release order
 
-1. Keep the PR draft until owner review is complete.
-2. Never merge automatically.
-3. After the owner merges, verify the Val Town workflow and signed edge smoke without exposing secrets.
+1. Configure `OPENAI_ANALYST_MODEL` and `TELEGRAM_PERSON_MAP` in Script Properties while keeping `COPILOT_ANALYST_ENABLED` disabled.
+2. Configure the Val Town `INTERNAL_WORKER_SECRET` before the owner merges; the existing main-branch workflow then publishes the asynchronous worker. Verify the signed edge smoke.
+3. Enable the analyst for the authorized-chat pilot, run 20 non-mutating reads, and require p95 ≤25 seconds plus ≥95% correct live corpus routing; disable again if either gate fails.
+4. After the pilot, keep automatic read routing enabled and remove legacy free-read regex handlers in a later verified batch. Never merge automatically.
 
 ## Runtime configuration
 
 Required Script Properties: `WEBHOOK_SECRET`, at least one authorization list, `SPREADSHEET_ID`, `OPENAI_API_KEY`, `PILOT_FINANCIAL_MUTATION_ENABLED`.
 
-Optional: `OPENAI_MODEL`, `OPENAI_PARSER_MODEL`, `OPENAI_NARRATOR_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`, `BALANCE_FRESHNESS_DAYS`, `COPILOT_DIGEST_ENABLED`, `COPILOT_ALERTS_ENABLED`, `COPILOT_NARRATOR_ENABLED`.
+Optional: `OPENAI_MODEL`, `OPENAI_PARSER_MODEL`, `OPENAI_NARRATOR_MODEL`, `OPENAI_ANALYST_MODEL`, `TELEGRAM_PERSON_MAP`, `COPILOT_ANALYST_ENABLED`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`, `BALANCE_FRESHNESS_DAYS`, `COPILOT_DIGEST_ENABLED`, `COPILOT_ALERTS_ENABLED`, `COPILOT_NARRATOR_ENABLED`.
+
+Val Town required for asynchronous delivery: `INTERNAL_WORKER_SECRET` and `TELEGRAM_BOT_TOKEN` in addition to the existing ingress/authorization variables.
 
 GitHub-only: `VAL_TOWN_API_KEY` secret and `VAL_TOWN_VAL` variable. Never commit their values.
 

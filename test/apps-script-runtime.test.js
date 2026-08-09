@@ -4752,7 +4752,7 @@ test('Apps Script conversation context persists a rolling 5-message window and c
     assert.strictEqual(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1, undefined);
 });
 
-test('Apps Script conversation context stores user and bot messages', () => {
+test('Apps Script conversation context stores sanitized user and bot messages without financial values', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'compra_cartao',
         data: '2026-04-30',
@@ -4782,9 +4782,10 @@ test('Apps Script conversation context stores user and bot messages', () => {
     const state = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1);
     assert.strictEqual(state.messages.length, 2);
     assert.strictEqual(state.messages[0].role, 'user');
-    assert.strictEqual(state.messages[0].text, 'farmacia 18 no nubank');
+    assert.strictEqual(state.messages[0].text, 'farmacia [n] no nubank');
     assert.strictEqual(state.messages[1].role, 'bot');
     assert.match(state.messages[1].text, /Compra no cart/);
+    assert.doesNotMatch(JSON.stringify(state.messages), /\b18\b|R\$/);
 });
 
 test('Apps Script guided registration resumes pending expense when user replies with source only', () => {
@@ -7052,6 +7053,39 @@ test('Apps Script OpenAI selftest validates configured Luna once without spreads
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
 });
 
+test('Apps Script synthetic conversational analyst selftest validates both model calls without Sheets mutation', () => {
+    const planner = {
+        route: 'read', period: { start: '2026-04', end: '2026-04' }, scope: 'Gustavo',
+        queries: [{ id: 'q1', kind: 'spending_analysis', args: { category_refs: ['cat_1'], groups: ['Moradia'], terms: ['obra'], compare_competencias: [], focus: 'comprometimento da renda', person: 'Gustavo' } }],
+        assumptions: [], clarification: '',
+        context_update: { topic: 'obra da casa', period: '2026-04', scope: 'Gustavo', entities: ['Moradia'], open_question: '' },
+    };
+    const answer = {
+        answer: 'A base sintética foi analisada com evidência determinística.',
+        evidence_ids: ['q1'], confidence: 'medium', assumptions: [], missing_data: [],
+        next_action: 'Revise a base sintética.',
+    };
+    const requests = [];
+    let spreadsheetOpenCount = 0;
+    const { context, sheets } = createAppsScriptHarness(null, {
+        openAiEvents: [planner, answer],
+        onOpenAiRequest(payload) { requests.push(payload); },
+        onSpreadsheetOpen() { spreadsheetOpenCount += 1; },
+    });
+
+    const result = runRemoteAction(context, 'copilot_analyst_selftest');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(result.route, 'read');
+    assert.deepStrictEqual(result.query_kinds, ['spending_analysis']);
+    assert.strictEqual(result.answer_valid, true);
+    assert.strictEqual(requests.length, 2);
+    assert.strictEqual(spreadsheetOpenCount, 0);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+});
+
 test('Apps Script accepts one final natural message for monthly salary and extra income', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
     const result = postPilotMessage(
@@ -7190,6 +7224,227 @@ test('Apps Script treats income receipt wording as reconciliation context and ne
     assert.strictEqual(salaryOnly.shouldApplyDomainMutation, false);
     assert.match(salaryOnly.responseText, /já estava programada/);
     assert.doesNotMatch(salaryOnly.responseText, /Não entendi o valor/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, rowsBefore);
+});
+
+test('Apps Script conversational analyst plans read-only evidence and answers without a mutation', () => {
+    const planner = {
+        route: 'read',
+        period: { start: '2026-04', end: '2026-04' },
+        scope: 'Gustavo',
+        queries: [
+            {
+                id: 'q1',
+                kind: 'spending_analysis',
+                args: { category_refs: [], groups: ['Moradia'], terms: ['obra', 'reforma'], compare_competencias: [], focus: 'comprometimento da renda', person: 'Gustavo' },
+            },
+            {
+                id: 'q2',
+                kind: 'income_status',
+                args: { category_refs: [], groups: [], terms: [], compare_competencias: [], focus: 'renda do mês', person: 'Gustavo' },
+            },
+        ],
+        assumptions: ['Obra corresponde ao grupo Moradia e aos termos informados.'],
+        clarification: '',
+        context_update: { topic: 'obra da casa', period: '2026-04', scope: 'Gustavo', entities: ['Moradia'], open_question: '' },
+    };
+    const answer = {
+        answer: 'As despesas de obra somam R$ 900,00 e representam 20,5% da renda prevista ou declarada de R$ 4.400,00.',
+        evidence_ids: ['q1', 'q2'],
+        confidence: 'medium',
+        assumptions: ['Considerei o grupo Moradia e descrições relacionadas a obra.'],
+        missing_data: ['A renda ainda não foi conciliada por um saldo posterior ao recebimento.'],
+        next_action: 'Envie o saldo disponível atual da conta de destino para reconciliar a renda.',
+    };
+    const followupEvents = [
+        {
+            route: 'read', period: { start: '2026-03', end: '2026-03' }, scope: 'Gustavo',
+            queries: [{ id: 'q1', kind: 'spending_analysis', args: { category_refs: [], groups: ['Moradia'], terms: ['obra'], compare_competencias: [], focus: 'mês anterior', person: 'Gustavo' } }],
+            assumptions: [], clarification: '',
+            context_update: { topic: 'obra da casa', period: '2026-03', scope: 'Gustavo', entities: ['Moradia'], open_question: '' },
+        },
+        { answer: 'Considerei o mês anterior com a mesma base de obra.', evidence_ids: ['q1'], confidence: 'medium', assumptions: [], missing_data: [], next_action: 'Revise os lançamentos familiares incluídos.' },
+        {
+            route: 'read', period: { start: '2026-04', end: '2026-04' }, scope: 'Familiar',
+            queries: [{ id: 'q1', kind: 'spending_analysis', args: { category_refs: [], groups: ['Moradia'], terms: [], compare_competencias: [], focus: 'despesas da casa', person: '' } }],
+            assumptions: [], clarification: '',
+            context_update: { topic: 'despesas da casa', period: '2026-04', scope: 'Familiar', entities: ['Moradia'], open_question: '' },
+        },
+        { answer: 'Agora considerei somente as despesas familiares da casa.', evidence_ids: ['q1'], confidence: 'high', assumptions: [], missing_data: [], next_action: 'Revise os itens familiares selecionados.' },
+        {
+            route: 'read', period: { start: '2026-04', end: '2026-04' }, scope: 'Gustavo',
+            queries: [{ id: 'q1', kind: 'spending_analysis', args: { category_refs: [], groups: ['Moradia'], terms: [], compare_competencias: [], focus: 'quanto representa da renda', person: 'Gustavo' } }],
+            assumptions: [], clarification: '',
+            context_update: { topic: 'comprometimento da renda com despesas da casa', period: '2026-04', scope: 'Gustavo', entities: ['Moradia', 'renda'], open_question: '' },
+        },
+        { answer: 'Essas despesas representam 20,5% da renda prevista ou declarada de R$ 4.400,00.', evidence_ids: ['q1'], confidence: 'medium', assumptions: [], missing_data: [], next_action: 'Envie o saldo atual para melhorar a conciliação.' },
+    ];
+    const requests = [];
+    let spreadsheetOpenCount = 0;
+    const { context, sheets } = createAppsScriptHarness(null, {
+        openAiEvents: [planner, answer].concat(followupEvents),
+        onOpenAiRequest(payload) { requests.push(payload); },
+        onSpreadsheetOpen() { spreadsheetOpenCount += 1; },
+        properties: {
+            COPILOT_ANALYST_ENABLED: 'YES',
+            OPENAI_ANALYST_MODEL: 'gpt-5.6-luna',
+            TELEGRAM_PERSON_MAP: JSON.stringify({ user_1: 'Gustavo' }),
+        },
+    });
+    sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => ({
+        id_categoria: 'OPEX_MORADIA_MANUTENCAO',
+        nome: 'Manutenção e melhorias da casa',
+        grupo: 'Moradia',
+        tipo_evento_padrao: 'compra_cartao',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Familiar',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: false,
+        visibilidade_padrao: 'detalhada',
+        ativo: true,
+    })[header] ?? ''));
+    sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => ({
+        id_categoria: 'OPEX_PRIVADO_SENSIVEL',
+        nome: 'Descrição pessoal proibida no prompt',
+        grupo: 'Pessoal',
+        tipo_evento_padrao: 'despesa',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        visibilidade_padrao: 'privada',
+        ativo: true,
+    })[header] ?? ''));
+    const income = postPilotMessage(
+        context,
+        'Meu salário será 3500,00 e a renda extra 900,00; ambos depositados em 30/04 no Mercado Pago.',
+        { updateId: 'analyst-income', messageId: 'analyst-income' },
+    );
+    assert.strictEqual(income.ok, true);
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_ANALYST_HOUSE_CARD', data: '2026-04-30', competencia: '2026-04',
+        tipo_evento: 'compra_cartao', id_categoria: 'OPEX_MORADIA_MANUTENCAO', valor: 600,
+        afeta_caixa_familiar: false, parcelas: 3, descricao: 'material da obra',
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_ANALYST_HOUSE_SERVICE', data: '2026-04-30', competencia: '2026-04',
+        id_categoria: 'OPEX_MORADIA_MANUTENCAO', valor: 300, descricao: 'serviço da casa',
+    });
+    const rowsBefore = sheets.Lancamentos.rows.length;
+    spreadsheetOpenCount = 0;
+
+    const result = postPilotMessage(
+        context,
+        'Quanto da minha renda está comprometida por coisas de obra da casa?',
+        { updateId: 'analyst-question', messageId: 'analyst-question' },
+    );
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /R\$ 900,00/);
+    assert.match(result.responseText, /20,5%/);
+    assert.match(result.responseText, /saldo disponível atual/i);
+    assert.strictEqual(sheets.Lancamentos.rows.length, rowsBefore);
+    assert.strictEqual(requests.length, 2);
+    assert.strictEqual(requests[0].text.format.name, 'financial_analysis_plan');
+    assert.strictEqual(requests[0].text.format.strict, true);
+    assert.strictEqual(requests[0].text.format.schema.properties.queries.maxItems, 4);
+    assert.match(requests[0].input, /untrusted financial intent/);
+    assert.deepStrictEqual(requests[0].reasoning, { effort: 'low' });
+    assert.strictEqual(requests[1].text.format.name, 'financial_copilot_answer');
+    assert.strictEqual(requests[1].text.format.strict, true);
+    assert.deepStrictEqual(requests[1].reasoning, { effort: 'none' });
+    assert.strictEqual(requests[0].store, false);
+    assert.strictEqual(requests[1].store, false);
+    assert.doesNotMatch(requests[0].input, /Descrição pessoal proibida/);
+    assert.match(requests[0].input, /Gastos pessoais privados/);
+    assert.strictEqual(spreadsheetOpenCount, 1);
+    const state = context.readConversationState_('chat_1', 'user_1');
+    assert.strictEqual(state.analysis_context.topic, 'obra da casa');
+    assert.strictEqual(state.analysis_context.scope, 'Gustavo');
+    assert.doesNotMatch(JSON.stringify(state.messages), /900|20[,.]5|4[.]?400/);
+
+    const previousMonth = postPilotMessage(context, 'E no mês passado?', { updateId: 'analyst-followup-1', messageId: 'analyst-followup-1' });
+    const familyOnly = postPilotMessage(context, 'Só as despesas da casa', { updateId: 'analyst-followup-2', messageId: 'analyst-followup-2' });
+    const incomeShare = postPilotMessage(context, 'Quanto isso representa da renda?', { updateId: 'analyst-followup-3', messageId: 'analyst-followup-3' });
+    assert.match(previousMonth.responseText, /mês anterior/);
+    assert.match(familyOnly.responseText, /somente as despesas familiares/);
+    assert.match(incomeShare.responseText, /20,5%/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, rowsBefore);
+    assert.strictEqual(requests.length, 8);
+    assert.match(requests[2].input, /"topic":"obra da casa"/);
+    assert.doesNotMatch(requests[2].input, /900|4[.]?400|20[,.]5/);
+});
+
+test('Apps Script conversational analyst understands bare income receipt and requests only reconciliation data', () => {
+    const planner = {
+        route: 'read', period: { start: '2026-04', end: '2026-04' }, scope: 'Gustavo',
+        queries: [{
+            id: 'q1', kind: 'income_status',
+            args: { category_refs: [], groups: [], terms: [], compare_competencias: [], focus: 'recebimento de salário', person: 'Gustavo' },
+        }],
+        assumptions: [], clarification: '',
+        context_update: { topic: 'renda recebida', period: '2026-04', scope: 'Gustavo', entities: ['salário'], open_question: 'saldo atual da conta' },
+    };
+    const answer = {
+        answer: 'Entendi que o salário caiu. A renda declarada ainda aguarda conciliação pelo saldo da conta.',
+        evidence_ids: ['q1'], confidence: 'medium', assumptions: [],
+        missing_data: ['Falta um saldo da conta de destino posterior ao recebimento.'],
+        next_action: 'Envie somente o saldo disponível atual e o nome da conta.',
+    };
+    const { context, sheets } = createAppsScriptHarness(null, {
+        openAiEvents: [planner, answer],
+        properties: {
+            COPILOT_ANALYST_ENABLED: 'YES',
+            TELEGRAM_PERSON_MAP: JSON.stringify({ user_1: 'Gustavo' }),
+        },
+    });
+    const scheduled = postPilotMessage(
+        context,
+        'Meu salário será 3500,00 e a renda extra 900,00; ambos depositados em 30/04 no Mercado Pago.',
+        { updateId: 'analyst-receipt-income', messageId: 'analyst-receipt-income' },
+    );
+    assert.strictEqual(scheduled.ok, true);
+    const rowsBefore = sheets.Lancamentos.rows.length;
+
+    const result = postPilotMessage(context, 'Salário caiu', { updateId: 'analyst-receipt', messageId: 'analyst-receipt' });
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Entendi que o salário caiu/);
+    assert.match(result.responseText, /somente o saldo disponível atual/i);
+    assert.doesNotMatch(result.responseText, /Não entendi o valor/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, rowsBefore);
+});
+
+test('Apps Script worker update deduplication returns the cached sanitized response without reprocessing', () => {
+    const { context } = createAppsScriptHarness(null, { failOnFetch: true });
+    const options = {
+        updateId: 'worker-dedupe-1',
+        messageId: 'worker-dedupe-message-1',
+        headers: { 'x-bff-worker-request': '1' },
+    };
+    const first = postPilotMessage(context, '/help', options);
+    const second = postPilotMessage(context, '/help', options);
+
+    assert.strictEqual(first.ok, true);
+    assert.deepStrictEqual(second, first);
+    assert.doesNotMatch(JSON.stringify(second), /test_secret|test_openai_key|sheet_1/);
+});
+
+test('Apps Script conversational analyst fails closed with a natural deterministic response when planning is invalid', () => {
+    const { context, sheets } = createAppsScriptHarness({ mutation: { delete: true } }, {
+        properties: {
+            COPILOT_ANALYST_ENABLED: 'YES',
+            TELEGRAM_PERSON_MAP: JSON.stringify({ user_1: 'Gustavo' }),
+        },
+    });
+    const rowsBefore = sheets.Lancamentos.rows.length;
+    const result = postPilotMessage(context, 'Meu salário caiu', { updateId: 'analyst-invalid-plan', messageId: 'analyst-invalid-plan' });
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Nenhum dado foi alterado/);
+    assert.doesNotMatch(result.responseText, /Não entendi o valor/);
     assert.strictEqual(sheets.Lancamentos.rows.length, rowsBefore);
 });
 

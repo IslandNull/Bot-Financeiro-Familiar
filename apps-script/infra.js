@@ -22,10 +22,13 @@ function readConfig_() {
     openAiModel: legacyOpenAiModel,
     openAiParserModel: props.getProperty('OPENAI_PARSER_MODEL') || legacyOpenAiModel,
     openAiNarratorModel: props.getProperty('OPENAI_NARRATOR_MODEL') || legacyOpenAiModel,
+    openAiAnalystModel: props.getProperty('OPENAI_ANALYST_MODEL') || legacyOpenAiModel,
     telegramBotToken: props.getProperty('TELEGRAM_BOT_TOKEN') || '',
     copilotDigestEnabled: props.getProperty('COPILOT_DIGEST_ENABLED') === 'YES',
     copilotAlertsEnabled: props.getProperty('COPILOT_ALERTS_ENABLED') === 'YES',
     copilotNarratorEnabled: props.getProperty('COPILOT_NARRATOR_ENABLED') === 'YES',
+    copilotAnalystEnabled: props.getProperty('COPILOT_ANALYST_ENABLED') === 'YES',
+    telegramPersonMap: parseTelegramPersonMap_(props.getProperty('TELEGRAM_PERSON_MAP')),
     essentialCostOfLife: essentialCostOfLife,
     reserveMonths: reserveMonths,
     balanceFreshnessDays: balanceFreshnessDays,
@@ -95,6 +98,23 @@ function readRuntimeReferenceData_(config) {
   return result;
 }
 
+function parseTelegramPersonMap_(value) {
+  var parsed = parseJsonSafe_(value || '{}');
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  return Object.keys(parsed).reduce(function(result, key) {
+    var person = stringValue_(parsed[key]);
+    if (person === 'Gustavo' || person === 'Luana') result[String(key)] = person;
+    return result;
+  }, {});
+}
+
+function telegramPersonForUser_(config, userId) {
+  var map = config && config.telegramPersonMap && typeof config.telegramPersonMap === 'object'
+    ? config.telegramPersonMap
+    : {};
+  return map[String(userId || '')] || '';
+}
+
 function readRuntimeReferenceDataInternal_(config) {
   try {
     var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
@@ -107,14 +127,20 @@ function readRuntimeReferenceDataInternal_(config) {
     var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
     var closingSheet = spreadsheet.getSheetByName(SHEETS.FECHAMENTO_FAMILIAR);
     var staticReferences = readStaticReferenceCache_();
+    var rawCategoryRows = null;
+    var rawSourceRows = null;
+    var rawCardRows = null;
     if (!staticReferences) {
       verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
       verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
       verifySheetHeaders_(cardSheet, SHEETS.CARTOES);
+      rawCategoryRows = readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
+      rawSourceRows = readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES);
+      rawCardRows = readRowsAsObjects_(cardSheet, SHEETS.CARTOES);
       staticReferences = {
-        categories: readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS).filter(function(row) { return row.ativo === true; }),
-        sources: readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES).filter(function(row) { return row.ativo === true; }),
-        cards: readRowsAsObjects_(cardSheet, SHEETS.CARTOES).filter(function(row) { return row.ativo === true; }),
+        categories: rawCategoryRows.filter(function(row) { return row.ativo === true; }),
+        sources: rawSourceRows.filter(function(row) { return row.ativo === true; }),
+        cards: rawCardRows.filter(function(row) { return row.ativo === true; }),
       };
       writeStaticReferenceCache_(staticReferences);
     }
@@ -127,11 +153,14 @@ function readRuntimeReferenceDataInternal_(config) {
     var categories = staticReferences.categories || [];
     var sources = staticReferences.sources || [];
     var cards = staticReferences.cards || [];
-    var invoices = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS_RESUMO).filter(function(row) {
+    var rawInvoiceRows = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS_RESUMO);
+    var rawAssetRows = readRowsAsObjects_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
+    var rawDebtRows = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS);
+    var invoices = rawInvoiceRows.filter(function(row) {
       return ['prevista', 'fechada', 'parcialmente_paga'].indexOf(row.status) !== -1;
     });
-    var assets = readRowsAsObjects_(assetSheet, SHEETS.PATRIMONIO_ATIVOS).filter(function(row) { return row.ativo === true; });
-    var debts = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS).filter(function(row) {
+    var assets = rawAssetRows.filter(function(row) { return row.ativo === true; });
+    var debts = rawDebtRows.filter(function(row) {
       return ['ativa', 'em_aberto', 'renegociada'].indexOf(row.status) !== -1;
     });
     var sourceBalances = readRowsAsObjects_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
@@ -159,6 +188,16 @@ function readRuntimeReferenceDataInternal_(config) {
       invoicesById: indexBy_(invoices, 'id_fatura'),
       assetsById: indexBy_(assets, 'id_ativo'),
       debtsById: indexBy_(debts, 'id_divida'),
+      __spreadsheet: spreadsheet,
+      __raw: {
+        categories: rawCategoryRows,
+        sources: rawSourceRows,
+        cards: rawCardRows,
+        invoices: rawInvoiceRows,
+        assets: rawAssetRows,
+        debts: rawDebtRows,
+        sourceBalances: sourceBalances,
+      },
     };
   } catch (_err) {
     return fail_('CONFIG_READ_FAILED', 'config', GENERIC_RECORD_FAILURE);
@@ -188,6 +227,45 @@ function invalidateStaticReferenceCache_() {
     CacheService.getScriptCache().remove('BFF_STATIC_REFERENCE_V1');
   } catch (_err) {
     // Cache is an optimization only.
+  }
+}
+
+function telegramUpdateCacheKey_(update) {
+  var updateId = update && update.update_id;
+  if (updateId === undefined || updateId === null || String(updateId).trim() === '') return '';
+  return 'BFF_TG_RESPONSE_' + String(updateId).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
+}
+
+function beginTelegramUpdateProcessing_(update) {
+  var key = telegramUpdateCacheKey_(update);
+  if (!key) return { process: true, key: '' };
+  var cache = CacheService.getScriptCache();
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  try {
+    locked = lock.tryLock(2000);
+    if (!locked) return { process: false, key: key };
+    var cached = cache.get(key);
+    if (cached && cached.indexOf('done:') === 0) {
+      var parsed = parseJsonSafe_(cached.slice(5));
+      if (parsed && typeof parsed === 'object') return { cached: true, process: false, key: key, result: parsed };
+    }
+    if (cached === 'processing') return { process: false, key: key };
+    cache.put(key, 'processing', 60);
+    return { process: true, key: key };
+  } catch (_err) {
+    return { process: true, key: '' };
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+function finishTelegramUpdateProcessing_(key, result) {
+  if (!key || !result) return;
+  try {
+    CacheService.getScriptCache().put(key, 'done:' + JSON.stringify(result), 600);
+  } catch (_err) {
+    // Cache is best-effort and never changes financial meaning.
   }
 }
 
@@ -242,6 +320,27 @@ function fetchOpenAIResponseWithRetry_(payload, config, stage) {
   });
   if (lastResponse) return lastResponse;
   throw lastError || new Error('OPENAI_FETCH_FAILED');
+}
+
+function fetchOpenAIResponseOnce_(payload, config, stage) {
+  var startedAt = new Date().getTime();
+  var response;
+  try {
+    response = UrlFetchApp.fetch(OPENAI_RESPONSES_URL, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + config.openAiApiKey },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+    });
+    return response;
+  } finally {
+    logRuntimeTiming_('openai_' + stringValue_(stage || 'request'), startedAt, {
+      attempts: 1,
+      status: response ? response.getResponseCode() : 0,
+      ok: Boolean(response && response.getResponseCode() >= 200 && response.getResponseCode() < 300),
+    });
+  }
 }
 
 function openAiRetryDelayMs_(response, attempt) {
