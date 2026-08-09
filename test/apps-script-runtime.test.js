@@ -7084,6 +7084,115 @@ test('Apps Script accepts one final natural message for monthly salary and extra
     assert.ok(scheduled.some((row) => row.id_categoria === 'REC_RENDA_EXTRA'));
 });
 
+test('Apps Script answers house-work income commitment with deterministic monthly and total ratios', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    [
+        {
+            id_categoria: 'OPEX_MORADIA_MANUTENCAO',
+            nome: 'Manutenção e melhorias da casa',
+            grupo: 'Moradia',
+            tipo_evento_padrao: 'compra_cartao',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: false,
+            visibilidade_padrao: 'detalhada',
+            ativo: true,
+        },
+        {
+            id_categoria: 'OPEX_CASA_DOCUMENTACAO_SERVICOS',
+            nome: 'Serviços e documentação da casa',
+            grupo: 'Moradia',
+            tipo_evento_padrao: 'despesa',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'detalhada',
+            ativo: true,
+        },
+    ].forEach((category) => {
+        sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => category[header] ?? ''));
+    });
+    const income = postPilotMessage(
+        context,
+        'Meu salário será 3500,00 e a renda extra 900,00; ambos depositados em 30/04 no Mercado Pago.',
+        { updateId: 'house-income', messageId: 'house-income' },
+    );
+    assert.strictEqual(income.ok, true);
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_HOUSE_CARD',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_MORADIA_MANUTENCAO',
+        valor: 600,
+        afeta_caixa_familiar: false,
+        parcelas: 3,
+        descricao: 'material da obra',
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_HOUSE_SERVICE',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        id_categoria: 'OPEX_CASA_DOCUMENTACAO_SERVICOS',
+        valor: 300,
+        descricao: 'serviço da casa',
+    });
+
+    const result = postPilotMessage(
+        context,
+        'Quanto da minha renda está comprometida por coisas de obra da casa?',
+        { updateId: 'house-question', messageId: 'house-question' },
+    );
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Obra e moradia/);
+    assert.match(result.responseText, /Impacto previsto neste mês: R\$ 500,00/);
+    assert.match(result.responseText, /Compromisso total assumido: R\$ 900,00/);
+    assert.match(result.responseText, /Neste mês: 11,4%/);
+    assert.match(result.responseText, /Total assumido: 20,5%/);
+    assert.doesNotMatch(result.responseText, /Reserva e liquidez/);
+});
+
+test('Apps Script treats income receipt wording as reconciliation context and never duplicates scheduled income', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const scheduled = postPilotMessage(
+        context,
+        'Meu salário será 3500,00 e a renda extra 900,00; ambos depositados em 30/04 no Mercado Pago.',
+        { updateId: 'receipt-schedule', messageId: 'receipt-schedule' },
+    );
+    assert.strictEqual(scheduled.ok, true);
+    const rowsBefore = sheets.Lancamentos.rows.length;
+
+    const both = postPilotMessage(
+        context,
+        'Meu salario e renda variável já caíram na conta',
+        { updateId: 'receipt-both', messageId: 'receipt-both' },
+    );
+    assert.strictEqual(both.ok, true);
+    assert.strictEqual(both.shouldApplyDomainMutation, false);
+    assert.match(both.responseText, /Recebimento entendido/);
+    assert.match(both.responseText, /Não criei outro lançamento/);
+    assert.match(both.responseText, /saldo disponível atual/);
+    assert.match(both.responseText, /sem contar duas vezes/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, rowsBefore);
+
+    const salaryOnly = postPilotMessage(
+        context,
+        'Salario caiu',
+        { updateId: 'receipt-salary', messageId: 'receipt-salary' },
+    );
+    assert.strictEqual(salaryOnly.ok, true);
+    assert.strictEqual(salaryOnly.shouldApplyDomainMutation, false);
+    assert.match(salaryOnly.responseText, /já estava programada/);
+    assert.doesNotMatch(salaryOnly.responseText, /Não entendi o valor/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, rowsBefore);
+});
+
 test('Apps Script monthly income response keeps component values private in group chat', () => {
     const { context } = createAppsScriptHarness(null, { failOnFetch: true });
     const result = postPilotMessage(

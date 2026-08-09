@@ -26,6 +26,7 @@ Operational authority for Bot Financeiro Familiar V56.
 - Telegram UX uses a compact home plus secondary menu, scannable emoji decision cards, contextual inline actions, immediate processing feedback, chunked long replies, guided `/configurar` onboarding and explicit previews for high-risk or recently duplicated events.
 - Telegram copy prioritizes situation, evidence, one next action and one guardrail; the edge adds safe HTML hierarchy only after escaping dynamic text.
 - Conversation context is isolated by chat and user, expires after 24 hours, and deterministic read questions bypass OpenAI when no contextual resolution is needed.
+- House-work questions deterministically aggregate the reviewed `Moradia` categories and compare monthly versus total commitment with confirmed income; receipt wording for already scheduled salary/extra income asks for a balance reconciliation instead of creating a duplicate launch.
 - Standard copilot output is deterministic; narration is opt-in. OpenAI calls use bounded transient retry, while static reference data uses a short cache and every slow boundary emits redacted timing telemetry.
 - One natural monthly message can schedule net salary and separate extra income atomically with explicit date/account; it is final without a later receipt confirmation.
 - Monthly income uses deterministic private scheduled launches, supersedes that person's recurring templates for the competence and reconciles against a destination-account balance dated on/after receipt to prevent double counting.
@@ -33,13 +34,14 @@ Operational authority for Bot Financeiro Familiar V56.
 
 ### Remote rollout state
 
-- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 251 is published.
-- VERIFIED: runtime 251 contains the monthly-income flow and GPT-5.6 Luna migration; quick/full remote smokes pass and the live sheet audit has zero findings.
+- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 252 is published.
+- VERIFIED: runtime 252 contains the monthly-income flow, GPT-5.6 Luna migration and the income/house-work conversation correction; local validation passes and the Apps Script deployment API reports `ANYONE_ANONYMOUS`.
+- RISK: on 2026-08-09 Google returned HTTP 403 before runtime execution for the current and historical anonymous web-app deployments, so quick smoke could not validate runtime 252 despite the deployment configuration remaining anonymous.
 - VERIFIED: production parser and narrator resolve to `gpt-5.6-luna`; protected synthetic Responses and financial-parser checks passed with `reasoning.effort=none`, strict structured output, `store=false` and no spreadsheet mutation.
 - VERIFIED: the Telegram UX redesign is live in Apps Script; quick/full read-only smokes pass and the sheet audit reports zero findings. Safe HTML hierarchy remains staged in the versioned Val Town proxy until merge to `main`.
 - VERIFIED: `Rendas_Recorrentes` was migrated append-only from 8 to 13 columns; the post-deploy dry-run reports `no_change` and the sheet audit has zero findings.
 - VERIFIED: owner OAuth consent covers Spreadsheet, Properties, external requests and Apps Script trigger management.
-- VERIFIED: quick/full remote smoke pass; sheet audit has zero findings and the redacted snapshot is current.
+- VERIFIED before the current Google access failure: quick/full remote smoke passed, sheet audit had zero findings and the redacted snapshot was current.
 - VERIFIED: on 2026-07-31 the owner-authorized clean restart removed every data row from all 16 live sheets while preserving their schema headers; a private Drive recovery copy was created first.
 - VERIFIED: all 16 remaining sheets have a current runtime/schema/test consumer (13 required V55 plus 3 optional V56); no historical or orphan sheet remains safe to delete.
 - VERIFIED: pending-attention uses the 7-day default; alerts/import/digest previews pass and immediate alerts remain disabled.

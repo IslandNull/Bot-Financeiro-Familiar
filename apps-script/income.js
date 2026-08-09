@@ -58,6 +58,75 @@ function parseMonthlyIncomeDeclaration_(text, referenceData) {
   };
 }
 
+function buildMonthlyIncomeReceiptAcknowledgement_(text, config, referenceData, message) {
+  var normalized = normalizeAliasText_(text);
+  var mentionsSalary = containsAliasPhrase_(normalized, 'salario');
+  var mentionsExtra = containsAliasPhrase_(normalized, 'renda extra') ||
+    containsAliasPhrase_(normalized, 'renda variavel') ||
+    containsAliasPhrase_(normalized, 'remuneracao variavel');
+  var hasReceiptSignal = /\b(?:caiu|cairam|entrou|entraram|recebi|recebemos|creditado|creditada|creditados|creditadas)\b/.test(normalized);
+  if ((!mentionsSalary && !mentionsExtra) || !hasReceiptSignal) return null;
+
+  var result = readCurrentPilotFamilySummary_(config, '');
+  if (!result.ok) return result;
+  var summary = result.summary || {};
+  var declaredItems = (summary.rendas_previstas_detalhe || []).filter(function(item) {
+    if (stringValue_(item.id_renda).indexOf('LANR_') !== 0) return false;
+    if (mentionsSalary && stringValue_(item.tipo_renda) === 'salary') return true;
+    if (mentionsExtra && stringValue_(item.tipo_renda) === 'extra') return true;
+    return false;
+  });
+  if (!declaredItems.length) {
+    var hasExplicitIncomeAmount = (mentionsSalary && extractLabeledMonthlyIncomeAmount_(text, 'salary') > 0) ||
+      (mentionsExtra && extractLabeledMonthlyIncomeAmount_(text, 'extra') > 0);
+    if (hasExplicitIncomeAmount) return null;
+    return {
+      ok: false,
+      responseText: [
+        '⚠️ Não encontrei essa renda programada no mês.',
+        '',
+        'Para registrar sem adivinhar nem duplicar, informe valor, data e conta de destino.',
+        '',
+        'Exemplo:',
+        'Meu salário foi 3500,00 e a renda variável 900,00; ambos entraram hoje na conta Mercado Pago.',
+      ].join('\n'),
+      shouldApplyDomainMutation: false,
+    };
+  }
+
+  var allReconciled = declaredItems.every(function(item) { return item.reconciliado_por_saldo === true; });
+  var isGroup = message && message.chat && message.chat.type && message.chat.type !== 'private';
+  var sourceNames = [];
+  declaredItems.forEach(function(item) {
+    var source = (referenceData.sourcesById || {})[stringValue_(item.id_fonte)] || {};
+    var name = stringValue_(source.nome);
+    if (name && sourceNames.indexOf(name) === -1) sourceNames.push(name);
+  });
+  var total = roundMoney_(declaredItems.reduce(function(sum, item) {
+    return sum + numberFromSheetValue_(item.valor_planejado);
+  }, 0));
+  var lines = [
+    allReconciled ? '✅ Renda já conciliada' : '✅ Recebimento entendido',
+    '',
+    'A renda informada já estava programada e já entra na projeção.',
+    'Não criei outro lançamento.',
+  ];
+  if (!isGroup) lines.push('Valor programado relacionado: ' + formatMoney_(total) + '.');
+  if (allReconciled) {
+    lines.push('', 'O saldo da conta já absorveu esse recebimento; não há ação pendente.');
+  } else {
+    lines.push('', '🔄 Para conciliar com o caixa real');
+    lines.push('Envie o saldo disponível atual ' + (sourceNames.length === 1 && !isGroup ? 'da conta ' + sourceNames[0] : 'da conta de destino') + ' e a data na mesma frase.');
+    lines.push('Formato: saldo + conta + valor disponível + hoje/data.');
+    lines.push('', 'Sem o novo saldo, a renda continua como prevista. Com ele, o bot absorve o recebimento sem contar duas vezes.');
+  }
+  return {
+    ok: true,
+    responseText: lines.join('\n'),
+    shouldApplyDomainMutation: false,
+  };
+}
+
 function extractLabeledMonthlyIncomeAmount_(text, kind) {
   var amount = '(\\d{1,3}(?:\\.\\d{3})+(?:,\\d{1,2})?|\\d+(?:,\\d{1,2})?|\\d+\\.\\d{1,2})(?!\\d)';
   var label = kind === 'salary'

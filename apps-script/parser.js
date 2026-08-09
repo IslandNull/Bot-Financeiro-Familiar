@@ -125,6 +125,11 @@ function handleTelegramUpdate_(update, config) {
     return finishConversationTurn_(chatId, text, telegramResponseWithActions_(monthlyIncomeResult, 'summary'), conversation, null);
   }
 
+  var monthlyIncomeReceipt = buildMonthlyIncomeReceiptAcknowledgement_(text, config, referenceData, message);
+  if (monthlyIncomeReceipt) {
+    return finishConversationTurn_(chatId, text, telegramResponseWithActions_(monthlyIncomeReceipt, 'summary'), conversation, null);
+  }
+
   if (isSafeFinanceQuestion_(text) && !safeFinanceQuestionNeedsContextResolution_(text)) {
     return finishConversationTurn_(chatId, text, telegramResponseWithActions_(buildSafeFinanceQuestionResponse_(text, config, deterministicReadEvent_(text, referenceData)), 'summary'), conversation, null);
   }
@@ -1826,6 +1831,7 @@ function isSafeFinanceQuestion_(text) {
     containsAliasPhrase_(normalized, 'posso') ||
     normalized.indexOf('?') !== -1;
   if (!asks) return false;
+  if (isHouseWorkIncomeCommitmentQuestion_(normalized)) return true;
   return containsAliasPhrase_(normalized, 'custo de vida') ||
     containsAliasPhrase_(normalized, 'gasto mensal') ||
     containsAliasPhrase_(normalized, 'gastos do mes') ||
@@ -1854,10 +1860,32 @@ function isSafeFinanceQuestion_(text) {
     containsAliasPhrase_(normalized, 'liquidez');
 }
 
+function isHouseWorkIncomeCommitmentQuestion_(normalizedText) {
+  var normalized = normalizeAliasText_(normalizedText);
+  if (!normalized) return false;
+  var hasHouseWork = containsAliasPhrase_(normalized, 'obra') ||
+    containsAliasPhrase_(normalized, 'obras') ||
+    containsAliasPhrase_(normalized, 'reforma') ||
+    containsAliasPhrase_(normalized, 'reformas') ||
+    containsAliasPhrase_(normalized, 'moradia') ||
+    (containsAliasPhrase_(normalized, 'casa') && /\b(?:manutencao|melhoria|melhorias|construcao)\b/.test(normalized));
+  var asksCommitment = containsAliasPhrase_(normalized, 'renda') ||
+    containsAliasPhrase_(normalized, 'salario') ||
+    /\bcompromet\w*/.test(normalized);
+  return hasHouseWork && asksCommitment;
+}
+
 function buildSafeFinanceQuestionResponse_(text, config, event) {
   var result = readCurrentPilotFamilySummary_(config, '');
   if (!result.ok) return result;
   var normalized = normalizeAliasText_(text);
+  if (isHouseWorkIncomeCommitmentQuestion_(normalized)) {
+    return {
+      ok: true,
+      responseText: formatHouseWorkIncomeCommitmentAnswer_(result.summary),
+      shouldApplyDomainMutation: false,
+    };
+  }
   if (containsAliasPhrase_(normalized, 'posso comprar') ||
       containsAliasPhrase_(normalized, 'posso gastar') ||
       containsAliasPhrase_(normalized, 'assumir parcela')) {
@@ -2789,6 +2817,9 @@ function categoryMatchPhrases_(category) {
     OPEX_ROUPAS_GUSTAVO: ['roupa gustavo', 'roupas gustavo', 'vestuario gustavo', 'calcado gustavo'],
     OPEX_ROUPAS_LUANA: ['roupa luana', 'roupas luana', 'vestuario luana', 'calcado luana'],
     OPEX_TELEFONIA_INTERNET: ['telefone', 'telefonia', 'internet', 'celular'],
+    OPEX_MORADIA_MANUTENCAO: ['obra', 'obras', 'reforma', 'reformas', 'manutencao da casa', 'melhorias da casa', 'material de construcao'],
+    OPEX_MORADIA_AUTOMACAO_SEGURANCA: ['automacao da casa', 'seguranca da casa'],
+    OPEX_CASA_DOCUMENTACAO_SERVICOS: ['documentacao da casa', 'servicos da casa'],
     OPEX_TELEFONIA_GUSTAVO: ['telefone', 'telefonia', 'internet', 'celular'],
     OPEX_PET: ['pet', 'racao', 'draco', 'cachorro', 'gato', 'veterinario'],
     OPEX_CUSTO_REEMBOLSAVEL_CLIENTE: ['reembolsavel', 'cliente'],

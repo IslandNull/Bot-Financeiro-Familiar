@@ -493,9 +493,11 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
   var capacity = computePilotDecisionCapacity_(coverageBase, reservaTotal, faturas60d, obrigacoes60d, debts, reserveTarget);
 
   var categoriasDicionario = {};
+  var categoriasGrupos = {};
   if (categoriesById) {
     Object.keys(categoriesById).forEach(function(catId) {
       categoriasDicionario[catId] = categoriesById[catId].nome || catId;
+      categoriasGrupos[catId] = categoriesById[catId].grupo || '';
     });
   }
 
@@ -564,6 +566,7 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     saldos_fontes_detalhe: sourceBalanceSummary.saldos_fontes_detalhe,
     beneficios_detalhe: benefitBalances,
     categorias_dicionario: categoriasDicionario,
+    categorias_grupos: categoriasGrupos,
     margem_pos_obrigacoes: margemPosObrigacoes,
     capacidade_aporte_segura: capacity.capacidade_aporte_segura,
     parcela_maxima_segura: capacity.parcela_maxima_segura,
@@ -2566,6 +2569,63 @@ function formatCanSpendAnswer_(summary, text) {
     '',
     '🔎 Cenário conservador • confiança ' + (safe.has_balances ? 'alta' : 'média'),
   ].join('\n');
+}
+
+function formatHouseWorkIncomeCommitmentAnswer_(summary) {
+  function isHouseWorkCategory(item) {
+    var id = stringValue_(item && item.id_categoria);
+    var group = normalizeAliasText_((summary.categorias_grupos || {})[id]);
+    return group === 'moradia' ||
+      id === 'OPEX_MORADIA_MANUTENCAO' ||
+      id === 'OPEX_MORADIA_AUTOMACAO_SEGURANCA' ||
+      id === 'OPEX_CASA_DOCUMENTACAO_SERVICOS';
+  }
+  function sumCategories(items) {
+    return roundMoney_((items || []).reduce(function(sum, item) {
+      return isHouseWorkCategory(item) ? sum + numberFromSheetValue_(item.valor) : sum;
+    }, 0));
+  }
+  function percentage(part, total) {
+    if (!(total > 0)) return '';
+    return (Math.round((part / total) * 1000) / 10).toFixed(1).replace('.', ',') + '%';
+  }
+
+  var monthImpact = sumCategories(summary.categorias_previsao);
+  var totalCommitment = sumCategories(summary.categorias_gastos);
+  var income = numberFromSheetValue_(summary.renda_mensal_confirmada);
+  var incomeLabel = 'renda mensal declarada';
+  if (!(income > 0) && !(summary.rendas_previstas_bloqueadas || []).length) {
+    income = numberFromSheetValue_(summary.renda_caixa_planejada);
+    incomeLabel = 'renda mensal revisada';
+  }
+  if (!(income > 0)) {
+    income = numberFromSheetValue_(summary.receitas_dre);
+    incomeLabel = 'receita já efetivada no mês';
+  }
+
+  var lines = [
+    '🏠 Obra e moradia • ' + capitalize_(friendlyCompetencia_(summary.competencia)),
+    '',
+    '💰 Comprometimento',
+    '• Impacto previsto neste mês: ' + formatMoney_(monthImpact),
+    '• Compromisso total assumido: ' + formatMoney_(totalCommitment),
+  ];
+  if (income > 0) {
+    lines.push('• Renda usada na conta: ' + formatMoney_(income) + ' (' + incomeLabel + ')');
+    lines.push('');
+    lines.push('📊 Proporção da renda');
+    lines.push('• Neste mês: ' + percentage(monthImpact, income));
+    lines.push('• Total assumido: ' + percentage(totalCommitment, income) + ' de uma renda mensal');
+    lines.push('');
+    lines.push('Leitura: para decidir o que cabe agora, use primeiro o percentual deste mês.');
+  } else {
+    lines.push('');
+    lines.push('⚠️ Falta uma renda mensal confirmada ou revisada para calcular a porcentagem com confiança.');
+  }
+  lines.push('O total assumido inclui parcelas futuras; pagamento de fatura fica fora para não duplicar gasto.');
+  lines.push('');
+  lines.push('Base: lançamentos efetivados nas categorias cadastradas no grupo Moradia.');
+  return lines.join('\n');
 }
 
 function formatSafeToSpendAnswer_(summary) {
