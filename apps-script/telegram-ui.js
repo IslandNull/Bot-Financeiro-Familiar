@@ -252,6 +252,19 @@ function buildTelegramConfirmationView_(title, body, token, cancelData) {
   ]);
 }
 
+function buildTelegramDeletionConfirmationView_(targetLabel, token) {
+  return telegramView_([
+    'Confirmar exclusão',
+    '',
+    targetLabel,
+    '',
+    'O lançamento e os vínculos dele com a fatura serão removidos somente depois da confirmação.',
+  ].join('\n'), [
+    telegramCallbackButton_('Excluir lançamento', 'confirm:' + token),
+    telegramCallbackButton_('Cancelar', 'cancel:pending'),
+  ]);
+}
+
 function telegramAnswerCallbackAction_(callbackQueryId, text, showAlert) {
   return {
     method: 'answerCallbackQuery',

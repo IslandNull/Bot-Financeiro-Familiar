@@ -13,7 +13,7 @@ Operational authority for Bot Financeiro Familiar V56.
 - `npm run build:gas` bundles the pure `src/` core into ignored `apps-script/generated-core.js`; `clasp` includes the generated runtime.
 - Runtime writes use a deterministic `MutationPlan`, journal `processing -> completed/failed`, ID upserts, conflict blocking and retry reconciliation under one `LockService` operation.
 - Expense, generic launch, transfer, card purchase/installments, invoice exposure/payment, balances, assets, corrections and statement imports are covered by executable failure/retry tests.
-- Corrections validate the replacement first, keep closed periods blocked, journal replacement/deletions and physically remove the original and dependent invoice lines.
+- Corrections validate the replacement first, keep closed periods blocked, journal replacement/deletions and physically remove the original and dependent invoice lines. A selected correction also accepts `excluir`, but only an explicit second confirmation executes the journaled deletion and invoice reconciliation.
 - OpenAI parser and optional narrator use `gpt-5.6-luna` with Responses `json_schema`, `strict: true`, `store: false` and explicit `reasoning.effort=none`; role-specific properties still override through `OPENAI_PARSER_MODEL` and `OPENAI_NARRATOR_MODEL`, with legacy `OPENAI_MODEL` compatibility.
 - Deterministic pending-attention blocks safe spending, investment and amortization when any active cash source lacks a balance, a balance is older than 7 days, or an upcoming invoice lacks authority.
 - Weekly digest deduplicates by chat, ISO week and content hash; trigger setup is idempotent for Monday 08:00 `America/Sao_Paulo`.
@@ -36,12 +36,13 @@ Operational authority for Bot Financeiro Familiar V56.
 
 ### Remote rollout state
 
-- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 252 is published.
+- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 258 is published.
 - VERIFIED: anonymous Apps Script HTTP execution recovered on 2026-08-09; quick smoke passed before the migration publish and again on runtime 254.
 - VERIFIED: runtime 254 contains the flagged conversational analyst. Its protected synthetic two-call smoke returned `read`, deterministic evidence, valid answer, `store=false` and zero mutation using `gpt-5.6-luna`.
 - VERIFIED: runtime 256 defaults natural purchases to credit card, retains missing fields for 24 hours, accepts card/category-only follow-ups and deterministically resolves a single clear purpose such as drain/renovation material to house maintenance; quick smoke and the protected parser self-test passed after publish.
 - VERIFIED: runtime 257 separates card ownership from the purchase beneficiary; `lazer Luana` on Gustavo's card resolves to the active private `Lazer Luana` category, while family/couple wording remains family-scoped. Quick smoke passed after publish.
-- UNVERIFIED: the new conversational analyst remains disabled until anonymous HTTP access is restored and the 20-query latency/quality pilot passes.
+- VERIFIED: runtime 258 accepts `excluir` only after a transaction was selected for correction, asks for explicit confirmation and journal-reconciles linked invoice rows before completing the deletion; local boundary-retry coverage passed.
+- UNVERIFIED: the new conversational analyst remains disabled until the 20-query latency/quality pilot passes.
 - VERIFIED: production parser and narrator resolve to `gpt-5.6-luna`; protected synthetic Responses and financial-parser checks passed with `reasoning.effort=none`, strict structured output, `store=false` and no spreadsheet mutation.
 - VERIFIED: the Telegram UX redesign is live in Apps Script; quick/full read-only smokes pass and the sheet audit reports zero findings. Safe HTML hierarchy remains staged in the versioned Val Town proxy until merge to `main`.
 - VERIFIED: `Rendas_Recorrentes` was migrated append-only from 8 to 13 columns; the post-deploy dry-run reports `no_change` and the sheet audit has zero findings.

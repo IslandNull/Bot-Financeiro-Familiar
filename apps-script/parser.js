@@ -885,7 +885,7 @@ function handleTelegramTransactionSelectionCallback_(update, config, state, data
   writeConversationState_(chatId, state);
   return telegramCallbackViewResult_(callback, chatId, messageId, buildTelegramPendingTextView_(
     '✏️ Corrigir: ' + selected.label,
-    'Envie a nova descrição completa.\nExemplo: farmácia 50 hoje na conta família'
+    'Envie a nova descrição completa ou responda excluir para remover este lançamento.\nExemplo: farmácia 50 hoje na conta família'
   ), false);
 }
 
@@ -898,6 +898,9 @@ function handleTelegramConfirmationCallback_(update, config, state, data, chatId
   }
   if (pending.type === 'confirm_correction' && pending.token === token) {
     return applyGuidedCorrectionConfirmation_(update, config, state, chatId, messageId);
+  }
+  if (pending.type === 'confirm_deletion' && pending.token === token) {
+    return applyGuidedDeletionConfirmation_(update, config, state, chatId, messageId);
   }
   if (pending.type === 'confirm_event' && pending.token === token) {
     return applyPendingEventConfirmation_(update, config, state, chatId, messageId);
@@ -1372,6 +1375,33 @@ function handlePendingTelegramActionMessage_(update, message, text, config, conv
   var referenceData = readRuntimeReferenceData_(config);
   if (!referenceData.ok) return { handled: true, result: referenceData };
 
+  if (isSelectedCorrectionDeletionText_(text)) {
+    var deletionTargetId = action.payload && action.payload.target_id;
+    var deletionDryRun = inspectCorrectionTarget_(deletionTargetId, config, referenceData.closedCompetencias);
+    if (!deletionDryRun.ok) {
+      var deletionMessage = deletionDryRun.error === 'CLOSED_PERIOD'
+        ? 'Não é permitido excluir lançamentos de competências fechadas. Use um ajuste revisado com motivo.'
+        : 'Não foi possível validar a exclusão com segurança.';
+      return { handled: true, result: finishConversationTurn_(chatId, text, {
+        ok: false,
+        responseText: deletionMessage,
+        shouldApplyDomainMutation: false,
+      }, conversation, null) };
+    }
+    var deletionToken = shortPendingToken_('delete');
+    conversation.pending_action = newPendingAction_('confirm_deletion', {
+      target_id: deletionTargetId,
+      target_label: action.payload.target_label,
+    }, deletionToken);
+    var deletionView = buildTelegramDeletionConfirmationView_(action.payload.target_label, deletionToken);
+    return { handled: true, result: finishConversationTurn_(chatId, text, {
+      ok: true,
+      responseText: deletionView.text,
+      reply_markup: deletionView.reply_markup,
+      shouldApplyDomainMutation: false,
+    }, conversation, null) };
+  }
+
   var correctionParse = parseFinancialCorrectionWithOpenAI_(text, config, referenceData, conversation);
   if (!correctionParse.ok) {
     return { handled: true, result: finishConversationTurn_(chatId, text, correctionParse, conversation, null) };
@@ -1417,6 +1447,11 @@ function handlePendingTelegramActionMessage_(update, message, text, config, conv
     reply_markup: view.reply_markup,
     shouldApplyDomainMutation: false,
   }, conversation, null) };
+}
+
+function isSelectedCorrectionDeletionText_(text) {
+  var normalized = normalizeAliasText_(text);
+  return /^(?:(?:quero|pode|podemos|favor)\s+)?(?:excluir|exclua|apagar|apague|deletar|delete|remover|remova)(?:\s+(?:isso|este|esse|esta|essa|lancamento|compra|transacao))?$/.test(normalized);
 }
 
 function applyGuidedCorrectionConfirmation_(update, config, state, chatId, messageId) {
@@ -1469,6 +1504,64 @@ function applyGuidedCorrectionConfirmation_(update, config, state, chatId, messa
     telegramCallbackButton_('Lancar', TELEGRAM_CALLBACKS.launch),
     telegramCallbackButton_('🏠 Início', TELEGRAM_CALLBACKS.home),
   ]), true);
+}
+
+function applyGuidedDeletionConfirmation_(update, config, state, chatId, messageId) {
+  var callback = update.callback_query || {};
+  var action = state.pending_action || {};
+  var payload = action.payload || {};
+  var referenceData = readRuntimeReferenceData_(config);
+  if (!referenceData.ok) return telegramCallbackViewResultFromResponse_(callback, chatId, messageId, referenceData);
+
+  var requestMessage = {
+    message_id: messageId,
+    chat: { id: chatId },
+    from: callback.from || {},
+    __request: {
+      idempotency_key: 'telegram:deletion:' + String(chatId || '') + ':' + String(action.token || ''),
+      source: 'telegram',
+      external_update_id: String(update.update_id || ''),
+      external_message_id: String(messageId || ''),
+      chat_id: String(chatId || ''),
+      payload_hash: '',
+    },
+  };
+  var deletionResult = applyDeletionMutationPlan_(
+    payload.target_id,
+    update,
+    requestMessage,
+    config,
+    referenceData.closedCompetencias
+  );
+  if (!deletionResult.ok) {
+    return telegramCallbackViewResult_(callback, chatId, messageId, telegramView_(
+      'A exclusão precisa ser reconciliada. Toque em confirmar novamente.',
+      [
+        telegramCallbackButton_('Confirmar exclusão', 'confirm:' + action.token),
+        telegramCallbackButton_('Cancelar', 'cancel:pending'),
+      ]
+    ), false);
+  }
+
+  state.pending_action = null;
+  if (stringValue_(state.last_success_ref) === stringValue_(payload.target_id)) state.last_success_ref = '';
+  writeConversationState_(chatId, state);
+  var deletedType = stringValue_(deletionResult.deletedRow && deletionResult.deletedRow.tipo_evento);
+  var reconciliationText = deletedType === 'compra_cartao'
+    ? 'A fatura vinculada foi recalculada.'
+    : (deletedType === 'pagamento_fatura' ? 'O pagamento e a fatura vinculada foram reconciliados.' : 'Nenhum outro lançamento foi alterado.');
+  var responseText = [
+    'Lançamento excluído.',
+    '',
+    payload.target_label || payload.target_id,
+    '',
+    reconciliationText,
+  ].join('\n');
+  return telegramCallbackViewResult_(callback, chatId, messageId, telegramView_(responseText, [
+    telegramCallbackButton_('Resumo', TELEGRAM_CALLBACKS.summary),
+    telegramCallbackButton_('Lançar', TELEGRAM_CALLBACKS.launch),
+    telegramCallbackButton_('Início', TELEGRAM_CALLBACKS.home),
+  ]), Boolean(deletionResult.shouldApplyDomainMutation));
 }
 
 function readRecentCorrectableTransactions_(config, closedCompetencias, limit) {

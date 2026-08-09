@@ -61,7 +61,7 @@ Every event answers:
 - Scheduled or pending launches must use `status`; only `efetivado` launches are treated as already applied DRE/cash movement. Authoritative monthly income with `status=agendado` affects projection only until balance reconciliation.
 - Closed monthly records are not changed silently; use `ajuste`.
 - Financial writes are deterministic `MutationPlan` upserts. Missing IDs are inserted, identical rows are ignored, and divergent rows with the same ID fail with `MUTATION_CONFLICT`.
-- Corrections validate and persist the replacement before physically deleting the original and its dependent invoice lines. Closed periods remain blocked.
+- Corrections validate and persist the replacement before physically deleting the original and its dependent invoice lines. After selecting a correctable transaction, an exact deletion request such as `excluir` opens a separate confirmation; only confirmation may remove the transaction and deterministically reconcile linked invoice lines/summary. Closed periods remain blocked.
 - Invoice payments and internal transfers require an explicit preview confirmation. A semantically identical event repeated within two minutes also requires confirmation before mutation.
 - Safe spending, investment and amortization are blocked when an active non-card source has no balance, its latest balance is older than `BALANCE_FRESHNESS_DAYS` (default 7), or an upcoming invoice has no authority value. Exactly 7 days is valid; 8 days is stale.
 - Every copilot insight or pending-attention item carries evidence, confidence and privacy level. Missing evidence produces a blocker, not a guessed recommendation.

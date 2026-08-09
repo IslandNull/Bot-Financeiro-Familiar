@@ -6397,6 +6397,115 @@ test('Apps Script guided correction selects an open launch and requires confirma
     assert.deepStrictEqual(descriptions, ['farmacia corrigida']);
 });
 
+test('Apps Script guided correction accepts excluir, confirms, and reconciles the linked card invoice', () => {
+    let openAiCalls = 0;
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        onOpenAiRequest() { openAiCalls += 1; },
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_BOOK_LUANA',
+        data: '2026-08-02',
+        competencia: '2026-08',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_LAZER_LUANA',
+        valor: 39.9,
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: 'Luana',
+        escopo: 'Luana',
+        id_cartao: 'CARD_NUBANK_GU',
+        afeta_caixa_familiar: false,
+        descricao: 'livro para Luana',
+    });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_08',
+        competencia: '2026-08',
+        valor_previsto_total: 100,
+        valor_aberto: 100,
+    });
+    [
+        {
+            id_linha_fatura: 'FATL_BOOK_LUANA',
+            id_fatura: 'FAT_CARD_NUBANK_GU_2026_08',
+            id_cartao: 'CARD_NUBANK_GU',
+            competencia: '2026-08',
+            valor_previsto: 39.9,
+            status_origem: 'compra_cartao',
+            id_lancamento: 'LAN_BOOK_LUANA',
+        },
+        {
+            id_linha_fatura: 'FATL_OTHER_AUGUST',
+            id_fatura: 'FAT_CARD_NUBANK_GU_2026_08',
+            id_cartao: 'CARD_NUBANK_GU',
+            competencia: '2026-08',
+            valor_previsto: 60.1,
+            status_origem: 'compra_cartao',
+            id_lancamento: 'LAN_OTHER_AUGUST',
+        },
+    ].forEach((line) => sheets.Faturas_Linhas.appendRow(
+        faturasLinhasHeaders.map((header) => line[header] === undefined ? '' : line[header]),
+    ));
+
+    const list = postTelegramCallback(context, 'flow:correction', { updateId: 'delete-list' });
+    const pickButton = list.telegramActions[1].reply_markup.inline_keyboard.flat()
+        .find((button) => /^sel:tx:/.test(button.callback_data) && /livro para Luana/i.test(button.text));
+    assert.ok(pickButton);
+
+    const picked = postTelegramCallback(context, pickButton.callback_data, { updateId: 'delete-pick' });
+    assert.match(picked.telegramActions[1].text, /responda excluir/i);
+
+    const preview = postPilotMessage(context, 'excluir', { updateId: 'delete-text', messageId: 'delete-text' });
+    assert.strictEqual(preview.ok, true, JSON.stringify(preview.errors));
+    assert.strictEqual(preview.shouldApplyDomainMutation, false);
+    assert.match(preview.responseText, /Confirmar exclusão/);
+    assert.strictEqual(openAiCalls, 0);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 3);
+    const confirmation = preview.reply_markup.inline_keyboard.flat()
+        .find((button) => /^confirm:/.test(button.callback_data));
+    assert.ok(confirmation);
+
+    const deleted = postTelegramCallback(context, confirmation.callback_data, {
+        updateId: 'delete-confirm',
+        callbackId: 'delete-confirm',
+    });
+    assert.strictEqual(deleted.ok, true, JSON.stringify(deleted.errors));
+    assert.strictEqual(deleted.shouldApplyDomainMutation, true);
+    assert.match(deleted.telegramActions[1].text, /Lançamento excluído/);
+    assert.match(deleted.telegramActions[1].text, /fatura vinculada foi recalculada/i);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Linhas.rows[1][faturasLinhasHeaders.indexOf('id_linha_fatura')], 'FATL_OTHER_AUGUST');
+    assert.strictEqual(sheets.Faturas_Resumo.rows[1][faturasResumoHeaders.indexOf('valor_previsto_total')], 60.1);
+    assert.strictEqual(sheets.Faturas_Resumo.rows[1][faturasResumoHeaders.indexOf('valor_aberto')], 60.1);
+    const journal = sheets.Idempotency_Log.rows[1][idempotencyHeaders.indexOf('observacao')];
+    assert.match(journal, /delete_transaction/);
+    const stateKey = Object.keys(context.__scriptProperties).find((key) => key.startsWith('BFF_CONVERSATION_'));
+    assert.strictEqual(JSON.parse(context.__scriptProperties[stateKey]).pending_action, null);
+});
+
+test('Apps Script deletion retry completes safely after an injected boundary failure', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeLaunch(sheets, { id_lancamento: 'LAN_DELETE_RETRY', descricao: 'excluir com retry', valor: 20 });
+    const update = { update_id: 'deletion_retry' };
+    const message = {
+        message_id: 'deletion_retry', chat: { id: 'chat_1' },
+        __request: { idempotency_key: 'telegram:deletion:retry', source: 'telegram', external_update_id: 'deletion_retry', external_message_id: 'deletion_retry', chat_id: 'chat_1', payload_hash: '' },
+    };
+    context.__BFF_FAIL_MUTATION_OPERATION = 'delete_transaction';
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 1;
+    const failed = context.applyDeletionMutationPlan_('LAN_DELETE_RETRY', update, message, context.readConfig_(), []);
+    assert.strictEqual(failed.ok, false);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
+    const retried = context.applyDeletionMutationPlan_('LAN_DELETE_RETRY', update, message, context.readConfig_(), []);
+    assert.strictEqual(retried.ok, true, JSON.stringify(retried.errors));
+    assert.strictEqual(retried.status, 'completed');
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Idempotency_Log.rows[1][idempotencyHeaders.indexOf('status')], 'completed');
+});
+
 test('Apps Script guided correction blocks closed-month targets', () => {
     const replacementEvent = {
         tipo_evento: 'despesa',

@@ -174,7 +174,7 @@ function mutationJournalRow_(request, plan, existing, now, signature) {
     operation_id: plan.operation_id,
     deletes: plan.deletes.map(function(item) { return item.sheet + ':' + item.id; }),
   };
-  if (plan.operation === 'correct_transaction') {
+  if (['correct_transaction', 'delete_transaction'].indexOf(plan.operation) !== -1) {
     observation.plan = {
       operation: plan.operation,
       idempotency_key: plan.idempotency_key,
@@ -525,6 +525,81 @@ function applyCorrectionMutationPlan_(targetId, replacementId, update, message, 
   }
 }
 
+function applyDeletionMutationPlan_(targetId, update, message, config, closedCompetencias) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+    var request = mutationRequest_(update, message);
+    var planned = buildDeletionMutationPlan_(spreadsheet, targetId, request, closedCompetencias);
+    if (!planned.ok) return planned;
+    var applied = executeRuntimeMutationPlan_(spreadsheet, planned.request, planned.plan);
+    if (!applied.ok) return applied;
+    return {
+      ok: true,
+      shouldApplyDomainMutation: applied.shouldApplyDomainMutation,
+      status: applied.status,
+      result_ref: targetId,
+      deletedRow: planned.deletedRow,
+      mutationPlan: mutationPlanPublicView_(planned.plan),
+    };
+  } catch (_err) {
+    return fail_('DELETION_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function buildDeletionMutationPlan_(spreadsheet, targetId, request, closedCompetencias) {
+  var deletionRequest = {
+    idempotency_key: request.idempotency_key + ':deletion:' + targetId,
+    source: request.source,
+    external_update_id: request.external_update_id,
+    external_message_id: request.external_message_id,
+    chat_id: request.chat_id,
+    payload_hash: request.payload_hash,
+  };
+  var priorJournal = findIdempotencyJournalEntry_(spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG), deletionRequest.idempotency_key);
+  var restoredPlan = restoreMutationPlanFromJournal_(priorJournal, 'delete_transaction');
+  if (restoredPlan) return { ok: true, request: deletionRequest, plan: restoredPlan, deletedRow: null };
+
+  var target = findRuntimeMutationRow_(spreadsheet, SHEETS.LANCAMENTOS, 'id_lancamento', targetId);
+  var targetSheet = SHEETS.LANCAMENTOS;
+  var targetIdField = 'id_lancamento';
+  if (!target) {
+    target = findRuntimeMutationRow_(spreadsheet, SHEETS.TRANSFERENCIAS_INTERNAS, 'id_transferencia', targetId);
+    targetSheet = SHEETS.TRANSFERENCIAS_INTERNAS;
+    targetIdField = 'id_transferencia';
+  }
+  if (!target) return fail_('DELETION_TARGET_NOT_FOUND', 'target', GENERIC_RECORD_FAILURE);
+
+  var deletedRow = mutationPlanRowFromExisting_(targetSheet, target.row);
+  var competencia = normalizeSheetCompetencia_(deletedRow.competencia);
+  if (closedCompetencias && contains_(closedCompetencias, competencia)) {
+    return fail_('CLOSED_PERIOD', 'competencia', GENERIC_RECORD_FAILURE);
+  }
+  var removal = buildTransactionRemovalMutationParts_(
+    spreadsheet,
+    targetId,
+    targetSheet,
+    targetIdField,
+    deletedRow,
+    null
+  );
+  if (!removal.ok) return removal;
+
+  var plan = createRuntimeMutationPlan_({
+    operation: 'delete_transaction',
+    idempotency_key: deletionRequest.idempotency_key,
+    result_ref: targetId,
+    writes: removal.writes,
+    deletes: removal.deletes,
+    postconditions: removal.postconditions,
+  });
+  if (!plan.ok) return plan;
+  return { ok: true, request: deletionRequest, plan: plan, deletedRow: deletedRow };
+}
+
 function buildCorrectionMutationPlan_(spreadsheet, targetId, replacementId, request, closedCompetencias) {
   var correctionRequest = {
     idempotency_key: request.idempotency_key + ':correction:' + targetId,
@@ -576,15 +651,39 @@ function buildCorrectionMutationPlan_(spreadsheet, targetId, replacementId, requ
     id: replacementId,
     row: mutationPlanRowFromExisting_(replacementSheet, replacement.row),
   }];
-  if (target) {
+  var removal = buildTransactionRemovalMutationParts_(spreadsheet, targetId, targetSheet, targetIdField, deletedRow, {
+    sheet: replacementSheet,
+    row: replacement.row,
+  });
+  if (!removal.ok) return removal;
+  writes = writes.concat(removal.writes);
+  deletes = deletes.concat(removal.deletes);
+  postconditions = postconditions.concat(removal.postconditions);
+
+  var plan = createRuntimeMutationPlan_({
+    operation: 'correct_transaction',
+    idempotency_key: correctionRequest.idempotency_key,
+    result_ref: replacementId,
+    writes: writes,
+    deletes: deletes,
+    postconditions: postconditions,
+  });
+  if (!plan.ok) return plan;
+  return { ok: true, request: correctionRequest, plan: plan, deletedRow: deletedRow };
+}
+
+function buildTransactionRemovalMutationParts_(spreadsheet, targetId, targetSheet, targetIdField, deletedRow, replacement) {
+  var writes = [];
+  var deletes = [];
+  var postconditions = [];
+  if (deletedRow) {
     deletes.push({ sheet: targetSheet, id_field: targetIdField, id: targetId, expected: deletedRow });
-    postconditions.push({ type: 'absent', sheet: targetSheet, id_field: targetIdField, id: targetId });
   } else {
     targetSheet = String(targetId).indexOf('TRF_') === 0 ? SHEETS.TRANSFERENCIAS_INTERNAS : SHEETS.LANCAMENTOS;
     targetIdField = targetSheet === SHEETS.TRANSFERENCIAS_INTERNAS ? 'id_transferencia' : 'id_lancamento';
     deletes.push({ sheet: targetSheet, id_field: targetIdField, id: targetId });
-    postconditions.push({ type: 'absent', sheet: targetSheet, id_field: targetIdField, id: targetId });
   }
+  postconditions.push({ type: 'absent', sheet: targetSheet, id_field: targetIdField, id: targetId });
 
   if (deletedRow && targetSheet === SHEETS.LANCAMENTOS && stringValue_(deletedRow.tipo_evento) === 'compra_cartao') {
     var lineSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
@@ -625,7 +724,7 @@ function buildCorrectionMutationPlan_(spreadsheet, targetId, replacementId, requ
       deletes.push({ sheet: SHEETS.FATURAS_LINHAS, id_field: 'id_linha_fatura', id: line.id_linha_fatura, expected: line });
       postconditions.push({ type: 'absent', sheet: SHEETS.FATURAS_LINHAS, id_field: 'id_linha_fatura', id: line.id_linha_fatura });
     });
-    var replacementIsSameInvoicePayment = replacementSheet === SHEETS.LANCAMENTOS &&
+    var replacementIsSameInvoicePayment = replacement && replacement.sheet === SHEETS.LANCAMENTOS &&
       stringValue_(replacement.row.tipo_evento) === 'pagamento_fatura' &&
       stringValue_(replacement.row.id_fatura) === stringValue_(deletedRow.id_fatura);
     if (!replacementIsSameInvoicePayment) {
@@ -638,23 +737,18 @@ function buildCorrectionMutationPlan_(spreadsheet, targetId, replacementId, requ
     }
   }
 
-  var plan = createRuntimeMutationPlan_({
-    operation: 'correct_transaction',
-    idempotency_key: correctionRequest.idempotency_key,
-    result_ref: replacementId,
-    writes: writes,
-    deletes: deletes,
-    postconditions: postconditions,
-  });
-  if (!plan.ok) return plan;
-  return { ok: true, request: correctionRequest, plan: plan, deletedRow: deletedRow };
+  return { ok: true, writes: writes, deletes: deletes, postconditions: postconditions };
 }
 
 function restoreCorrectionMutationPlanFromJournal_(journal) {
+  return restoreMutationPlanFromJournal_(journal, 'correct_transaction');
+}
+
+function restoreMutationPlanFromJournal_(journal, operation) {
   if (!journal || !journal.observacao) return null;
   try {
     var parsed = JSON.parse(String(journal.observacao));
-    if (!parsed || !parsed.plan || parsed.operation !== 'correct_transaction') return null;
+    if (!parsed || !parsed.plan || parsed.operation !== operation) return null;
     var plan = createRuntimeMutationPlan_(parsed.plan);
     return plan && plan.ok ? plan : null;
   } catch (_err) {
