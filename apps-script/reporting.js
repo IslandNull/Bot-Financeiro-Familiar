@@ -3395,6 +3395,10 @@ function canonicalizePilotExpenseEvent_(event, referenceData) {
   if (event.tipo_evento !== 'despesa') return event;
   var explicitCategory = inferExplicitCategoryFromText_(event.raw_text || event.descricao, referenceData, 'despesa');
   if (explicitCategory) event.id_categoria = explicitCategory.id_categoria;
+  if (!explicitCategory) {
+    var inferredCategory = inferUnambiguousSpendingCategoryFromText_(event.raw_text || event.descricao, referenceData, 'despesa');
+    if (inferredCategory) event.id_categoria = inferredCategory.id_categoria;
+  }
   var category = categoryForEvent_(referenceData, event.id_categoria, 'despesa');
   if (!category) return event;
   var source = ownerPreferredCashSourceFromText_(event, referenceData) ||
@@ -3439,6 +3443,10 @@ function canonicalizePilotCardPurchaseEvent_(event, referenceData) {
   if (event.tipo_evento !== 'compra_cartao') return event;
   var explicitCategory = inferExplicitCategoryFromText_(event.raw_text || event.descricao, referenceData, 'compra_cartao');
   if (explicitCategory) event.id_categoria = explicitCategory.id_categoria;
+  if (!explicitCategory) {
+    var inferredCategory = inferUnambiguousSpendingCategoryFromText_(event.raw_text || event.descricao, referenceData, 'compra_cartao');
+    if (inferredCategory) event.id_categoria = inferredCategory.id_categoria;
+  }
   var category = categoryForEvent_(referenceData, event.id_categoria, 'compra_cartao');
   if (!category) return event;
   var ownerPreferredCard = ownerPreferredCardFromText_(event, referenceData);
@@ -3936,7 +3944,9 @@ function guidedMissingFieldText_(field, event, referenceData, eventType) {
     '📌 O que falta',
     labelByField[field] || 'Dado faltante',
     '',
-    field === 'cartao' ? 'Responda apenas com o cartão usado.' : 'Responda apenas com esse dado.',
+    field === 'cartao'
+      ? 'Responda apenas com o cartão usado.'
+      : (field === 'categoria' ? 'Responda apenas com o nome da categoria.' : 'Responda apenas com esse dado.'),
   ];
   if (example) {
     lines.push('');
@@ -3959,8 +3969,7 @@ function guidedMissingFieldExample_(field, event, referenceData, eventType) {
   var card = firstActiveCard_(referenceData);
   if (field === 'categoria') {
     var categoryName = stringValue_(category && category.nome) || 'Mercado da semana';
-    if (eventType === 'compra_cartao') return 'farmacia ' + amount + ' no Nubank categoria ' + categoryName;
-    return 'mercado ' + amount + ' categoria ' + categoryName;
+    return categoryName;
   }
   if (field === 'fonte') {
     var sourceName = stringValue_(source && source.nome) || 'Conta familia';
@@ -4036,10 +4045,10 @@ function categoryClarificationText_(rawText, referenceData, eventType) {
     '⚠️ Não anotei para não chutar categoria.',
     '',
     '📌 O que falta',
-    'Reenvie com a categoria no texto.',
+    'Responda apenas com o nome da categoria.',
     '',
     'Exemplo:',
-    'notebook 3000 em 3x no nubank categoria Eletronicos e equipamentos',
+    'Eletronicos e equipamentos',
   ];
   if (suggestions.length) {
     lines.push('');

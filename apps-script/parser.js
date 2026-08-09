@@ -817,6 +817,7 @@ function handleTelegramPendingIntentSelectionCallback_(update, config, state, da
     event.id_categoria = selected.id;
     event.raw_text = [event.raw_text || event.descricao, 'categoria', selected.label].join(' ');
   }
+  event = canonicalizePilotEvent_(event, referenceData);
 
   var requestMessage = {
     message_id: messageId,
@@ -1825,13 +1826,13 @@ function resumePendingConversationIntent_(pendingIntent, text, referenceData) {
         !isExplicitCashPurchaseText_(event.raw_text || event.descricao)) {
       event = convertSpendingEventToCardPurchase_(event, pendingCard, referenceData);
       event.raw_text = [event.raw_text || event.descricao, 'no', pendingCard.nome].join(' ');
-      return { ok: true, event: event };
+      return { ok: true, event: canonicalizePilotEvent_(event, referenceData) };
     }
     var source = findSourceByAlias_(text, referenceData.sources);
     if (!source || source.tipo === 'cartao_credito') return { ok: false };
     event.id_fonte = source.id_fonte;
     event.raw_text = [event.raw_text || event.descricao, 'pela', source.nome].join(' ');
-    return { ok: true, event: event };
+    return { ok: true, event: canonicalizePilotEvent_(event, referenceData) };
   }
   if (field === 'cartao') {
     var card = inferActiveCardFromText_(text, referenceData);
@@ -1839,13 +1840,20 @@ function resumePendingConversationIntent_(pendingIntent, text, referenceData) {
     event.id_cartao = card.id_cartao;
     event.id_fonte = card.id_fonte;
     event.raw_text = [event.raw_text || event.descricao, 'no', card.nome].join(' ');
-    return { ok: true, event: event };
+    return { ok: true, event: canonicalizePilotEvent_(event, referenceData) };
   }
   if (field === 'fatura') {
     event.raw_text = [event.raw_text || event.descricao, text].join(' ');
     event.id_fatura = inferInvoicePaymentIdFromText_(event, referenceData);
     if (!event.id_fatura) return { ok: false };
-    return { ok: true, event: event };
+    return { ok: true, event: canonicalizePilotEvent_(event, referenceData) };
+  }
+  if (field === 'categoria') {
+    var category = findPendingCategoryFromText_(text, referenceData, event.tipo_evento);
+    if (!category) return { ok: false };
+    event.id_categoria = category.id_categoria;
+    event.raw_text = [event.raw_text || event.descricao, 'categoria', category.nome].join(' ');
+    return { ok: true, event: canonicalizePilotEvent_(event, referenceData) };
   }
   return { ok: false };
 }
@@ -2627,8 +2635,10 @@ function buildParserPrompt_(text, referenceData, conversation) {
   var adjustmentCategory = defaultCategoryForType_(referenceData, 'ajuste') || {};
   var benefitConversionCategory = referenceData.categoriesById.REC_CONVERSAO_BENEFICIO_CAIXA || {};
   var electronicsCategory = referenceData.categoriesById.OPEX_ELETRONICOS_E_EQUIPAMENTOS || {};
+  var houseMaintenanceCategory = referenceData.categoriesById.OPEX_MORADIA_MANUTENCAO || {};
   var familyCashSource = defaultFamilyCashSource_(referenceData) || {};
   var card = defaultActiveCard_(referenceData) || {};
+  var marketCard = referenceData.cardsById.CARD_MERCADO_PAGO_GU || {};
   var invoice = defaultPayableInvoice_(referenceData) || {};
   var asset = defaultActiveAsset_(referenceData) || {};
   var debt = defaultActiveDebt_(referenceData) || {};
@@ -2679,6 +2689,9 @@ function buildParserPrompt_(text, referenceData, conversation) {
     'Input: "mercado 10 hoje" -> same event with data ' + todaySaoPaulo_() + ' and competencia ' + todaySaoPaulo_().slice(0, 7) + '.',
     'Input: "farmacia 10 no nubank" -> valor "10", tipo_evento "compra_cartao", id_categoria "' + stringValue_(cardCategory.id_categoria) + '", id_cartao "' + stringValue_(card.id_cartao) + '", id_fonte "' + stringValue_(card.id_fonte) + '", escopo "' + stringValue_(cardCategory.escopo_padrao || 'Familiar') + '", parcelas "1".',
     'Input: "notebook 3000 em 3x no nubank" -> valor "3000", tipo_evento "compra_cartao", id_categoria "' + stringValue_(electronicsCategory.id_categoria) + '", id_cartao "' + stringValue_(card.id_cartao) + '", id_fonte "' + stringValue_(card.id_fonte) + '", escopo "' + stringValue_(electronicsCategory.escopo_padrao || 'Familiar') + '", parcelas "3".',
+    houseMaintenanceCategory.id_categoria && marketCard.id_cartao
+      ? 'Input: "ralo banheiro 28,40 cartao Mercado Pago 07 de ago obra casa" -> valor "28.40", data "' + todaySaoPaulo_().slice(0, 4) + '-08-07", tipo_evento "compra_cartao", id_categoria "' + stringValue_(houseMaintenanceCategory.id_categoria) + '", id_cartao "' + stringValue_(marketCard.id_cartao) + '", id_fonte "' + stringValue_(marketCard.id_fonte) + '", escopo "' + stringValue_(houseMaintenanceCategory.escopo_padrao || 'Familiar') + '".'
+      : '',
     'Input: "pagar fatura nubank 42,50" -> valor "42.50", tipo_evento "pagamento_fatura", id_fatura "' + stringValue_(invoice.id_fatura) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", escopo "Familiar".',
     'Input: "Luana mandou 100 para caixa familiar" -> valor "100", tipo_evento "transferencia_interna", id_categoria "' + stringValue_(transferCategory.id_categoria) + '", pessoa "Luana", escopo "' + stringValue_(transferCategory.escopo_padrao || 'Familiar') + '", direcao_caixa_familiar "entrada".',
     'Input: "transferi 100 do Nubank Gustavo para Mercado Pago Gustavo" -> valor "100", tipo_evento "transferencia_interna", id_categoria "' + stringValue_(transferCategory.id_categoria) + '", pessoa "Gustavo", escopo "Familiar", direcao_caixa_familiar "interna", afeta_dre false, afeta_patrimonio false, afeta_caixa_familiar false.',
@@ -2696,6 +2709,7 @@ function buildParserPrompt_(text, referenceData, conversation) {
     'Use tipo_evento despesa only when the user explicitly says Pix, transfer, cash, debit, boleto, or an account payment. Then use the category default escopo and visibility plus an explicitly identified active cash source; never guess the account.',
     'For receita, aporte, divida_pagamento, and ajuste, use the matching category defaults from Config_Categorias, active references from the canonical dictionaries, and status efetivado.',
     'For a card purchase, use a category whose tipo_evento_padrao is compra_cartao, an active card from Cartoes, that card source from Config_Fontes, and the category default flags; status efetivado.',
+    'House repair or renovation materials such as a drain (ralo), plumbing parts, construction material, reforma or obra belong to the canonical house maintenance category when that category exists.',
     'Never use an unrelated fallback category. If no category clearly matches the user text, leave id_categoria empty so the runtime can ask for confirmation.',
     'For an invoice payment, use tipo_evento pagamento_fatura, escopo Familiar, visibilidade detalhada, afeta_dre false, afeta_patrimonio false, afeta_caixa_familiar true, an active cash source, and status efetivado.',
     'For a reviewed internal transfer into family cash, use direcao_caixa_familiar entrada and the transfer category defaults. For movement between active own cash sources, use direcao_caixa_familiar interna and afeta_dre/afeta_patrimonio/afeta_caixa_familiar all false. Use id_fonte empty, id_cartao empty, id_fatura empty, id_divida empty, id_ativo empty, and status efetivado.',
@@ -3269,6 +3283,34 @@ function inferExplicitSpendingCategoryFromText_(rawText, referenceData) {
   return matches[0];
 }
 
+function inferUnambiguousSpendingCategoryFromText_(rawText, referenceData, eventType) {
+  var matchesById = {};
+  for (var i = 0; i < referenceData.categories.length; i += 1) {
+    var category = referenceData.categories[i];
+    if (!categoryForEvent_(referenceData, category.id_categoria, eventType)) continue;
+    if (!categoryMatchesText_(category, rawText)) continue;
+    matchesById[stringValue_(category.id_categoria)] = category;
+  }
+  var ids = Object.keys(matchesById);
+  return ids.length === 1 ? matchesById[ids[0]] : null;
+}
+
+function findPendingCategoryFromText_(text, referenceData, eventType) {
+  var normalized = normalizeAliasText_(text).replace(/^categoria\s+/, '');
+  if (!normalized) return null;
+  var exactById = {};
+  for (var i = 0; i < referenceData.categories.length; i += 1) {
+    var category = referenceData.categories[i];
+    if (!categoryForEvent_(referenceData, category.id_categoria, eventType)) continue;
+    if (normalizeAliasText_(category.nome) === normalized || normalizeAliasText_(category.id_categoria) === normalized) {
+      exactById[stringValue_(category.id_categoria)] = category;
+    }
+  }
+  var exactIds = Object.keys(exactById);
+  if (exactIds.length === 1) return exactById[exactIds[0]];
+  return inferUnambiguousSpendingCategoryFromText_(text, referenceData, eventType);
+}
+
 function suggestCategoriesForText_(rawText, referenceData, eventType) {
   var result = [];
   for (var i = 0; i < referenceData.categories.length; i += 1) {
@@ -3284,6 +3326,7 @@ function suggestCategoriesForText_(rawText, referenceData, eventType) {
 function categoryMatchesText_(category, rawText) {
   var normalizedText = normalizeAliasText_(rawText);
   if (!normalizedText) return false;
+  normalizedText = normalizedText.replace(/\bmercado pago\b/g, ' ').replace(/\s+/g, ' ').trim();
   var phrases = categoryMatchPhrases_(category);
   for (var i = 0; i < phrases.length; i += 1) {
     if (containsAliasPhrase_(normalizedText, phrases[i])) return true;
@@ -3316,7 +3359,7 @@ function categoryMatchPhrases_(category) {
     OPEX_ROUPAS_GUSTAVO: ['roupa gustavo', 'roupas gustavo', 'vestuario gustavo', 'calcado gustavo'],
     OPEX_ROUPAS_LUANA: ['roupa luana', 'roupas luana', 'vestuario luana', 'calcado luana'],
     OPEX_TELEFONIA_INTERNET: ['telefone', 'telefonia', 'internet', 'celular'],
-    OPEX_MORADIA_MANUTENCAO: ['obra', 'obras', 'reforma', 'reformas', 'manutencao da casa', 'melhorias da casa', 'material de construcao'],
+    OPEX_MORADIA_MANUTENCAO: ['obra', 'obras', 'obra da casa', 'obra casa', 'reforma', 'reformas', 'reforma da casa', 'ralo', 'ralo banheiro', 'ralo para banheiro', 'peca hidraulica', 'material hidraulico', 'manutencao da casa', 'manutencao e melhorias da casa', 'manutencao e melhoria da casa', 'melhorias da casa', 'material de construcao'],
     OPEX_MORADIA_AUTOMACAO_SEGURANCA: ['automacao da casa', 'seguranca da casa'],
     OPEX_CASA_DOCUMENTACAO_SERVICOS: ['documentacao da casa', 'servicos da casa'],
     OPEX_TELEFONIA_GUSTAVO: ['telefone', 'telefonia', 'internet', 'celular'],

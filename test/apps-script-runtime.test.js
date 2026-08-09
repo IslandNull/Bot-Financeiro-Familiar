@@ -3547,7 +3547,7 @@ test('Apps Script pilot card purchase prefers Luana card when text omits explici
     assert.strictEqual(launch.pessoa, 'Luana');
 });
 
-test('Apps Script card purchase blocks unrelated fallback category and asks for confirmation', () => {
+test('Apps Script replaces an unrelated parser fallback when the text has one deterministic category', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'compra_cartao',
         data: '2026-04-30',
@@ -3573,13 +3573,73 @@ test('Apps Script card purchase blocks unrelated fallback category and asks for 
 
     const result = postPilotMessage(context, 'Comprei notebook 3000 em 3x no nubank');
 
-    assert.strictEqual(result.ok, false);
-    assert.deepStrictEqual(result.errors.map((error) => error.code), ['CATEGORY_CONFIRMATION_REQUIRED']);
-    assert.match(result.responseText, /N.o anotei para n.o chutar categoria/);
-    assert.match(result.responseText, /Reenvie com a categoria no texto/);
-    assert.match(result.responseText, /Eletronicos e equipamentos/);
-    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 1);
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_categoria, 'OPEX_ELETRONICOS_E_EQUIPAMENTOS');
+    assert.strictEqual(launch.id_cartao, 'CARD_NUBANK_GU');
+});
+
+test('Apps Script records a house drain purchase with Mercado Pago despite a wrong parser fallback', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa', data: '2026-08-07', competencia: '2026-08', valor: '28.40',
+        descricao: 'Ralo para banheiro Tumelero', id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: '', pessoa: 'Gustavo', escopo: '', visibilidade: '', id_cartao: '',
+        id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: false, afeta_patrimonio: false,
+        afeta_caixa_familiar: false, direcao_caixa_familiar: '', status: 'efetivado', parcelas: 1,
+    });
+    appendFakeCategory(sheets, {
+        id_categoria: 'OPEX_MORADIA_MANUTENCAO', nome: 'Manutenção e melhorias da casa',
+        grupo: 'Moradia', tipo_evento_padrao: 'compra_cartao', escopo_padrao: 'Familiar',
+        visibilidade_padrao: 'detalhada',
+    });
+
+    const result = postPilotMessage(
+        context,
+        'ralo banheiro tumelero 28,40 cartão de credito mercado pago 07 de ago obra casa',
+        { updateId: 'house_drain_direct', messageId: 'house_drain_direct' },
+    );
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.data, '2026-08-07');
+    assert.strictEqual(launch.valor, 28.40);
+    assert.strictEqual(launch.tipo_evento, 'compra_cartao');
+    assert.strictEqual(launch.id_categoria, 'OPEX_MORADIA_MANUTENCAO');
+    assert.strictEqual(launch.id_cartao, 'CARD_MERCADO_PAGO_GU');
+    assert.strictEqual(launch.id_fonte, 'FONTE_MERCADO_PAGO_GU');
+});
+
+test('Apps Script resumes a pending purchase from only the category name', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeCategory(sheets, {
+        id_categoria: 'OPEX_MORADIA_MANUTENCAO', nome: 'Manutenção e melhorias da casa',
+        grupo: 'Moradia', tipo_evento_padrao: 'compra_cartao', escopo_padrao: 'Familiar',
+        visibilidade_padrao: 'detalhada',
+    });
+    const state = context.emptyConversationState_('BFF_CONVERSATION_chat_1_user_1');
+    state.pending_intent = {
+        missing_field: 'categoria', created_at: context.isoNow_(),
+        event: {
+            tipo_evento: 'compra_cartao', data: '2026-08-07', competencia: '2026-08', valor: 28.40,
+            descricao: 'Ralo para banheiro Tumelero', raw_text: 'comprei um ralo para banheiro 28,40 no cartão mercado pago dia 07 de agosto',
+            id_categoria: 'OPEX_MERCADO_SEMANA', id_fonte: 'FONTE_MERCADO_PAGO_GU', pessoa: 'Gustavo',
+            escopo: 'Familiar', visibilidade: 'detalhada', id_cartao: 'CARD_MERCADO_PAGO_GU',
+            id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: true, afeta_patrimonio: false,
+            afeta_caixa_familiar: false, direcao_caixa_familiar: '', status: 'efetivado', parcelas: 1,
+        },
+    };
+    context.writeConversationState_('chat_1', state, 'user_1');
+
+    const result = postPilotMessage(context, 'manutenção e melhorias da casa', {
+        updateId: 'house_category_followup', messageId: 'house_category_followup',
+    });
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_categoria, 'OPEX_MORADIA_MANUTENCAO');
+    assert.strictEqual(launch.id_cartao, 'CARD_MERCADO_PAGO_GU');
+    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent, null);
 });
 
 test('Apps Script card purchase accepts notebook when parser selects matching electronics category', () => {
@@ -4688,7 +4748,7 @@ test('Apps Script validation failures return actionable launch guidance', () => 
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_CATEGORY_BLOCKED']);
     assert.match(result.responseText, /O que falta/);
     assert.match(result.responseText, /Categoria/);
-    assert.match(result.responseText, /categoria /);
+    assert.match(result.responseText, /Responda apenas com o nome da categoria/);
 });
 
 test('Apps Script guided registration asks only for missing source on explicit Pix', () => {
@@ -7145,6 +7205,11 @@ test('Apps Script import selftest is read-only', () => {
 
 test('Apps Script OpenAI selftest validates configured Luna once without spreadsheet mutation', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeCategory(sheets, {
+        id_categoria: 'OPEX_MORADIA_MANUTENCAO', nome: 'Manutenção e melhorias da casa',
+        grupo: 'Moradia', tipo_evento_padrao: 'compra_cartao', escopo_padrao: 'Familiar',
+        visibilidade_padrao: 'detalhada',
+    });
     const calls = [];
     context.UrlFetchApp.fetch = function(url, options) {
         assert.strictEqual(url, 'https://api.openai.com/v1/responses');
@@ -7152,11 +7217,11 @@ test('Apps Script OpenAI selftest validates configured Luna once without spreads
         calls.push(payload);
         const output = payload.text.format.name === 'financial_event'
             ? {
-                tipo_evento: 'despesa', data: '2026-08-04', competencia: '2026-08', valor: '1.23',
-                descricao: 'Mercado da semana', id_categoria: 'OPEX_MERCADO_SEMANA',
-                id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU', pessoa: 'Gustavo', escopo: 'Familiar',
-                visibilidade: 'detalhada', id_cartao: '', id_fatura: '', id_divida: '', id_ativo: '',
-                afeta_dre: true, afeta_patrimonio: false, afeta_caixa_familiar: true,
+                tipo_evento: 'compra_cartao', data: '2026-08-07', competencia: '2026-08', valor: '28.40',
+                descricao: 'Ralo para banheiro Tumelero', id_categoria: 'OPEX_MORADIA_MANUTENCAO',
+                id_fonte: 'FONTE_MERCADO_PAGO_GU', pessoa: 'Gustavo', escopo: 'Familiar',
+                visibilidade: 'detalhada', id_cartao: 'CARD_MERCADO_PAGO_GU', id_fatura: '', id_divida: '', id_ativo: '',
+                afeta_dre: true, afeta_patrimonio: false, afeta_caixa_familiar: false,
                 direcao_caixa_familiar: '', status: 'efetivado', parcelas: 1,
             }
             : { status: 'ok' };

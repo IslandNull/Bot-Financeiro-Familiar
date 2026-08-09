@@ -41,6 +41,7 @@ Every event answers:
 - Card purchase is the expense event.
 - Spending categories describe the purpose of the purchase, not its payment medium. The same category may be used for cash or card; cash affects family cash immediately and card affects only invoice exposure until payment.
 - Natural purchase messages default to credit card. When the card is omitted, the bot preserves the pending purchase and asks only which card was used; Pix, transfer, cash, debit, boleto or account payment must be explicit to use a cash source.
+- A single unambiguous purpose match may deterministically correct or fill the spending category (for example, drain/renovation material as house maintenance). If category confirmation is still required, the pending purchase accepts the category name alone and preserves the other fields.
 - Reviewed reimbursable advances and their reimbursements are cash movements with `afeta_dre=false`; only the non-reimbursed family portion is an expense.
 - Generic multi-purpose merchants such as marketplaces do not receive automatic import rules from the merchant name alone. Product context or explicit review is required.
 - Card due dates use the configured nominal day and advance to the next Brazilian banking business day for weekends and national banking holidays; an authoritative invoice date always prevails.

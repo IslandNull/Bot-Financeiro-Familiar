@@ -930,7 +930,7 @@ function runOpenAIModelSelfTest() {
   var referenceData = readRuntimeReferenceData_(config);
   var parserResult = referenceData.ok
     ? parseFinancialEventWithOpenAI_(
-      'Comprei mercado da semana por R$ 1,23 em 04/08/2026 usando a conta Mercado Pago.',
+      'Comprei um ralo para banheiro 28,40 no cartao Mercado Pago dia 07 de agosto para obra da casa.',
       config,
       referenceData,
       { messages: [] }
@@ -938,10 +938,12 @@ function runOpenAIModelSelfTest() {
     : referenceData;
   var financialParserOk = Boolean(
     parserResult && parserResult.ok && parserResult.event &&
-    parserResult.event.tipo_evento === 'despesa' &&
-    parserResult.event.id_categoria === 'OPEX_MERCADO_SEMANA' &&
-    parserResult.event.id_fonte === 'FONTE_CONTA_MERCADO_PAGO_GU' &&
-    numberFromSheetValue_(parserResult.event.valor) === 1.23
+    parserResult.event.tipo_evento === 'compra_cartao' &&
+    parserResult.event.id_categoria === 'OPEX_MORADIA_MANUTENCAO' &&
+    parserResult.event.id_cartao === 'CARD_MERCADO_PAGO_GU' &&
+    parserResult.event.id_fonte === 'FONTE_MERCADO_PAGO_GU' &&
+    parserResult.event.data === todaySaoPaulo_().slice(0, 4) + '-08-07' &&
+    numberFromSheetValue_(parserResult.event.valor) === 28.40
   );
   return {
     ok: checks.length > 0 && checks.every(function(check) { return check.ok; }) && financialParserOk,
