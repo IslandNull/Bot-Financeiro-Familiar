@@ -40,6 +40,7 @@ Operational authority for Bot Financeiro Familiar V56.
 - VERIFIED: anonymous Apps Script HTTP execution recovered on 2026-08-09; quick smoke passed before the migration publish and again on runtime 254.
 - VERIFIED: runtime 254 contains the flagged conversational analyst. Its protected synthetic two-call smoke returned `read`, deterministic evidence, valid answer, `store=false` and zero mutation using `gpt-5.6-luna`.
 - VERIFIED: runtime 256 defaults natural purchases to credit card, retains missing fields for 24 hours, accepts card/category-only follow-ups and deterministically resolves a single clear purpose such as drain/renovation material to house maintenance; quick smoke and the protected parser self-test passed after publish.
+- VERIFIED: runtime 257 separates card ownership from the purchase beneficiary; `lazer Luana` on Gustavo's card resolves to the active private `Lazer Luana` category, while family/couple wording remains family-scoped. Quick smoke passed after publish.
 - UNVERIFIED: the new conversational analyst remains disabled until anonymous HTTP access is restored and the 20-query latency/quality pilot passes.
 - VERIFIED: production parser and narrator resolve to `gpt-5.6-luna`; protected synthetic Responses and financial-parser checks passed with `reasoning.effort=none`, strict structured output, `store=false` and no spreadsheet mutation.
 - VERIFIED: the Telegram UX redesign is live in Apps Script; quick/full read-only smokes pass and the sheet audit reports zero findings. Safe HTML hierarchy remains staged in the versioned Val Town proxy until merge to `main`.
@@ -54,7 +55,7 @@ Operational authority for Bot Financeiro Familiar V56.
 - VERIFIED: the clean base starts on 2026-08-01 with four active Gustavo sources (two accounts and two card sources) plus Nubank and Mercado Pago card configuration.
 - VERIFIED: the Nubank invoice closed on 2026-07-30 and due on 2026-08-07 is registered as an opening authority obligation of BRL 1,013.90; no pre-cutoff purchase was recreated in `Lancamentos` or counted in the August DRE.
 - VERIFIED: July 2026 is closed as the technical pre-cutoff period, so the runtime cannot import or register pre-2026-08-01 purchases as new expenses.
-- VERIFIED: the live base has 28 purpose-based active categories with no invented monthly limits and 23 reviewed high-confidence card import rules; generic marketplaces and the unidentified `Evertonsantosde` purchase have no automatic rule.
+- VERIFIED: the live base has 29 purpose-based active categories with no invented monthly limits and 23 reviewed high-confidence card import rules; generic marketplaces and the unidentified `Evertonsantosde` purchase have no automatic rule.
 - VERIFIED: Mercado Pago August closed at BRL 3,058.03. Its BRL 2,943.03 pre-cutoff exposure remains isolated from the August DRE, while the BRL 115.00 delivery on 2026-08-02 is the first post-cutoff card purchase, categorized as family food out.
 - VERIFIED: Nubank September BRL 399.41 and Mercado Pago September BRL 1,825.25 remain `prevista` until authoritative closing values are supplied.
 - VERIFIED: opening account balances on 2026-08-01 are Mercado Pago BRL 132.16 and Nubank BRL 1.00, totaling BRL 133.16 of informed liquidity; both active cash sources now satisfy the initial balance requirement.

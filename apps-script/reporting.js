@@ -3407,6 +3407,7 @@ function canonicalizePilotExpenseEvent_(event, referenceData) {
   if (event.id_cartao || event.id_fatura || event.id_divida || event.id_ativo) return event;
   event.id_fonte = source.id_fonte;
   event.escopo = category.escopo_padrao;
+  if (event.escopo === 'Gustavo' || event.escopo === 'Luana') event.pessoa = event.escopo;
   event.visibilidade = effectiveCategoryVisibility_(category);
   event.status = 'efetivado';
   applyCategoryDefaults_(event, category);
@@ -3458,6 +3459,7 @@ function canonicalizePilotCardPurchaseEvent_(event, referenceData) {
   event.id_fonte = card.id_fonte;
   event.id_cartao = card.id_cartao;
   event.escopo = category.escopo_padrao;
+  if (event.escopo === 'Gustavo' || event.escopo === 'Luana') event.pessoa = event.escopo;
   event.visibilidade = effectiveCategoryVisibility_(category);
   event.status = 'efetivado';
   applyCategoryDefaults_(event, category);

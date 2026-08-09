@@ -3610,6 +3610,66 @@ test('Apps Script records a house drain purchase with Mercado Pago despite a wro
     assert.strictEqual(launch.id_fonte, 'FONTE_MERCADO_PAGO_GU');
 });
 
+test('Apps Script assigns leisure to Luana even when Gustavo owns the card', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao', data: '2026-08-09', competencia: '2026-08', valor: '39.90',
+        descricao: 'Lazer Luana', id_categoria: 'OPEX_LAZER_FAMILIAR', id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: 'Gustavo', escopo: 'Familiar', visibilidade: 'detalhada', id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: true, afeta_patrimonio: false,
+        afeta_caixa_familiar: false, direcao_caixa_familiar: '', status: 'efetivado', parcelas: 1,
+    });
+    appendFakeCategory(sheets, {
+        id_categoria: 'OPEX_LAZER_FAMILIAR', nome: 'Lazer familiar', grupo: 'Lazer',
+        tipo_evento_padrao: 'compra_cartao', escopo_padrao: 'Familiar', visibilidade_padrao: 'detalhada',
+    });
+    appendFakeCategory(sheets, {
+        id_categoria: 'OPEX_LAZER_LUANA', nome: 'Lazer Luana', grupo: 'Lazer',
+        tipo_evento_padrao: 'compra_cartao', escopo_padrao: 'Luana', visibilidade_padrao: 'privada',
+    });
+
+    const result = postPilotMessage(context, '39,90 cartão nubank gustavo lazer luana', {
+        updateId: 'luana_leisure_on_gustavo_card', messageId: 'luana_leisure_on_gustavo_card',
+    });
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.match(result.responseText, /Categoria: Lazer Luana/);
+    assert.match(result.responseText, /Escopo: Luana/);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_categoria, 'OPEX_LAZER_LUANA');
+    assert.strictEqual(launch.pessoa, 'Luana');
+    assert.strictEqual(launch.escopo, 'Luana');
+    assert.strictEqual(launch.visibilidade, 'privada');
+    assert.strictEqual(launch.id_cartao, 'CARD_NUBANK_GU');
+});
+
+test('Apps Script keeps leisure family-scoped when no personal beneficiary is named', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao', data: '2026-08-09', competencia: '2026-08', valor: '39.90',
+        descricao: 'Lazer do casal', id_categoria: 'OPEX_LAZER_FAMILIAR', id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: 'Gustavo', escopo: 'Familiar', visibilidade: 'detalhada', id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: true, afeta_patrimonio: false,
+        afeta_caixa_familiar: false, direcao_caixa_familiar: '', status: 'efetivado', parcelas: 1,
+    });
+    appendFakeCategory(sheets, {
+        id_categoria: 'OPEX_LAZER_FAMILIAR', nome: 'Lazer familiar', grupo: 'Lazer',
+        tipo_evento_padrao: 'compra_cartao', escopo_padrao: 'Familiar', visibilidade_padrao: 'detalhada',
+    });
+    appendFakeCategory(sheets, {
+        id_categoria: 'OPEX_LAZER_LUANA', nome: 'Lazer Luana', grupo: 'Lazer',
+        tipo_evento_padrao: 'compra_cartao', escopo_padrao: 'Luana', visibilidade_padrao: 'privada',
+    });
+
+    const result = postPilotMessage(context, '39,90 cartão nubank gustavo lazer do casal', {
+        updateId: 'family_leisure_on_gustavo_card', messageId: 'family_leisure_on_gustavo_card',
+    });
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_categoria, 'OPEX_LAZER_FAMILIAR');
+    assert.strictEqual(launch.escopo, 'Familiar');
+    assert.strictEqual(launch.visibilidade, 'detalhada');
+});
+
 test('Apps Script resumes a pending purchase from only the category name', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
     appendFakeCategory(sheets, {

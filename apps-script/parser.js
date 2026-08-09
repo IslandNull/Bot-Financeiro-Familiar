@@ -2636,6 +2636,7 @@ function buildParserPrompt_(text, referenceData, conversation) {
   var benefitConversionCategory = referenceData.categoriesById.REC_CONVERSAO_BENEFICIO_CAIXA || {};
   var electronicsCategory = referenceData.categoriesById.OPEX_ELETRONICOS_E_EQUIPAMENTOS || {};
   var houseMaintenanceCategory = referenceData.categoriesById.OPEX_MORADIA_MANUTENCAO || {};
+  var luanaLeisureCategory = referenceData.categoriesById.OPEX_LAZER_LUANA || {};
   var familyCashSource = defaultFamilyCashSource_(referenceData) || {};
   var card = defaultActiveCard_(referenceData) || {};
   var marketCard = referenceData.cardsById.CARD_MERCADO_PAGO_GU || {};
@@ -2692,6 +2693,9 @@ function buildParserPrompt_(text, referenceData, conversation) {
     houseMaintenanceCategory.id_categoria && marketCard.id_cartao
       ? 'Input: "ralo banheiro 28,40 cartao Mercado Pago 07 de ago obra casa" -> valor "28.40", data "' + todaySaoPaulo_().slice(0, 4) + '-08-07", tipo_evento "compra_cartao", id_categoria "' + stringValue_(houseMaintenanceCategory.id_categoria) + '", id_cartao "' + stringValue_(marketCard.id_cartao) + '", id_fonte "' + stringValue_(marketCard.id_fonte) + '", escopo "' + stringValue_(houseMaintenanceCategory.escopo_padrao || 'Familiar') + '".'
       : '',
+    luanaLeisureCategory.id_categoria && card.id_cartao
+      ? 'Input: "39,90 cartao nubank gustavo lazer luana" -> valor "39.90", tipo_evento "compra_cartao", id_categoria "' + stringValue_(luanaLeisureCategory.id_categoria) + '", pessoa "Luana", escopo "Luana", id_cartao "' + stringValue_(card.id_cartao) + '", id_fonte "' + stringValue_(card.id_fonte) + '".'
+      : '',
     'Input: "pagar fatura nubank 42,50" -> valor "42.50", tipo_evento "pagamento_fatura", id_fatura "' + stringValue_(invoice.id_fatura) + '", id_fonte "' + stringValue_(familyCashSource.id_fonte) + '", escopo "Familiar".',
     'Input: "Luana mandou 100 para caixa familiar" -> valor "100", tipo_evento "transferencia_interna", id_categoria "' + stringValue_(transferCategory.id_categoria) + '", pessoa "Luana", escopo "' + stringValue_(transferCategory.escopo_padrao || 'Familiar') + '", direcao_caixa_familiar "entrada".',
     'Input: "transferi 100 do Nubank Gustavo para Mercado Pago Gustavo" -> valor "100", tipo_evento "transferencia_interna", id_categoria "' + stringValue_(transferCategory.id_categoria) + '", pessoa "Gustavo", escopo "Familiar", direcao_caixa_familiar "interna", afeta_dre false, afeta_patrimonio false, afeta_caixa_familiar false.',
@@ -2710,6 +2714,7 @@ function buildParserPrompt_(text, referenceData, conversation) {
     'For receita, aporte, divida_pagamento, and ajuste, use the matching category defaults from Config_Categorias, active references from the canonical dictionaries, and status efetivado.',
     'For a card purchase, use a category whose tipo_evento_padrao is compra_cartao, an active card from Cartoes, that card source from Config_Fontes, and the category default flags; status efetivado.',
     'House repair or renovation materials such as a drain (ralo), plumbing parts, construction material, reforma or obra belong to the canonical house maintenance category when that category exists.',
+    'A person named next to the purchase purpose identifies who the spending is for, not who owns the payment card. For example, "cartao Nubank Gustavo lazer Luana" uses Gustavo card but Luana personal leisure category, scope, person, and privacy.',
     'Never use an unrelated fallback category. If no category clearly matches the user text, leave id_categoria empty so the runtime can ask for confirmation.',
     'For an invoice payment, use tipo_evento pagamento_fatura, escopo Familiar, visibilidade detalhada, afeta_dre false, afeta_patrimonio false, afeta_caixa_familiar true, an active cash source, and status efetivado.',
     'For a reviewed internal transfer into family cash, use direcao_caixa_familiar entrada and the transfer category defaults. For movement between active own cash sources, use direcao_caixa_familiar interna and afeta_dre/afeta_patrimonio/afeta_caixa_familiar all false. Use id_fonte empty, id_cartao empty, id_fatura empty, id_divida empty, id_ativo empty, and status efetivado.',
@@ -3284,6 +3289,17 @@ function inferExplicitSpendingCategoryFromText_(rawText, referenceData) {
 }
 
 function inferUnambiguousSpendingCategoryFromText_(rawText, referenceData, eventType) {
+  var personalMatchesById = {};
+  for (var personIndex = 0; personIndex < referenceData.categories.length; personIndex += 1) {
+    var personalCategory = referenceData.categories[personIndex];
+    var personalScope = stringValue_(personalCategory.escopo_padrao);
+    if (personalScope !== 'Gustavo' && personalScope !== 'Luana') continue;
+    if (!categoryForEvent_(referenceData, personalCategory.id_categoria, eventType)) continue;
+    if (!categoryMatchesExplicitPersonalScope_(personalCategory, rawText)) continue;
+    personalMatchesById[stringValue_(personalCategory.id_categoria)] = personalCategory;
+  }
+  var personalIds = Object.keys(personalMatchesById);
+  if (personalIds.length === 1) return personalMatchesById[personalIds[0]];
   var matchesById = {};
   for (var i = 0; i < referenceData.categories.length; i += 1) {
     var category = referenceData.categories[i];
@@ -3293,6 +3309,19 @@ function inferUnambiguousSpendingCategoryFromText_(rawText, referenceData, event
   }
   var ids = Object.keys(matchesById);
   return ids.length === 1 ? matchesById[ids[0]] : null;
+}
+
+function categoryMatchesExplicitPersonalScope_(category, rawText) {
+  var normalizedText = normalizeAliasText_(rawText);
+  var normalizedScope = normalizeAliasText_(category && category.escopo_padrao);
+  if (!normalizedText || (normalizedScope !== 'gustavo' && normalizedScope !== 'luana')) return false;
+  var phrases = categoryMatchPhrases_(category);
+  for (var i = 0; i < phrases.length; i += 1) {
+    var phrase = normalizeAliasText_(phrases[i]);
+    if (!containsAliasPhrase_(phrase, normalizedScope)) continue;
+    if (containsAliasPhrase_(normalizedText, phrase)) return true;
+  }
+  return false;
 }
 
 function findPendingCategoryFromText_(text, referenceData, eventType) {
@@ -3352,8 +3381,9 @@ function categoryMatchPhrases_(category) {
     OPEX_TRANSPORTE_PESSOAL: ['transporte', 'uber', 'onibus', 'gasolina', 'combustivel'],
     OPEX_TRANSPORTE_PESSOAL_LUANA: ['transporte', 'uber', 'onibus', 'gasolina', 'combustivel'],
     OPEX_TRANSPORTE_LAZER_FAMILIAR: ['transporte', 'uber', 'onibus', 'gasolina', 'combustivel'],
-    OPEX_LAZER_PESSOAL: ['lazer', 'cinema', 'show', 'jogo'],
-    OPEX_LAZER_PESSOAL_AVULSO: ['lazer', 'cinema', 'show', 'jogo'],
+    OPEX_LAZER_PESSOAL: ['lazer gustavo', 'lazer para gustavo', 'lazer pessoal gustavo', 'cinema gustavo', 'show gustavo', 'jogo gustavo'],
+    OPEX_LAZER_PESSOAL_AVULSO: ['lazer gustavo', 'lazer para gustavo', 'lazer pessoal gustavo', 'cinema gustavo', 'show gustavo', 'jogo gustavo'],
+    OPEX_LAZER_LUANA: ['lazer luana', 'lazer para luana', 'lazer pessoal luana', 'cinema luana', 'show luana', 'jogo luana'],
     OPEX_LAZER_FAMILIAR: ['lazer', 'cinema', 'show', 'jogo'],
     OPEX_CUIDADOS_PESSOAIS: ['cuidados pessoais', 'barbearia', 'cabelo', 'salao'],
     OPEX_ROUPAS_GUSTAVO: ['roupa gustavo', 'roupas gustavo', 'vestuario gustavo', 'calcado gustavo'],
