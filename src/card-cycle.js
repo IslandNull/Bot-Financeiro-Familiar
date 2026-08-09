@@ -1,5 +1,7 @@
 'use strict';
 
+const { nextBrazilBankingBusinessDay } = require('./brazil-business-day');
+
 function parseIsoDate(value, fieldName) {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
         throw new Error(`${fieldName || 'date'} must be YYYY-MM-DD`);
@@ -74,7 +76,7 @@ function assignInvoiceCycle(purchaseDateValue, card) {
     }
 
     const dueMonth = dueDay > closingDay ? closingDate : addMonths(closingDate, 1);
-    const dueDate = buildClampedDate(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay);
+    const dueDate = nextBrazilBankingBusinessDay(buildClampedDate(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay));
     const competencia = formatCompetencia(closingDate);
 
     return {
@@ -103,7 +105,7 @@ function assignInstallmentCycles(purchaseDateValue, card, parcelas) {
         const nextMonthDate = addMonths(firstClosingDate, i);
         const cDate = buildClampedDate(nextMonthDate.getUTCFullYear(), nextMonthDate.getUTCMonth(), closingDay);
         const dueMonth = dueDay > closingDay ? cDate : addMonths(cDate, 1);
-        const dDate = buildClampedDate(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay);
+        const dDate = nextBrazilBankingBusinessDay(buildClampedDate(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay));
         const competencia = formatCompetencia(cDate);
 
         cycles.push({

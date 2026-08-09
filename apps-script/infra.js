@@ -1,10 +1,16 @@
 function readConfig_() {
   var props = PropertiesService.getScriptProperties();
+  var legacyOpenAiModel = props.getProperty('OPENAI_MODEL') || DEFAULT_OPENAI_MODEL;
   var essentialCostOfLife = Number(props.getProperty('ESSENTIAL_COST_OF_LIFE'));
   if (isNaN(essentialCostOfLife) || essentialCostOfLife <= 0) essentialCostOfLife = 5000;
   
   var reserveMonths = Number(props.getProperty('RESERVE_MONTHS'));
   if (isNaN(reserveMonths) || reserveMonths <= 0) reserveMonths = 3;
+  var balanceFreshnessDaysRaw = props.getProperty('BALANCE_FRESHNESS_DAYS');
+  var balanceFreshnessDays = balanceFreshnessDaysRaw === null || String(balanceFreshnessDaysRaw).trim() === ''
+    ? 7
+    : Number(balanceFreshnessDaysRaw);
+  if (!isFinite(balanceFreshnessDays) || balanceFreshnessDays < 0) balanceFreshnessDays = 7;
 
   return {
     webhookSecret: props.getProperty('WEBHOOK_SECRET') || '',
@@ -13,12 +19,19 @@ function readConfig_() {
     pilotFinancialMutationEnabled: props.getProperty('PILOT_FINANCIAL_MUTATION_ENABLED') === 'YES',
     spreadsheetId: props.getProperty('SPREADSHEET_ID') || '',
     openAiApiKey: props.getProperty('OPENAI_API_KEY') || '',
-    openAiModel: props.getProperty('OPENAI_MODEL') || DEFAULT_OPENAI_MODEL,
+    openAiModel: legacyOpenAiModel,
+    openAiParserModel: props.getProperty('OPENAI_PARSER_MODEL') || legacyOpenAiModel,
+    openAiNarratorModel: props.getProperty('OPENAI_NARRATOR_MODEL') || legacyOpenAiModel,
+    openAiAnalystModel: props.getProperty('OPENAI_ANALYST_MODEL') || legacyOpenAiModel,
     telegramBotToken: props.getProperty('TELEGRAM_BOT_TOKEN') || '',
     copilotDigestEnabled: props.getProperty('COPILOT_DIGEST_ENABLED') === 'YES',
+    copilotAlertsEnabled: props.getProperty('COPILOT_ALERTS_ENABLED') === 'YES',
     copilotNarratorEnabled: props.getProperty('COPILOT_NARRATOR_ENABLED') === 'YES',
+    copilotAnalystEnabled: props.getProperty('COPILOT_ANALYST_ENABLED') === 'YES',
+    telegramPersonMap: parseTelegramPersonMap_(props.getProperty('TELEGRAM_PERSON_MAP')),
     essentialCostOfLife: essentialCostOfLife,
     reserveMonths: reserveMonths,
+    balanceFreshnessDays: balanceFreshnessDays,
   };
 }
 
@@ -79,6 +92,30 @@ function verifyReportingRuntimeConfig_(config) {
 }
 
 function readRuntimeReferenceData_(config) {
+  var startedAt = new Date().getTime();
+  var result = readRuntimeReferenceDataInternal_(config);
+  logRuntimeTiming_('sheets_reference_read', startedAt, { ok: Boolean(result && result.ok) });
+  return result;
+}
+
+function parseTelegramPersonMap_(value) {
+  var parsed = parseJsonSafe_(value || '{}');
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  return Object.keys(parsed).reduce(function(result, key) {
+    var person = stringValue_(parsed[key]);
+    if (person === 'Gustavo' || person === 'Luana') result[String(key)] = person;
+    return result;
+  }, {});
+}
+
+function telegramPersonForUser_(config, userId) {
+  var map = config && config.telegramPersonMap && typeof config.telegramPersonMap === 'object'
+    ? config.telegramPersonMap
+    : {};
+  return map[String(userId || '')] || '';
+}
+
+function readRuntimeReferenceDataInternal_(config) {
   try {
     var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
     var categorySheet = spreadsheet.getSheetByName(SHEETS.CONFIG_CATEGORIAS);
@@ -89,23 +126,41 @@ function readRuntimeReferenceData_(config) {
     var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
     var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
     var closingSheet = spreadsheet.getSheetByName(SHEETS.FECHAMENTO_FAMILIAR);
-    verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
-    verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
-    verifySheetHeaders_(cardSheet, SHEETS.CARTOES);
+    var staticReferences = readStaticReferenceCache_();
+    var rawCategoryRows = null;
+    var rawSourceRows = null;
+    var rawCardRows = null;
+    if (!staticReferences) {
+      verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
+      verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
+      verifySheetHeaders_(cardSheet, SHEETS.CARTOES);
+      rawCategoryRows = readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
+      rawSourceRows = readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES);
+      rawCardRows = readRowsAsObjects_(cardSheet, SHEETS.CARTOES);
+      staticReferences = {
+        categories: rawCategoryRows.filter(function(row) { return row.ativo === true; }),
+        sources: rawSourceRows.filter(function(row) { return row.ativo === true; }),
+        cards: rawCardRows.filter(function(row) { return row.ativo === true; }),
+      };
+      writeStaticReferenceCache_(staticReferences);
+    }
     verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS_RESUMO);
     verifySheetHeaders_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
     verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
     verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
     verifySheetHeaders_(closingSheet, SHEETS.FECHAMENTO_FAMILIAR);
 
-    var categories = readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS).filter(function(row) { return row.ativo === true; });
-    var sources = readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES).filter(function(row) { return row.ativo === true; });
-    var cards = readRowsAsObjects_(cardSheet, SHEETS.CARTOES).filter(function(row) { return row.ativo === true; });
-    var invoices = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS_RESUMO).filter(function(row) {
+    var categories = staticReferences.categories || [];
+    var sources = staticReferences.sources || [];
+    var cards = staticReferences.cards || [];
+    var rawInvoiceRows = readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS_RESUMO);
+    var rawAssetRows = readRowsAsObjects_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
+    var rawDebtRows = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS);
+    var invoices = rawInvoiceRows.filter(function(row) {
       return ['prevista', 'fechada', 'parcialmente_paga'].indexOf(row.status) !== -1;
     });
-    var assets = readRowsAsObjects_(assetSheet, SHEETS.PATRIMONIO_ATIVOS).filter(function(row) { return row.ativo === true; });
-    var debts = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS).filter(function(row) {
+    var assets = rawAssetRows.filter(function(row) { return row.ativo === true; });
+    var debts = rawDebtRows.filter(function(row) {
       return ['ativa', 'em_aberto', 'renegociada'].indexOf(row.status) !== -1;
     });
     var sourceBalances = readRowsAsObjects_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
@@ -133,9 +188,84 @@ function readRuntimeReferenceData_(config) {
       invoicesById: indexBy_(invoices, 'id_fatura'),
       assetsById: indexBy_(assets, 'id_ativo'),
       debtsById: indexBy_(debts, 'id_divida'),
+      __spreadsheet: spreadsheet,
+      __raw: {
+        categories: rawCategoryRows,
+        sources: rawSourceRows,
+        cards: rawCardRows,
+        invoices: rawInvoiceRows,
+        assets: rawAssetRows,
+        debts: rawDebtRows,
+        sourceBalances: sourceBalances,
+      },
     };
   } catch (_err) {
     return fail_('CONFIG_READ_FAILED', 'config', GENERIC_RECORD_FAILURE);
+  }
+}
+
+function readStaticReferenceCache_() {
+  try {
+    var raw = CacheService.getScriptCache().get('BFF_STATIC_REFERENCE_V1');
+    var parsed = raw ? JSON.parse(raw) : null;
+    return parsed && Array.isArray(parsed.categories) && Array.isArray(parsed.sources) && Array.isArray(parsed.cards) ? parsed : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function writeStaticReferenceCache_(value) {
+  try {
+    CacheService.getScriptCache().put('BFF_STATIC_REFERENCE_V1', JSON.stringify(value), 60);
+  } catch (_err) {
+    // Cache is an optimization only.
+  }
+}
+
+function invalidateStaticReferenceCache_() {
+  try {
+    CacheService.getScriptCache().remove('BFF_STATIC_REFERENCE_V1');
+  } catch (_err) {
+    // Cache is an optimization only.
+  }
+}
+
+function telegramUpdateCacheKey_(update) {
+  var updateId = update && update.update_id;
+  if (updateId === undefined || updateId === null || String(updateId).trim() === '') return '';
+  return 'BFF_TG_RESPONSE_' + String(updateId).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
+}
+
+function beginTelegramUpdateProcessing_(update) {
+  var key = telegramUpdateCacheKey_(update);
+  if (!key) return { process: true, key: '' };
+  var cache = CacheService.getScriptCache();
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  try {
+    locked = lock.tryLock(2000);
+    if (!locked) return { process: false, key: key };
+    var cached = cache.get(key);
+    if (cached && cached.indexOf('done:') === 0) {
+      var parsed = parseJsonSafe_(cached.slice(5));
+      if (parsed && typeof parsed === 'object') return { cached: true, process: false, key: key, result: parsed };
+    }
+    if (cached === 'processing') return { process: false, key: key };
+    cache.put(key, 'processing', 60);
+    return { process: true, key: key };
+  } catch (_err) {
+    return { process: true, key: '' };
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+function finishTelegramUpdateProcessing_(key, result) {
+  if (!key || !result) return;
+  try {
+    CacheService.getScriptCache().put(key, 'done:' + JSON.stringify(result), 600);
+  } catch (_err) {
+    // Cache is best-effort and never changes financial meaning.
   }
 }
 
@@ -153,8 +283,79 @@ function pad2_(value) {
 
 function isAuthorized_(config, chatId, userId) {
   if (config.authorizedUserIds.length === 0 && config.authorizedChatIds.length === 0) return false;
-  return contains_(config.authorizedUserIds, String(userId || '')) ||
-    contains_(config.authorizedChatIds, String(chatId || ''));
+  if (config.authorizedUserIds.length > 0 && !contains_(config.authorizedUserIds, String(userId || ''))) return false;
+  if (config.authorizedChatIds.length > 0 && !contains_(config.authorizedChatIds, String(chatId || ''))) return false;
+  return true;
+}
+
+function fetchOpenAIResponseWithRetry_(payload, config, stage) {
+  var startedAt = new Date().getTime();
+  var attempts = 0;
+  var lastResponse = null;
+  var lastError = null;
+  while (attempts < 2) {
+    attempts += 1;
+    try {
+      lastResponse = UrlFetchApp.fetch(OPENAI_RESPONSES_URL, {
+        method: 'post',
+        contentType: 'application/json',
+        headers: { Authorization: 'Bearer ' + config.openAiApiKey },
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true,
+      });
+      var code = lastResponse.getResponseCode();
+      if (code >= 200 && code < 300) break;
+      if (attempts >= 2 || [429, 500, 502, 503, 504].indexOf(code) === -1) break;
+      Utilities.sleep(openAiRetryDelayMs_(lastResponse, attempts));
+    } catch (err) {
+      lastError = err;
+      if (attempts >= 2 || !/timed out|timeout|connection|address unavailable|could not fetch|dns/i.test(String(err && err.message ? err.message : err))) break;
+      Utilities.sleep(250 + Math.floor(Math.random() * 200));
+    }
+  }
+  logRuntimeTiming_('openai_' + stringValue_(stage || 'request'), startedAt, {
+    attempts: attempts,
+    status: lastResponse ? lastResponse.getResponseCode() : 0,
+    ok: Boolean(lastResponse && lastResponse.getResponseCode() >= 200 && lastResponse.getResponseCode() < 300),
+  });
+  if (lastResponse) return lastResponse;
+  throw lastError || new Error('OPENAI_FETCH_FAILED');
+}
+
+function fetchOpenAIResponseOnce_(payload, config, stage) {
+  var startedAt = new Date().getTime();
+  var response;
+  try {
+    response = UrlFetchApp.fetch(OPENAI_RESPONSES_URL, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + config.openAiApiKey },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+    });
+    return response;
+  } finally {
+    logRuntimeTiming_('openai_' + stringValue_(stage || 'request'), startedAt, {
+      attempts: 1,
+      status: response ? response.getResponseCode() : 0,
+      ok: Boolean(response && response.getResponseCode() >= 200 && response.getResponseCode() < 300),
+    });
+  }
+}
+
+function openAiRetryDelayMs_(response, attempt) {
+  var headers = response && typeof response.getAllHeaders === 'function' ? response.getAllHeaders() : {};
+  var retryAfter = headers['Retry-After'] || headers['retry-after'];
+  var seconds = Number(retryAfter);
+  if (isFinite(seconds) && seconds >= 0) return Math.min(1500, Math.max(100, Math.round(seconds * 1000)));
+  return Math.min(1500, 250 * Math.pow(2, Math.max(0, attempt - 1)) + Math.floor(Math.random() * 200));
+}
+
+function logRuntimeTiming_(stage, startedAt, detail) {
+  var payload = detail || {};
+  payload.stage = stringValue_(stage).replace(/[^a-z0-9_]/gi, '_').slice(0, 60);
+  payload.duration_ms = Math.max(0, new Date().getTime() - Number(startedAt || new Date().getTime()));
+  console.log('BFF_TIMING ' + JSON.stringify(payload));
 }
 
 function contains_(items, value) {
@@ -275,7 +476,9 @@ function roundMoney_(value) {
 }
 
 function formatMoney_(value) {
-  return 'R$ ' + roundMoney_(value).toFixed(2).replace('.', ',');
+  var parts = roundMoney_(value).toFixed(2).split('.');
+  var integer = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return 'R$ ' + integer + ',' + parts[1];
 }
 
 function firstAllowed_(items) {

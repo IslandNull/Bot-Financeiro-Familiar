@@ -78,7 +78,9 @@ function safeCopilotNarration(input) {
 
 function buildCopilotNarratorPayload(facts, deterministicText, options = {}) {
     return {
-        model: options.model || 'gpt-5-nano',
+        model: options.model || 'gpt-5.6-luna',
+        store: false,
+        reasoning: { effort: 'none' },
         input: [
             'You are an optional Telegram phrasing layer for a deterministic family finance copilot.',
             'Use only the provided facts, evidence, recommendation, and avoid rule.',

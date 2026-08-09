@@ -23,6 +23,7 @@ const {
     createFakeSheet,
     createAppsScriptHarness,
     postPilotMessage,
+    postTelegramDocument,
     postTelegramCallback,
     appendRuntimeConfigRows,
     runRemoteAction,
@@ -36,6 +37,7 @@ const {
     appendFakeClosing,
     appendFakeGoal,
     appendFakeCommitment,
+    appendFakeImportRule,
     lancamentosHeaders,
     configCategoriasHeaders,
     configFontesHeaders,
@@ -51,7 +53,21 @@ const {
     idempotencyHeaders,
     metasFinanceirasHeaders,
     compromissosRecorrentesHeaders,
+    regrasImportacaoHeaders,
 } = require('./support/harness');
+
+function postPilotMessageConfirmingIfRequested(context, text, options = {}) {
+    const preview = postPilotMessage(context, text, options);
+    if (!preview.ok || !preview.reply_markup || !Array.isArray(preview.reply_markup.inline_keyboard)) return preview;
+    const confirmation = preview.reply_markup.inline_keyboard.flat().find((button) => String(button.callback_data || '').startsWith('confirm:'));
+    if (!confirmation) return preview;
+    return postTelegramCallback(context, confirmation.callback_data, {
+        chatId: options.chatId,
+        userId: options.userId,
+        updateId: `${options.updateId || 'update_1'}_confirmation`,
+        callbackId: `${options.messageId || 'message_1'}_confirmation`,
+    });
+}
 
 function appendFakeCategory(sheets, overrides = {}) {
     const category = {
@@ -111,8 +127,26 @@ test('Apps Script runtime reads expected script properties without hardcoded sec
     assert.ok(code.includes("getProperty('SPREADSHEET_ID')"));
     assert.ok(code.includes("getProperty('OPENAI_API_KEY')"));
     assert.ok(code.includes("getProperty('OPENAI_MODEL')"));
+    assert.ok(code.includes("getProperty('OPENAI_PARSER_MODEL')"));
+    assert.ok(code.includes("getProperty('OPENAI_NARRATOR_MODEL')"));
     assert.ok(!/sk-[A-Za-z0-9_-]+/.test(code));
     assert.ok(!/1[A-Za-z0-9_-]{25,}/.test(code));
+});
+
+test('Apps Script balance freshness defaults to 7 days and preserves an explicit zero', () => {
+    const { context: defaultContext } = createAppsScriptHarness(null, { failOnFetch: true });
+    const { context: blankContext } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: { BALANCE_FRESHNESS_DAYS: '   ' },
+    });
+    const { context: zeroContext } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: { BALANCE_FRESHNESS_DAYS: '0' },
+    });
+
+    assert.strictEqual(defaultContext.readConfig_().balanceFreshnessDays, 7);
+    assert.strictEqual(blankContext.readConfig_().balanceFreshnessDays, 7);
+    assert.strictEqual(zeroContext.readConfig_().balanceFreshnessDays, 0);
 });
 
 test('Apps Script runtime gates and narrows financial mutation', () => {
@@ -143,18 +177,16 @@ test('Apps Script help gives practical launch examples without mutating', () => 
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Bot financeiro familiar/);
-    assert.match(result.responseText, /Lan.ar agora|Lancamentos:/);
-    assert.match(result.responseText, /Perguntas .teis|Perguntas seguras:/);
+    assert.match(result.responseText, /Guia rápido/);
+    assert.match(result.responseText, /Escreva como você fala/);
+    assert.match(result.responseText, /Pergunte antes de decidir/);
     assert.match(result.responseText, /mercado 42 hoje/);
-    assert.match(result.responseText, /farmacia 18 no nubank/);
-    assert.match(result.responseText, /paguei fatura Mercado Pago 300/);
-    assert.match(result.responseText, /Luana mandou 200 para caixa familiar/);
-    assert.match(result.responseText, /saldo Mercado Pago Gustavo 324,41 em 18\/05/);
-    assert.match(result.responseText, /qual meu custo de vida mensal/);
-    assert.match(result.responseText, /Comandos/);
+    assert.match(result.responseText, /notebook 3000 em 3x no Nubank/);
+    assert.match(result.responseText, /paguei fatura Nubank 300 pelo Mercado Pago/);
+    assert.match(result.responseText, /quanto posso gastar agora/);
+    assert.match(result.responseText, /Atalhos essenciais/);
     assert.match(result.responseText, /Regra de seguran.a|Regra de seguranca/);
-    assert.match(result.responseText, /\/ajuda: exemplos\n\n.*Regra de seguran/s);
+    assert.match(result.responseText, /\/copiloto.*\/resumo.*\/agenda/s);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
@@ -166,17 +198,16 @@ test('Apps Script /start and /help return Home with inline keyboard', () => {
 
     assert.strictEqual(start.ok, true);
     assert.strictEqual(help.ok, true);
-    assert.match(start.responseText, /Bot financeiro familiar/);
-    assert.match(start.responseText, /escrever direto/i);
+    assert.match(start.responseText, /Finanças da família/);
+    assert.match(start.responseText, /escreva como você fala/i);
     assert.ok(start.reply_markup.inline_keyboard.length > 0);
     assert.ok(help.reply_markup.inline_keyboard.length > 0);
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:summary_current'));
     assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:copilot_today'));
-    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:cut_first'));
-    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:safe_to_spend'));
-    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:goals_current'));
-    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:commitments_current'));
-    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.text === 'Orçamento' && button.callback_data === 'act:budget_current'));
+    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:pending_attention'));
+    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'nav:launch'));
+    assert.ok(start.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'nav:more'));
+    assert.ok(start.reply_markup.inline_keyboard.flat().length <= 6);
 });
 
 test('Apps Script callback home edits menu and answers callback', () => {
@@ -187,7 +218,7 @@ test('Apps Script callback home edits menu and answers callback', () => {
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.strictEqual(result.telegramActions[0].method, 'answerCallbackQuery');
     assert.strictEqual(result.telegramActions[1].method, 'editMessageText');
-    assert.match(result.telegramActions[1].text, /Bot financeiro familiar/);
+    assert.match(result.telegramActions[1].text, /Finanças da família/);
     assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.length > 0);
 });
 
@@ -196,11 +227,11 @@ test('Apps Script unauthorized callback fails closed without financial data', ()
     const result = postTelegramCallback(context, 'act:summary_current', { userId: 'intruder' });
 
     assert.strictEqual(result.ok, false);
-    assert.strictEqual(result.responseText, 'Nao foi possivel processar esta mensagem.');
+    assert.match(result.responseText, /Não consegui entender esta mensagem/);
     assert.deepStrictEqual(result.telegramActions, [{
         method: 'answerCallbackQuery',
         callback_query_id: 'callback_1',
-        text: 'Nao autorizado.',
+            text: 'Não autorizado.',
         show_alert: false,
     }]);
     assert.ok(!JSON.stringify(result).includes('Resumo de abril'));
@@ -224,23 +255,25 @@ test('Apps Script read-only callbacks reuse summary agenda and review without mu
         assert.strictEqual(result.telegramActions[0].method, 'answerCallbackQuery');
         assert.strictEqual(result.telegramActions[1].method, 'editMessageText');
         assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'nav:home'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:copilot_today'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:cut_first'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:safe_to_spend'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:goals_current'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'act:commitments_current'));
-        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().some((button) => button.text === 'Orçamento' && button.callback_data === 'act:budget_current'));
+        assert.ok(result.telegramActions[1].reply_markup.inline_keyboard.flat().length <= 6);
     }
+    const copilotButtons = copilot.telegramActions[1].reply_markup.inline_keyboard.flat().map((button) => button.callback_data);
+    const summaryButtons = summary.telegramActions[1].reply_markup.inline_keyboard.flat().map((button) => button.callback_data);
+    assert.ok(copilotButtons.includes('act:copilot_explain'));
+    assert.ok(copilotButtons.includes('act:safe_to_spend'));
+    assert.ok(summaryButtons.includes('act:copilot_today'));
+    assert.ok(summaryButtons.includes('nav:launch'));
+    assert.ok(!summaryButtons.includes('act:copilot_explain'));
     assert.match(summary.telegramActions[1].text, /Resumo/);
-    assert.match(copilot.telegramActions[1].text, /Copiloto financeiro/);
-    assert.match(copilot.telegramActions[1].text, /O que fazer agora/);
-    assert.match(cutFirst.telegramActions[1].text, /Onde cortar/);
+    assert.match(copilot.telegramActions[1].text, /Copiloto •/);
+    assert.match(copilot.telegramActions[1].text, /Prioridade agora/);
+    assert.match(cutFirst.telegramActions[1].text, /Onde economizar/);
     assert.match(safeToSpend.telegramActions[1].text, /Gasto seguro agora/);
     assert.match(agenda.telegramActions[1].text, /Agenda|Faturas/);
     assert.match(review.telegramActions[1].text, /fechar|revis/i);
     assert.match(budget.telegramActions[1].text, /Or.amento|orcamento|budget/i);
-    assert.match(goals.telegramActions[1].text, /Metas financeiras revisadas|Metas revisadas ainda nao configuradas/i);
-    assert.match(commitments.telegramActions[1].text, /Compromissos recorrentes revisados|Compromissos revisados ainda nao configurados/i);
+    assert.match(goals.telegramActions[1].text, /Metas financeiras/i);
+    assert.match(commitments.telegramActions[1].text, /Compromissos recorrentes/i);
 });
 
 test('Apps Script launch and clear-context callbacks do not write financial rows', () => {
@@ -251,7 +284,7 @@ test('Apps Script launch and clear-context callbacks do not write financial rows
 
     assert.strictEqual(launch.ok, true);
     assert.strictEqual(clear.ok, true);
-    assert.match(launch.telegramActions[1].text, /Lancar|movimentacao/i);
+    assert.match(launch.telegramActions[1].text, /Novo lançamento/i);
     assert.match(clear.telegramActions[1].text, /Contexto limpo/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     assert.deepStrictEqual(Object.keys(context.__scriptProperties).filter((key) => key.startsWith('BFF_CONVERSATION_')), []);
@@ -274,8 +307,8 @@ test('Apps Script UX messages use short summary-style sections', () => {
         afeta_caixa_familiar: true,
     });
 
-    const launch = postPilotMessage(context, 'mercado 10 hoje');
-    const balance = postPilotMessage(context, '/saldo nubank 1500,50');
+    const launch = postPilotMessage(context, 'mercado 10 hoje via pix pela Conta familia');
+    const balance = postPilotMessage(context, '/saldo nubank 1500,50', { updateId: 'balance_ux', messageId: 'balance_ux' });
 
     assert.strictEqual(launch.ok, true);
     assert.match(launch.responseText, /Gasto anotado/);
@@ -324,13 +357,13 @@ test('Apps Script UX messages hide internal invoice ids and explain card impact'
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     assert.match(result.responseText, /Compra no cart.o anotada/);
-    assert.match(result.responseText, /Valor: R\$ 3000,00/);
+    assert.match(result.responseText, /Valor: R\$ 3\.000,00/);
     assert.match(result.responseText, /Categoria: Eletronicos e equipamentos/);
     assert.match(result.responseText, /Cart.o: Nubank Gustavo/);
     assert.match(result.responseText, /Fatura: Nubank abril/);
     assert.match(result.responseText, /N.o saiu do caixa agora|Nao saiu do caixa agora/);
     assert.match(result.responseText, /Entra na fatura do cart.o|Entra na fatura do cartao/);
-    assert.match(result.responseText, /Parcela estimada: R\$ 1000,00/);
+    assert.match(result.responseText, /Parcela estimada: R\$ 1\.000,00/);
     assert.doesNotMatch(result.responseText, /Tipo:/);
     assert.doesNotMatch(result.responseText, /FAT_|CARD_|FONTE_|OPEX_/);
 });
@@ -386,8 +419,8 @@ test('Apps Script balance snapshot accepts reference date and prefers account so
 test('Apps Script asset balance updates caixinha and cofrinho as reserve liquidity', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
 
-    const mp = postPilotMessage(context, 'Atualizar patrimonio: cofrinho Mercado Pago Gustavo com saldo 9482,99 em 18/05. E reserva/liquidez, nao e receita');
-    const nu = postPilotMessage(context, 'Atualizar patrimonio: caixinha Nubank Gustavo com saldo 5189,84 em 18/05. E reserva/liquidez, nao e receita');
+    const mp = postPilotMessage(context, 'Atualizar patrimonio: cofrinho Mercado Pago Gustavo com saldo 9482,99 em 18/05. E reserva/liquidez, nao e receita', { updateId: 'asset_mp', messageId: 'asset_mp' });
+    const nu = postPilotMessage(context, 'Atualizar patrimonio: caixinha Nubank Gustavo com saldo 5189,84 em 18/05. E reserva/liquidez, nao e receita', { updateId: 'asset_nu', messageId: 'asset_nu' });
 
     assert.strictEqual(mp.ok, true);
     assert.strictEqual(nu.ok, true);
@@ -564,14 +597,14 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Resumo de abril/);
+    assert.match(result.responseText, /Resumo • Abril/);
     assert.match(result.responseText, /Sobra projetada positiva/);
     assert.match(result.responseText, /Contas: R\$ 330,00/);
-    assert.match(result.responseText, /Reserva: R\$ 1000,00/);
-    assert.match(result.responseText, /Renda prevista 05\/05: R\$ 5000,00/);
-    assert.match(result.responseText, /Sobra projetada: R\$ 4787,50/);
-    assert.match(result.responseText, /Nubank( Gu)? 07\/05: R\$ 42,50/);
-    assert.match(result.responseText, /Total: R\$ 42,50/);
+    assert.match(result.responseText, /Reserva: R\$ 1\.000,00/);
+    assert.match(result.responseText, /Renda prevista 05\/05: R\$ 5\.000,00/);
+    assert.match(result.responseText, /Sobra projetada: R\$ 4\.787,50/);
+    assert.match(result.responseText, /Nubank( Gu)?.*07\/05.*R\$ 42,50/);
+    assert.match(result.responseText, /Total das faturas: R\$ 42,50/);
     assert.doesNotMatch(result.responseText, /Compromissos cadastrados/);
     assert.doesNotMatch(result.responseText, /Financiamento: R\$ 500,00/);
     assert.doesNotMatch(result.responseText, /tudo vencendo agora/);
@@ -582,13 +615,13 @@ test('Apps Script /resumo command is read-only and does not require pilot mutati
     assert.doesNotMatch(result.responseText, /Nota: ainda falta saldo real das contas/);
     assert.doesNotMatch(result.responseText, /Ultimos gastos/);
     assert.doesNotMatch(result.responseText, /30\/04 Mercado da semana - R\$ 43,90/);
-    assert.match(result.responseText, /Ver detalhes:/);
-    assert.match(result.responseText, /\/agenda/);
-    assert.match(result.responseText, /para onde foi meu dinheiro/);
-    assert.match(result.responseText, /\/revisar_mes/);
-    assert.match(result.responseText, /A..es agora/);
-    assert.match(result.responseText, /\/orcamento/);
-    assert.match(result.responseText, /\/gasto_seguro/);
+    assert.match(result.responseText, /Próxima melhor ação/);
+    assert.match(result.responseText, /Valores calculados com os dados registrados agora/);
+    const actions = result.reply_markup.inline_keyboard.flat().map((button) => button.callback_data);
+    assert.ok(actions.includes('act:copilot_today'));
+    assert.ok(actions.includes('act:agenda_current'));
+    assert.ok(actions.includes('nav:launch'));
+    assert.doesNotMatch(result.responseText, /\/agenda|\/orcamento|\/gasto_seguro/);
     assert.doesNotMatch(result.responseText, /OPEX_MERCADO_SEMANA/);
     assert.doesNotMatch(result.responseText, /Mercado da semana/);
     assert.doesNotMatch(result.responseText, /privado/);
@@ -617,7 +650,7 @@ test('Apps Script /resumo normalizes sheet date cells used as competencia', () =
     assert.doesNotMatch(result.responseText, /Mercado da semana: R\$ 43,90/);
     assert.doesNotMatch(result.responseText, /Gastos assumidos \(DRE\)/);
     assert.doesNotMatch(result.responseText, /Caixa registrado/);
-    assert.match(result.responseText, /Ainda nao vou sugerir investimento, reserva ou amortizacao/);
+    assert.match(result.responseText, /Ainda não vou sugerir investimento, reserva ou amortização/);
     assert.match(result.responseText, /Ainda falta saldo real das contas/);
 });
 
@@ -637,12 +670,12 @@ test('Apps Script /copiloto is read-only and returns deterministic decision card
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Copiloto financeiro de abril/);
-    assert.match(result.responseText, /Status/);
-    assert.match(result.responseText, /Por que/);
-    assert.match(result.responseText, /O que fazer agora/);
-    assert.match(result.responseText, /Nao fazer/);
-    assert.match(result.responseText, /Confianca: alta/);
+    assert.match(result.responseText, /🧭 Copiloto • Abril/);
+    assert.match(result.responseText, /🚨 Caixa projetado no vermelho/);
+    assert.match(result.responseText, /👉 Prioridade agora/);
+    assert.match(result.responseText, /⛔ Evite agora/);
+    assert.match(result.responseText, /confiança alta/);
+    assert.doesNotMatch(result.responseText, /^(?:Status|Por que|O que fazer agora|Nao fazer)$/m);
     assert.doesNotMatch(result.responseText, /INSIGHT_|FONTE_|CARD_|FAT_|OPEX_/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
@@ -659,6 +692,9 @@ test('Apps Script optional IA narrator uses structured output and accepts only d
     context.UrlFetchApp.fetch = function(url, options) {
         calls.push({ url, options });
         const payload = JSON.parse(options.payload);
+        assert.strictEqual(payload.model, 'gpt-5.6-luna');
+        assert.strictEqual(payload.store, false);
+        assert.deepStrictEqual(payload.reasoning, { effort: 'none' });
         assert.strictEqual(payload.text.format.type, 'json_schema');
         assert.strictEqual(payload.text.format.strict, true);
         return {
@@ -682,7 +718,7 @@ test('Apps Script optional IA narrator uses structured output and accepts only d
     appendFakeInvoice(sheets, { valor_previsto: 1200, valor_pago: '', status: 'prevista' });
     appendFakeDebt(sheets, { valor_parcela: 400 });
 
-    const result = postPilotMessage(context, '/copiloto');
+    const result = postTelegramCallback(context, 'act:copilot_explain');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     assert.strictEqual(result.shouldApplyDomainMutation, false);
@@ -721,10 +757,10 @@ test('Apps Script optional IA narrator falls back when the model invents money o
     appendFakeInvoice(sheets, { valor_previsto: 1200, valor_pago: '', status: 'prevista' });
     appendFakeDebt(sheets, { valor_parcela: 400 });
 
-    const result = postPilotMessage(context, '/copiloto');
+    const result = postTelegramCallback(context, 'act:copilot_explain');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
-    assert.match(result.responseText, /Copiloto financeiro de abril/);
+    assert.match(result.responseText, /Copiloto • Abril/);
     assert.doesNotMatch(result.responseText, /999,00|OPEX_DELIVERY_FAMILIAR/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
@@ -744,7 +780,7 @@ test('Apps Script /resumo labels uncovered obligations clearly when source balan
 
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Faturas atuais/);
-    assert.match(result.responseText, /Total: R\$ 300,00/);
+    assert.match(result.responseText, /Total das faturas: R\$ 300,00/);
     assert.match(result.responseText, /Ainda falta saldo real das contas/);
     assert.doesNotMatch(result.responseText, /Falta para cobrir tudo/);
     assert.match(result.responseText, /Sem esse dado eu evito sugerir investimento/);
@@ -871,10 +907,10 @@ test('Apps Script /resumo projects salary before scheduled invoices and obligati
     assert.strictEqual(result.summary.obrigacoes_ciclo, 300);
     assert.strictEqual(result.summary.pagamentos_programados, 1500);
     assert.strictEqual(result.summary.sobra_projetada_pos_pagamentos, 4000);
-    assert.match(result.responseText, /Renda prevista 05\/05: R\$ 5000,00/);
-    assert.match(result.responseText, /Obrigacoes do ciclo: R\$ 300,00/);
-    assert.match(result.responseText, /Pagamentos programados: R\$ 1500,00/);
-    assert.match(result.responseText, /Sobra projetada: R\$ 4000,00/);
+    assert.match(result.responseText, /Renda prevista 05\/05: R\$ 5\.000,00/);
+    assert.match(result.responseText, /Compromissos do ciclo: R\$ 300,00/);
+    assert.match(result.responseText, /Pagamentos programados: R\$ 1\.500,00/);
+    assert.match(result.responseText, /Sobra projetada: R\$ 4\.000,00/);
     assert.doesNotMatch(result.responseText, /Saldos de benef/);
     assert.doesNotMatch(result.responseText, /Maior impacto/);
 });
@@ -918,11 +954,11 @@ test('Apps Script /resumo separates current liquidity from 60-day exposure and s
 
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Contas: R\$ 324,91/);
-    assert.match(result.responseText, /Reserva: R\$ 9482,99/);
-    assert.match(result.responseText, /Nubank( Gu)? 07\/05: R\$ 1260,47/);
-    assert.match(result.responseText, /Total: R\$ 1260,47/);
+    assert.match(result.responseText, /Reserva: R\$ 9\.482,99/);
+    assert.match(result.responseText, /Nubank( Gu)?.*07\/05.*R\$ 1\.260,47/);
+    assert.match(result.responseText, /Total das faturas: R\$ 1\.260,47/);
     assert.doesNotMatch(result.responseText, /Compromissos cadastrados/);
-    assert.doesNotMatch(result.responseText, /Contas proximas: R\$ 4239,85/);
+    assert.doesNotMatch(result.responseText, /Contas proximas: R\$ 4\.239,85/);
     assert.doesNotMatch(result.responseText, /Ãšltimos gastos|Ultimos gastos/);
 });
 
@@ -958,6 +994,36 @@ test('Apps Script /resumo includes reviewed recurring commitments without exposi
     assert.ok(result.summary.obrigacoes_60d_detalhe.some((item) => item.nome === 'Condominio' && item.data_vencimento === '2026-05-05'));
     assert.ok(result.summary.obrigacoes_60d_detalhe.some((item) => item.nome === 'Compromissos privados agregados' && item.aggregate_only === true));
     assert.doesNotMatch(result.responseText, /Assinatura privada/);
+});
+
+test('Apps Script requires both user and chat when both authorization lists are configured', () => {
+    const { context } = createAppsScriptHarness({}, { failOnFetch: true });
+    const wrongChat = postPilotMessage(context, '/help', { userId: 'user_1', chatId: 'chat_intruder' });
+    const wrongUser = postPilotMessage(context, '/help', { userId: 'user_intruder', chatId: 'chat_1' });
+
+    assert.strictEqual(wrongChat.ok, false);
+    assert.strictEqual(wrongUser.ok, false);
+    assert.ok(wrongChat.errors.some((error) => error.code === 'UNAUTHORIZED'));
+    assert.ok(wrongUser.errors.some((error) => error.code === 'UNAUTHORIZED'));
+});
+
+test('Apps Script requires the only authorization list that is configured and blocks an empty configuration', () => {
+    const userOnly = createAppsScriptHarness({}, {
+        failOnFetch: true,
+        properties: { AUTHORIZED_CHAT_IDS: '' },
+    }).context;
+    const chatOnly = createAppsScriptHarness({}, {
+        failOnFetch: true,
+        properties: { AUTHORIZED_USER_IDS: '' },
+    }).context;
+    const empty = createAppsScriptHarness({}, {
+        failOnFetch: true,
+        properties: { AUTHORIZED_USER_IDS: '', AUTHORIZED_CHAT_IDS: '' },
+    }).context;
+
+    assert.strictEqual(postPilotMessage(userOnly, '/help', { userId: 'user_1', chatId: 'any_chat' }).ok, true);
+    assert.strictEqual(postPilotMessage(chatOnly, '/help', { userId: 'any_user', chatId: 'chat_1' }).ok, true);
+    assert.strictEqual(postPilotMessage(empty, '/help').ok, false);
 });
 
 test('Apps Script /resumo subtracts effective invoice payments when invoice rows still look open', () => {
@@ -1026,8 +1092,8 @@ test('Apps Script /resumo subtracts effective invoice payments when invoice rows
         data_vencimento: '2026-05-10',
         valor: 25,
     });
-    assert.match(result.responseText, /Total: R\$ 25,00/);
-    assert.match(result.responseText, /Mercado Pago( Gu)? 10\/05: R\$ 25,00/);
+    assert.match(result.responseText, /Total das faturas: R\$ 25,00/);
+    assert.match(result.responseText, /Mercado Pago( Gu)?.*10\/05.*R\$ 25,00/);
 });
 
 test('Apps Script /resumo uses closed invoice total as authority over planned card rows', () => {
@@ -1080,8 +1146,8 @@ test('Apps Script /resumo uses closed invoice total as authority over planned ca
         data_vencimento: '2026-06-10',
         valor: 2100.97,
     }]);
-    assert.match(result.responseText, /Total: R\$ 2100,97/);
-    assert.doesNotMatch(result.responseText, /R\$ 2157,52/);
+    assert.match(result.responseText, /Total das faturas: R\$ 2\.100,97/);
+    assert.doesNotMatch(result.responseText, /R\$ 2\.157,52/);
 });
 
 test('Apps Script /resumo respects fechada row even when closing date is in the future', () => {
@@ -1151,7 +1217,7 @@ test('Apps Script /resumo respects fechada row even when closing date is in the 
         data_vencimento: '2026-06-10',
         valor: 2100.97,
     }]);
-    assert.match(result.responseText, /R\$ 2100,97/);
+    assert.match(result.responseText, /R\$ 2\.100,97/);
 });
 
 test('Apps Script answers cost-of-life question without calling the parser', () => {
@@ -1384,13 +1450,13 @@ test('Apps Script answers agenda command with dated invoices and obligations', (
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Agenda financeira de abril/);
+    assert.match(result.responseText, /Agenda • Abril/);
     assert.match(result.responseText, /Faturas/);
     assert.match(result.responseText, /Compromissos/);
-    assert.match(result.responseText, /Aten..o/);
+    assert.match(result.responseText, /Proteção/);
     assert.match(result.responseText, /07\/05 .*Nubank.*R\$ 300,00/);
     assert.match(result.responseText, /07\/06 .*Nubank.*R\$ 200,00/);
-    assert.match(result.responseText, /05\/05 Condominio: R\$ 700,00/);
+    assert.match(result.responseText, /05\/05.*Condominio.*R\$ 700,00/);
     assert.match(result.responseText, /Financiamento casa.*R\$ 878,41/);
     assert.match(result.responseText, /N.o . tudo vencendo hoje/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
@@ -1437,14 +1503,14 @@ test('Apps Script agenda decision drill-down highlights next action without muta
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(text, /Agenda financeira de abril/);
+    assert.match(text, /Agenda • Abril/);
     assert.match(text, /Pr.ximo vencimento/);
     assert.match(text, /05\/05 Condominio R\$ 700,00/);
     assert.match(text, /07\/05 .*Nubank.*R\$ 300,00/);
-    assert.match(text, /A..o sugerida/);
-    assert.match(text, /separar .*R\$ 3656,82/i);
-    assert.match(text, /N.o fazer/);
-    assert.match(text, /Confianca: alta/);
+    assert.match(text, /Prioridade agora/);
+    assert.match(text, /separar .*R\$ 3\.656,82/i);
+    assert.match(text, /Evite agora/);
+    assert.match(text, /confiança alta/);
     assert.strictEqual(JSON.stringify(sheets), beforeRows);
 });
 
@@ -1465,17 +1531,16 @@ test('Apps Script simulates whether a new installment purchase fits safely', () 
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Simula..o conservadora/);
-    assert.match(result.responseText, /Status/);
-    assert.match(result.responseText, /Nao cabe com seguranca/);
-    assert.match(result.responseText, /Por que/);
+    assert.match(result.responseText, /Simulação de compra/);
+    assert.match(result.responseText, /A compra não cabe agora/);
+    assert.match(result.responseText, /Não cabe com segurança/i);
     assert.match(result.responseText, /Compra: R\$ 900,00 em 3x/);
     assert.match(result.responseText, /Parcela estimada: R\$ 300,00/);
-    assert.match(result.responseText, /Gasto seguro agora: R\$ 0,00/);
-    assert.match(result.responseText, /Folga depois da compra: R\$ -300,00/);
-    assert.match(result.responseText, /O que fazer agora/);
-    assert.match(result.responseText, /Nao fazer/);
-    assert.match(result.responseText, /Confianca: alta/);
+    assert.match(result.responseText, /Gasto seguro antes: R\$ 0,00/);
+    assert.match(result.responseText, /Margem depois: R\$ -300,00/);
+    assert.match(result.responseText, /Prioridade agora/);
+    assert.match(result.responseText, /Evite agora/);
+    assert.match(result.responseText, /confiança alta/);
     assert.doesNotMatch(result.responseText, /FONTE_|CARD_|FAT_|OPEX_|INSIGHT_/);
     assert.doesNotMatch(result.responseText, /Cabe nos dados registrados/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
@@ -1498,12 +1563,11 @@ test('Apps Script answers how much can be spent now without requiring a purchase
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Gasto seguro agora/);
-    assert.match(result.responseText, /Status/);
-    assert.match(result.responseText, /Por que/);
-    assert.match(result.responseText, /Dinheiro em contas: R\$ 2600,00/);
-    assert.match(result.responseText, /Gasto seguro agora: R\$ 900,00/);
-    assert.match(result.responseText, /O que fazer agora/);
-    assert.match(result.responseText, /Nao fazer/);
+    assert.match(result.responseText, /R\$ 0,00 para gasto novo/);
+    assert.match(result.responseText, /Dinheiro em contas: R\$ 2\.600,00/);
+    assert.match(result.responseText, /Pendência que bloqueia|fontes sem saldo/);
+    assert.match(result.responseText, /Prioridade agora/);
+    assert.match(result.responseText, /Evite agora/);
     assert.doesNotMatch(result.responseText, /O que falta/);
     assert.doesNotMatch(result.responseText, /FONTE_|CARD_|FAT_|OPEX_|INSIGHT_/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
@@ -1526,8 +1590,9 @@ test('Apps Script /gasto_seguro command previews safe-to-spend without mutation'
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Gasto seguro agora/);
-    assert.match(result.responseText, /Dinheiro em contas: R\$ 2600,00/);
-    assert.match(result.responseText, /Gasto seguro agora: R\$ 900,00/);
+    assert.match(result.responseText, /Dinheiro em contas: R\$ 2\.600,00/);
+    assert.match(result.responseText, /R\$ 0,00 para gasto novo/);
+    assert.match(result.responseText, /fontes sem saldo/);
     assert.doesNotMatch(result.responseText, /FONTE_|CARD_|FAT_|OPEX_|INSIGHT_/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
@@ -1575,17 +1640,50 @@ test('Apps Script goals command reads reviewed optional V56 goals without mutati
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Metas financeiras revisadas/);
+    assert.match(result.responseText, /Metas financeiras/);
     assert.match(result.responseText, /Reserva emergencial/);
-    assert.match(result.responseText, /Progresso: R\$ 6000,00 \/ R\$ 15000,00 \(40%\)/);
-    assert.match(result.responseText, /Falta: R\$ 9000,00/);
-    assert.match(result.responseText, /Aporte mensal planejado: R\$ 1000,00/);
-    assert.match(result.responseText, /Confianca: alta/);
+    assert.match(result.responseText, /Reserva emergencial.*40%/);
+    assert.match(result.responseText, /R\$ 6\.000,00 de R\$ 15\.000,00.*faltam R\$ 9\.000,00/);
+    assert.match(result.responseText, /Aporte planejado: R\$ 1\.000,00\/mês/);
+    assert.match(result.responseText, /confiança alta/);
     assert.match(result.responseText, /Privacidade/);
     assert.match(result.responseText, /1 meta privada ficou apenas agregada/i);
     assert.doesNotMatch(result.responseText, /Objetivo privado/);
     assert.doesNotMatch(result.responseText, /Meta em rascunho/);
     assert.strictEqual(JSON.stringify(sheets), beforeRows);
+});
+
+test('Apps Script /pendencias and callback expose only aggregate quality blockers', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true, properties: { BALANCE_FRESHNESS_DAYS: '7' } });
+    appendFakeSourceBalance(sheets, { id_snapshot: 'SNAP_OLD', data_referencia: '2026-04-22', saldo_disponivel: 1000 });
+    appendFakeAsset(sheets, { id_ativo: 'PRIVATE_ASSET_ID', data_referencia: '2026-03-31' });
+    appendFakeDebt(sheets, { id_divida: 'PRIVATE_DEBT_ID', data_atualizacao: '2026-03-31' });
+    appendFakeGoal(sheets, { status_revisao: 'pendente', ativo: true });
+    appendFakeImportRule(sheets, { status_revisao: 'sugerido', ativo: false });
+
+    const command = postPilotMessage(context, '/pendencias');
+    const callback = postTelegramCallback(context, 'act:pending_attention');
+    assert.strictEqual(command.ok, true);
+    assert.strictEqual(callback.ok, true);
+    assert.match(command.responseText, /Central de pendências/);
+    assert.match(command.responseText, /fontes sem saldo|saldos com mais de 7 dias/);
+    assert.match(command.responseText, /somente contagens agregadas/i);
+    assert.doesNotMatch(command.responseText, /PRIVATE_ASSET_ID|PRIVATE_DEBT_ID/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+});
+
+test('Apps Script alerts_preview applies 85 percent warning and remains send-disabled', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true, properties: { COPILOT_ALERTS_ENABLED: 'NO' } });
+    appendFakeLaunch(sheets, { id_lancamento: 'LAN_ALERT', id_categoria: 'OPEX_ALIMENTACAO_FORA', valor: 270, tipo_evento: 'compra_cartao', afeta_caixa_familiar: false });
+    const result = runRemoteAction(context, 'alerts_preview');
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(result.alerts.enabled, false);
+    assert.strictEqual(result.alerts.preview_only, true);
+    assert.strictEqual(result.alerts.alerts[0].percent, 90);
+    assert.strictEqual(result.alerts.alerts[0].severity, 'warning');
+    assert.match(result.responseText, /Envio imediato: desativado/);
 });
 
 test('Apps Script commitments command reads reviewed recurring commitments with upcoming pressure without mutating sheets', () => {
@@ -1636,14 +1734,14 @@ test('Apps Script commitments command reads reviewed recurring commitments with 
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(text, /Compromissos recorrentes revisados/);
+    assert.match(text, /Compromissos recorrentes/);
     assert.match(text, /Condominio/);
-    assert.match(text, /05\/05 Condominio: R\$ 700,00/);
-    assert.match(text, /10\/05 Streaming familiar: R\$ 50,00/);
-    assert.match(text, /Pressao 30d visivel: R\$ 750,00/);
-    assert.match(text, /Total mensal visivel: R\$ 750,00/);
-    assert.match(text, /A..o sugerida/);
-    assert.match(text, /separar R\$ 700,00 ate 05\/05/i);
+    assert.match(text, /05\/05.*Condominio.*R\$ 700,00/);
+    assert.match(text, /10\/05.*Streaming familiar.*R\$ 50,00/);
+    assert.match(text, /Visível: R\$ 750,00/);
+    assert.match(text, /Mensal visível: R\$ 750,00/);
+    assert.match(text, /Prioridade agora/);
+    assert.match(text, /separe R\$ 700,00 até 05\/05/i);
     assert.match(text, /Privacidade/);
     assert.match(text, /1 compromisso privado ficou apenas agregado/i);
     assert.doesNotMatch(text, /Assinatura privada/);
@@ -1728,7 +1826,7 @@ test('Apps Script schema_upgrade creates optional V56 sheets with headers only',
     assert.strictEqual(dryRun.ok, true);
     assert.strictEqual(dryRun.dryRun, true);
     assert.strictEqual(dryRun.status, 'planned');
-    assert.deepStrictEqual(dryRun.changes.map((change) => change.sheet).sort(), ['Compromissos_Recorrentes', 'Metas_Financeiras']);
+    assert.deepStrictEqual(dryRun.changes.map((change) => change.sheet).sort(), ['Compromissos_Recorrentes', 'Metas_Financeiras', 'Regras_Importacao']);
     assert.strictEqual(sheets.Metas_Financeiras, undefined);
     assert.strictEqual(sheets.Compromissos_Recorrentes, undefined);
 
@@ -1738,6 +1836,7 @@ test('Apps Script schema_upgrade creates optional V56 sheets with headers only',
     assert.strictEqual(applied.status, 'upgraded');
     assert.deepStrictEqual(sheets.Metas_Financeiras.rows, [metasFinanceirasHeaders]);
     assert.deepStrictEqual(sheets.Compromissos_Recorrentes.rows, [compromissosRecorrentesHeaders]);
+    assert.deepStrictEqual(sheets.Regras_Importacao.rows, [regrasImportacaoHeaders]);
 
     const secondRun = runRemoteAction(context, 'schema_upgrade');
     assert.strictEqual(secondRun.ok, true);
@@ -1745,6 +1844,7 @@ test('Apps Script schema_upgrade creates optional V56 sheets with headers only',
     assert.deepStrictEqual(secondRun.changes, []);
     assert.deepStrictEqual(sheets.Metas_Financeiras.rows, [metasFinanceirasHeaders]);
     assert.deepStrictEqual(sheets.Compromissos_Recorrentes.rows, [compromissosRecorrentesHeaders]);
+    assert.deepStrictEqual(sheets.Regras_Importacao.rows, [regrasImportacaoHeaders]);
 
     const audit = runRemoteAction(context, 'sheet_audit');
     assert.strictEqual(audit.ok, true);
@@ -1815,12 +1915,12 @@ test('Apps Script monthly review explains current month is not closable', () => 
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Revis.o de abril/);
-    assert.match(result.responseText, /Status/);
-    assert.match(result.responseText, /Confer.ncia|Conferencia/);
+    assert.match(result.responseText, /Revisão do mês • Abril/);
+    assert.match(result.responseText, /Estado da competência/);
+    assert.match(result.responseText, /Conferência rápida/);
     assert.match(result.responseText, /Maiores impactos/);
     assert.match(result.responseText, /M.s atual ainda aberto/);
-    assert.match(result.responseText, /N.o vou fechar este m.s agora/);
+    assert.match(result.responseText, /fechamento permanece bloqueado/i);
     assert.match(result.responseText, /Mercado da semana: R\$ 120,00/);
     assert.match(result.responseText, /Faturas atuais: R\$ 300,00/);
     assert.strictEqual(sheets.Fechamento_Familiar.rows.length, 1);
@@ -1855,13 +1955,13 @@ test('Apps Script monthly review callback returns read-only decision card before
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(text, /Decis.o de fechamento/);
     assert.match(text, /Ainda n.o fechar/);
-    assert.match(text, /Bloqueadores/);
+    assert.match(text, /O que ainda precisa fechar/);
     assert.match(text, /M.s atual ainda aberto/);
-    assert.match(text, /A..o sugerida/);
+    assert.match(text, /Prioridade agora/);
     assert.match(text, /conferir faturas reais/i);
     assert.match(text, /Privacidade/);
     assert.match(text, /detalhes pessoais ficam agregados/i);
-    assert.match(text, /Confianca: alta/);
+    assert.match(text, /confiança alta/);
     assert.doesNotMatch(text, /compra privada nao abrir/);
     assert.strictEqual(JSON.stringify(sheets), beforeRows);
 });
@@ -1950,10 +2050,10 @@ test('Apps Script monthly review recommends concrete savings opportunities and a
     const result = postPilotMessage(context, '/revisar_mes');
 
     assert.strictEqual(result.ok, true);
-    assert.match(result.responseText, /Taxa de poupanca: 91%/);
+    assert.match(result.responseText, /Taxa de poupança: 91%/);
     assert.match(result.responseText, /reduzir Alimentacao fora de R\$ 420,00 para R\$ 300,00 libera R\$ 120,00/i);
     assert.match(result.responseText, /Gastos pessoais privados: R\$ 180,00/);
-    assert.match(result.responseText, /Nao fazer: investir antes de cobrir reserva e pagamentos registrados/i);
+    assert.match(result.responseText, /Evite investir antes de cobrir reserva e pagamentos registrados/i);
     assert.doesNotMatch(result.responseText, /item privado nao deve aparecer/);
 });
 
@@ -1995,15 +2095,13 @@ test('Apps Script onde cortar command returns read-only decision card with priva
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Onde cortar/);
-    assert.match(result.responseText, /Status/);
-    assert.match(result.responseText, /Por que/);
+    assert.match(result.responseText, /Onde economizar/);
     assert.match(result.responseText, /Alimentacao fora/);
-    assert.match(result.responseText, /Economia possivel: R\$ 120,00/);
+    assert.match(result.responseText, /Economia possível: R\$ 120,00/);
     assert.match(result.responseText, /Gastos pessoais privados: R\$ 180,00/);
-    assert.match(result.responseText, /O que fazer agora/);
-    assert.match(result.responseText, /Nao fazer/);
-    assert.match(result.responseText, /Confianca/);
+    assert.match(result.responseText, /Prioridade agora/);
+    assert.match(result.responseText, /Evite agora/);
+    assert.match(result.responseText, /confiança/);
     assert.doesNotMatch(result.responseText, /item privado nao deve aparecer/);
     assert.doesNotMatch(result.responseText, /OPEX_|FONTE_|CARD_|FAT_|INSIGHT_/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 4);
@@ -2037,7 +2135,7 @@ test('Apps Script doGet cut_first action previews onde cortar without mutation',
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Onde cortar/);
+    assert.match(result.responseText, /Onde economizar/);
     assert.match(result.responseText, /Alimentacao fora/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 3);
 });
@@ -2059,7 +2157,8 @@ test('Apps Script doGet safe_to_spend action previews gasto seguro without mutat
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
     assert.match(result.responseText, /Gasto seguro agora/);
-    assert.match(result.responseText, /Gasto seguro agora: R\$ 900,00/);
+    assert.match(result.responseText, /R\$ 0,00 para gasto novo/);
+    assert.match(result.responseText, /fontes sem saldo/);
     assert.strictEqual(result.summary.competencia, '2026-04');
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
@@ -2100,9 +2199,9 @@ test('Apps Script doGet copilot_digest_preview action returns weekly digest with
     assert.strictEqual(result.digest.should_send, false);
     assert.strictEqual(result.digest.competencia, '2026-04');
     assert.strictEqual(result.digest.sections.biggest_risk.action_key, 'safe_to_spend');
-    assert.match(result.responseText, /Digest semanal do copiloto/);
+    assert.match(result.responseText, /Seu radar da semana/);
     assert.match(result.responseText, /Maior risco/);
-    assert.match(result.responseText, /Onde cortar primeiro/);
+    assert.match(result.responseText, /Onde economizar primeiro/);
     assert.match(result.responseText, /Gasto seguro/);
     assert.doesNotMatch(result.responseText, /item privado nao deve aparecer/);
     assert.doesNotMatch(result.responseText, /OPEX_|FONTE_|CARD_|FAT_|INSIGHT_/);
@@ -2162,9 +2261,49 @@ test('Apps Script copilot digest delivery sends only when enabled without leakin
     assert.ok(calls.every((call) => call.url.includes('/sendMessage')));
     const payloads = calls.map((call) => JSON.parse(call.options.payload));
     assert.deepStrictEqual(payloads.map((payload) => payload.chat_id), ['chat_1', 'chat_2']);
-    assert.ok(payloads.every((payload) => /Digest semanal do copiloto/.test(payload.text)));
+    assert.ok(payloads.every((payload) => /Seu radar da semana/.test(payload.text)));
     assert.doesNotMatch(JSON.stringify(result), /123456:test_token|chat_1|chat_2/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+
+    const duplicate = context.runCopilotWeeklyDigestDeliveryV56();
+    assert.strictEqual(duplicate.ok, true);
+    assert.strictEqual(duplicate.sent_count, 0);
+    assert.strictEqual(duplicate.skipped_count, 2);
+    assert.strictEqual(calls.length, 2);
+});
+
+test('Apps Script weekly digest trigger is Monday 08:00 Sao Paulo and idempotent', () => {
+    const { context } = createAppsScriptHarness(null, { failOnFetch: true });
+    const triggers = [];
+    context.ScriptApp = {
+        WeekDay: { MONDAY: 'MONDAY' },
+        getProjectTriggers: () => triggers,
+        deleteTrigger(trigger) { triggers.splice(triggers.indexOf(trigger), 1); },
+        newTrigger(handler) {
+            const settings = { handler };
+            const builder = {
+                timeBased() { return builder; },
+                onWeekDay(value) { settings.weekday = value; return builder; },
+                atHour(value) { settings.hour = value; return builder; },
+                inTimezone(value) { settings.timezone = value; return builder; },
+                create() { triggers.push({ getHandlerFunction: () => handler, settings }); return triggers[triggers.length - 1]; },
+            };
+            return builder;
+        },
+    };
+
+    const first = context.ensureCopilotWeeklyDigestTriggerV56();
+    const second = context.ensureCopilotWeeklyDigestTriggerV56();
+    assert.strictEqual(first.created, true);
+    assert.strictEqual(second.created, false);
+    assert.strictEqual(triggers.length, 1);
+    assert.deepStrictEqual({ ...triggers[0].settings }, { handler: 'runCopilotWeeklyDigestDeliveryV56', weekday: 'MONDAY', hour: 8, timezone: 'America/Sao_Paulo' });
+    const activated = context.activateCopilotDigestAfterApprovalV56();
+    assert.strictEqual(activated.digest_enabled, true);
+    assert.strictEqual(activated.alerts_enabled, false);
+    assert.strictEqual(activated.digest_sent, false);
+    assert.strictEqual(context.__scriptProperties.COPILOT_DIGEST_ENABLED, 'YES');
+    assert.strictEqual(context.__scriptProperties.COPILOT_ALERTS_ENABLED, 'NO');
 });
 
 test('Apps Script safe question answers how much to save and blocks investment without real balances', () => {
@@ -2190,9 +2329,9 @@ test('Apps Script safe question answers how much to save and blocks investment w
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Meta mensal de guardar dinheiro/);
-    assert.match(result.responseText, /Meta sugerida: R\$ 2000,00/);
-    assert.match(result.responseText, /Bloqueio de investimento/);
+    assert.match(result.responseText, /Plano de reserva/);
+    assert.match(result.responseText, /Meta sugerida: R\$ 2\.000,00/);
+    assert.match(result.responseText, /Antes de investir/);
     assert.match(result.responseText, /falta saldo real das contas/);
 });
 
@@ -2246,7 +2385,7 @@ test('Apps Script doGet summary action returns current read-only family summary'
     assert.strictEqual(result.summary.saldos_fontes_inicial, 100);
     assert.strictEqual(result.summary.saldos_fontes_final, 350);
     assert.strictEqual(result.summary.saldos_fontes_disponivel, 330);
-    assert.match(result.responseText, /Resumo de abril/);
+    assert.match(result.responseText, /Resumo • Abril/);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     assert.strictEqual(sheets.Transferencias_Internas.rows.length, 2);
@@ -2507,10 +2646,13 @@ test('Apps Script summary and closing_draft actions accept explicit competencia'
     assert.deepStrictEqual(invalid.errors.map((error) => error.code), ['INVALID_REQUESTED_COMPETENCIA']);
 });
 
-test('Apps Script runtime uses OpenAI Responses JSON output for parser boundary', () => {
-    assert.ok(code.includes("DEFAULT_OPENAI_MODEL = 'gpt-5-nano'"));
+test('Apps Script runtime uses GPT-5.6 Luna with strict OpenAI Responses structured output for parser boundary', () => {
+    assert.ok(code.includes("DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna'"));
     assert.ok(code.includes('https://api.openai.com/v1/responses'));
-    assert.ok(code.includes("type: 'json_object'"));
+    assert.ok(code.includes("name: 'financial_event'"));
+    assert.ok(code.includes('strict: true'));
+    assert.ok(code.includes('store: false'));
+    assert.ok(code.includes("reasoning: { effort: 'none' }"));
     assert.ok(code.includes('input: buildParserPrompt_(text, referenceData, conversation)'));
     assert.ok(code.includes('extractOpenAIOutputText_'));
     assert.ok(code.includes('if (!parsed.ok) return '));
@@ -2772,7 +2914,7 @@ test('Apps Script pilot expense canonicalizes fragile parser output before writi
         status: '',
     });
 
-    const result = postPilotMessage(context, 'mercado 10');
+    const result = postPilotMessage(context, 'mercado 10 via pix pela Conta familia');
 
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Gasto anotado/);
@@ -2784,7 +2926,7 @@ test('Apps Script pilot expense canonicalizes fragile parser output before writi
     assert.match(result.responseText, /Fonte: Conta familia/);
     assert.match(result.responseText, /Impacto/);
     assert.match(result.responseText, /Caixa familiar: saiu\./);
-    assert.match(result.responseText, /Use \/resumo para revisar o m.s\./);
+    assert.match(result.responseText, /Confira o resumo ou corrija este lançamento/);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -2799,7 +2941,7 @@ test('Apps Script pilot expense canonicalizes fragile parser output before writi
     assert.strictEqual(row.afeta_caixa_familiar, true);
     assert.strictEqual(row.visibilidade, 'detalhada');
     assert.strictEqual(row.status, 'efetivado');
-    assert.strictEqual(row.descricao, 'mercado 10');
+    assert.strictEqual(row.descricao, 'mercado 10 via pix pela Conta familia');
 });
 
 test('Apps Script pilot expense extracts money from original text when parser omits value', () => {
@@ -2825,7 +2967,7 @@ test('Apps Script pilot expense extracts money from original text when parser om
         status: '',
     });
 
-    const result = postPilotMessage(context, 'mercado 10 hoje');
+    const result = postPilotMessage(context, 'mercado 10 hoje via pix pela Conta familia');
 
     assert.strictEqual(result.ok, true);
     const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -2856,7 +2998,7 @@ test('Apps Script pilot expense accepts Brazilian and currency money formats fro
             status: '',
         });
 
-        const result = postPilotMessage(context, 'mercado 10,50');
+        const result = postPilotMessage(context, 'mercado 10,50 via pix pela Conta familia');
 
         assert.strictEqual(result.ok, true);
         const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -2864,7 +3006,7 @@ test('Apps Script pilot expense accepts Brazilian and currency money formats fro
     }
 });
 
-test('Apps Script pilot expense still blocks card-like references', () => {
+test('Apps Script asks for the real card instead of trusting a parser-invented card reference', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'despesa',
         data: '2026-04-30',
@@ -2890,7 +3032,8 @@ test('Apps Script pilot expense still blocks card-like references', () => {
     const result = postPilotMessage(context, 'mercado 10 no cartao');
 
     assert.strictEqual(result.ok, false);
-    assert.deepStrictEqual(result.errors.map((error) => error.code), ['PILOT_REFERENCES_BLOCKED']);
+    assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_CARD_BLOCKED']);
+    assert.ok(result.reply_markup.inline_keyboard.flat().some((button) => /^sel:card:/.test(button.callback_data)));
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
 });
@@ -2968,7 +3111,7 @@ test('Apps Script expense accepts active work coffee category', () => {
         acumula_sobra: false,
     });
 
-    const result = postPilotMessage(context, 'cafe no trabalho Luana 25');
+    const result = postPilotMessage(context, 'cafe no trabalho Luana 25 via pix');
 
     assert.strictEqual(result.ok, true);
     const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -3002,7 +3145,7 @@ test('Apps Script parser canonicalization overwrites mismatched metadata and cle
         status: 'pendente', // mismatch
     });
 
-    const result = postPilotMessage(context, 'mercado com metadata errada 10');
+    const result = postPilotMessage(context, 'mercado com metadata errada 10 via pix pela Conta familia');
     assert.strictEqual(result.ok, true);
     const row = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(row.escopo, 'Familiar'); // overwritten to default
@@ -3050,7 +3193,7 @@ test('Apps Script parser matches pet synonyms', () => {
         return row[header] === undefined ? '' : row[header];
     }));
 
-    const result = postPilotMessage(context, 'racao do draco 150');
+    const result = postPilotMessage(context, 'racao do draco 150 no Nubank Gustavo');
     if (!result.ok) {
         console.log("TEST FAILURE DETAILS:", JSON.stringify(result, null, 2));
     }
@@ -3252,6 +3395,18 @@ test('Apps Script pilot mutation blocks closed competencia unless it is an adjus
     assert.strictEqual(allowed.sheets.Lancamentos.rows.length, 2);
 });
 
+test('Apps Script invoice cycle advances September 7 holiday to the next banking day', () => {
+    const { context } = createAppsScriptHarness();
+    const cycle = context.assignPilotInvoiceCycle_('2026-08-03', {
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        fechamento_dia: 2,
+        vencimento_dia: 7,
+    });
+
+    assert.strictEqual(cycle.data_fechamento, '2026-09-02');
+    assert.strictEqual(cycle.data_vencimento, '2026-09-08');
+});
+
 test('Apps Script pilot card purchase writes launch and expected invoice rows', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'compra_cartao',
@@ -3392,7 +3547,7 @@ test('Apps Script pilot card purchase prefers Luana card when text omits explici
     assert.strictEqual(launch.pessoa, 'Luana');
 });
 
-test('Apps Script card purchase blocks unrelated fallback category and asks for confirmation', () => {
+test('Apps Script replaces an unrelated parser fallback when the text has one deterministic category', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'compra_cartao',
         data: '2026-04-30',
@@ -3418,13 +3573,133 @@ test('Apps Script card purchase blocks unrelated fallback category and asks for 
 
     const result = postPilotMessage(context, 'Comprei notebook 3000 em 3x no nubank');
 
-    assert.strictEqual(result.ok, false);
-    assert.deepStrictEqual(result.errors.map((error) => error.code), ['CATEGORY_CONFIRMATION_REQUIRED']);
-    assert.match(result.responseText, /N.o anotei para n.o chutar categoria/);
-    assert.match(result.responseText, /Reenvie com a categoria no texto/);
-    assert.match(result.responseText, /Eletronicos e equipamentos/);
-    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
-    assert.strictEqual(sheets.Faturas_Resumo.rows.length, 1);
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_categoria, 'OPEX_ELETRONICOS_E_EQUIPAMENTOS');
+    assert.strictEqual(launch.id_cartao, 'CARD_NUBANK_GU');
+});
+
+test('Apps Script records a house drain purchase with Mercado Pago despite a wrong parser fallback', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa', data: '2026-08-07', competencia: '2026-08', valor: '28.40',
+        descricao: 'Ralo para banheiro Tumelero', id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: '', pessoa: 'Gustavo', escopo: '', visibilidade: '', id_cartao: '',
+        id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: false, afeta_patrimonio: false,
+        afeta_caixa_familiar: false, direcao_caixa_familiar: '', status: 'efetivado', parcelas: 1,
+    });
+    appendFakeCategory(sheets, {
+        id_categoria: 'OPEX_MORADIA_MANUTENCAO', nome: 'Manutenção e melhorias da casa',
+        grupo: 'Moradia', tipo_evento_padrao: 'compra_cartao', escopo_padrao: 'Familiar',
+        visibilidade_padrao: 'detalhada',
+    });
+
+    const result = postPilotMessage(
+        context,
+        'ralo banheiro tumelero 28,40 cartão de credito mercado pago 07 de ago obra casa',
+        { updateId: 'house_drain_direct', messageId: 'house_drain_direct' },
+    );
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.data, '2026-08-07');
+    assert.strictEqual(launch.valor, 28.40);
+    assert.strictEqual(launch.tipo_evento, 'compra_cartao');
+    assert.strictEqual(launch.id_categoria, 'OPEX_MORADIA_MANUTENCAO');
+    assert.strictEqual(launch.id_cartao, 'CARD_MERCADO_PAGO_GU');
+    assert.strictEqual(launch.id_fonte, 'FONTE_MERCADO_PAGO_GU');
+});
+
+test('Apps Script assigns leisure to Luana even when Gustavo owns the card', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao', data: '2026-08-09', competencia: '2026-08', valor: '39.90',
+        descricao: 'Lazer Luana', id_categoria: 'OPEX_LAZER_FAMILIAR', id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: 'Gustavo', escopo: 'Familiar', visibilidade: 'detalhada', id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: true, afeta_patrimonio: false,
+        afeta_caixa_familiar: false, direcao_caixa_familiar: '', status: 'efetivado', parcelas: 1,
+    });
+    appendFakeCategory(sheets, {
+        id_categoria: 'OPEX_LAZER_FAMILIAR', nome: 'Lazer familiar', grupo: 'Lazer',
+        tipo_evento_padrao: 'compra_cartao', escopo_padrao: 'Familiar', visibilidade_padrao: 'detalhada',
+    });
+    appendFakeCategory(sheets, {
+        id_categoria: 'OPEX_LAZER_LUANA', nome: 'Lazer Luana', grupo: 'Lazer',
+        tipo_evento_padrao: 'compra_cartao', escopo_padrao: 'Luana', visibilidade_padrao: 'privada',
+    });
+
+    const result = postPilotMessage(context, '39,90 cartão nubank gustavo lazer luana', {
+        updateId: 'luana_leisure_on_gustavo_card', messageId: 'luana_leisure_on_gustavo_card',
+    });
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.match(result.responseText, /Categoria: Lazer Luana/);
+    assert.match(result.responseText, /Escopo: Luana/);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_categoria, 'OPEX_LAZER_LUANA');
+    assert.strictEqual(launch.pessoa, 'Luana');
+    assert.strictEqual(launch.escopo, 'Luana');
+    assert.strictEqual(launch.visibilidade, 'privada');
+    assert.strictEqual(launch.id_cartao, 'CARD_NUBANK_GU');
+});
+
+test('Apps Script keeps leisure family-scoped when no personal beneficiary is named', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao', data: '2026-08-09', competencia: '2026-08', valor: '39.90',
+        descricao: 'Lazer do casal', id_categoria: 'OPEX_LAZER_FAMILIAR', id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: 'Gustavo', escopo: 'Familiar', visibilidade: 'detalhada', id_cartao: 'CARD_NUBANK_GU',
+        id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: true, afeta_patrimonio: false,
+        afeta_caixa_familiar: false, direcao_caixa_familiar: '', status: 'efetivado', parcelas: 1,
+    });
+    appendFakeCategory(sheets, {
+        id_categoria: 'OPEX_LAZER_FAMILIAR', nome: 'Lazer familiar', grupo: 'Lazer',
+        tipo_evento_padrao: 'compra_cartao', escopo_padrao: 'Familiar', visibilidade_padrao: 'detalhada',
+    });
+    appendFakeCategory(sheets, {
+        id_categoria: 'OPEX_LAZER_LUANA', nome: 'Lazer Luana', grupo: 'Lazer',
+        tipo_evento_padrao: 'compra_cartao', escopo_padrao: 'Luana', visibilidade_padrao: 'privada',
+    });
+
+    const result = postPilotMessage(context, '39,90 cartão nubank gustavo lazer do casal', {
+        updateId: 'family_leisure_on_gustavo_card', messageId: 'family_leisure_on_gustavo_card',
+    });
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_categoria, 'OPEX_LAZER_FAMILIAR');
+    assert.strictEqual(launch.escopo, 'Familiar');
+    assert.strictEqual(launch.visibilidade, 'detalhada');
+});
+
+test('Apps Script resumes a pending purchase from only the category name', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeCategory(sheets, {
+        id_categoria: 'OPEX_MORADIA_MANUTENCAO', nome: 'Manutenção e melhorias da casa',
+        grupo: 'Moradia', tipo_evento_padrao: 'compra_cartao', escopo_padrao: 'Familiar',
+        visibilidade_padrao: 'detalhada',
+    });
+    const state = context.emptyConversationState_('BFF_CONVERSATION_chat_1_user_1');
+    state.pending_intent = {
+        missing_field: 'categoria', created_at: context.isoNow_(),
+        event: {
+            tipo_evento: 'compra_cartao', data: '2026-08-07', competencia: '2026-08', valor: 28.40,
+            descricao: 'Ralo para banheiro Tumelero', raw_text: 'comprei um ralo para banheiro 28,40 no cartão mercado pago dia 07 de agosto',
+            id_categoria: 'OPEX_MERCADO_SEMANA', id_fonte: 'FONTE_MERCADO_PAGO_GU', pessoa: 'Gustavo',
+            escopo: 'Familiar', visibilidade: 'detalhada', id_cartao: 'CARD_MERCADO_PAGO_GU',
+            id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: true, afeta_patrimonio: false,
+            afeta_caixa_familiar: false, direcao_caixa_familiar: '', status: 'efetivado', parcelas: 1,
+        },
+    };
+    context.writeConversationState_('chat_1', state, 'user_1');
+
+    const result = postPilotMessage(context, 'manutenção e melhorias da casa', {
+        updateId: 'house_category_followup', messageId: 'house_category_followup',
+    });
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.id_categoria, 'OPEX_MORADIA_MANUTENCAO');
+    assert.strictEqual(launch.id_cartao, 'CARD_MERCADO_PAGO_GU');
+    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent, null);
 });
 
 test('Apps Script card purchase accepts notebook when parser selects matching electronics category', () => {
@@ -3854,7 +4129,12 @@ test('Apps Script pilot invoice payment writes cash launch and marks invoice pai
     });
     appendFakeInvoice(sheets);
 
-    const result = postPilotMessage(context, 'pagar fatura nubank 42,50');
+    const preview = postPilotMessage(context, 'pagar fatura nubank 42,50');
+    assert.strictEqual(preview.ok, true);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    const confirmData = preview.reply_markup.inline_keyboard.flat().find((button) => button.callback_data.startsWith('confirm:')).callback_data;
+    const result = postTelegramCallback(context, confirmData);
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
@@ -3905,7 +4185,7 @@ test('Apps Script pilot invoice payment infers Nubank April invoice and cash sou
     })[header] ?? ''));
     appendFakeInvoice(sheets, { valor_previsto: 1997.73 });
 
-    const result = postPilotMessage(context, 'Paguei a fatura Nubank Gustavo de abril no valor de 1997,73 em 07/05 pela Conta Nubank Gustavo. Nao e despesa nova, e pagamento de fatura.');
+    const result = postPilotMessageConfirmingIfRequested(context, 'Paguei a fatura Nubank Gustavo de abril no valor de 1997,73 em 07/05 pela Conta Nubank Gustavo. Nao e despesa nova, e pagamento de fatura.');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -3965,7 +4245,7 @@ test('Apps Script invoice payment source uses explicit paying account instead of
     ].forEach((row) => sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => row[header] === undefined ? '' : row[header])));
     appendFakeInvoice(sheets, { valor_previsto: 1997.73 });
 
-    const result = postPilotMessage(context, 'Paguei a fatura Nubank Gustavo de abril no valor de 1997,73 em 07/05 pela Conta Mercado Pago Gustavo. Nao e despesa nova, e pagamento de fatura.');
+    const result = postPilotMessageConfirmingIfRequested(context, 'Paguei a fatura Nubank Gustavo de abril no valor de 1997,73 em 07/05 pela Conta Mercado Pago Gustavo. Nao e despesa nova, e pagamento de fatura.');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -4032,7 +4312,7 @@ test('Apps Script pilot invoice payment infers Mercado Pago invoice and account 
         valor_previsto: 4219.93,
     });
 
-    const result = postPilotMessage(context, 'Paguei a fatura Mercado Pago Gustavo de abril no valor de 4219,93 em 05/05 pela Conta Mercado Pago Gustavo. Nao e despesa nova, e pagamento de fatura.');
+    const result = postPilotMessageConfirmingIfRequested(context, 'Paguei a fatura Mercado Pago Gustavo de abril no valor de 4219,93 em 05/05 pela Conta Mercado Pago Gustavo. Nao e despesa nova, e pagamento de fatura.');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -4075,7 +4355,7 @@ test('Apps Script pilot invoice payment reconciles small reviewed invoice overag
     appendFakeInvoice(sheets, { valor_previsto: 1773.11 });
     appendFakeInvoice(sheets, { valor_previsto: 203.64 });
 
-    const result = postPilotMessage(context, 'Paguei a fatura Nubank Gustavo de abril no valor de 1997,73 em 07/05 pela Conta Nubank Gustavo. Nao e despesa nova, e pagamento de fatura.');
+    const result = postPilotMessageConfirmingIfRequested(context, 'Paguei a fatura Nubank Gustavo de abril no valor de 1997,73 em 07/05 pela Conta Nubank Gustavo. Nao e despesa nova, e pagamento de fatura.');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
@@ -4086,7 +4366,8 @@ test('Apps Script pilot invoice payment reconciles small reviewed invoice overag
     assert.strictEqual(sheets.Faturas_Resumo.rows.length, 3);
     const originalFirst = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
     const originalSecond = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[2][index]]));
-    const reconciliation = Object.fromEntries(faturasLinhasHeaders.map((header, index) => [header, sheets.Faturas_Linhas.rows[1][index]]));
+    const reconciliationRow = sheets.Faturas_Linhas.rows.slice(1).find((row) => row[faturasLinhasHeaders.indexOf('status_origem')] === 'fatura_prevista');
+    const reconciliation = Object.fromEntries(faturasLinhasHeaders.map((header, index) => [header, reconciliationRow[index]]));
     assert.strictEqual(originalFirst.status, 'paga');
     assert.strictEqual(originalSecond.status, 'paga');
     assert.strictEqual(reconciliation.id_fatura, 'FAT_CARD_NUBANK_GU_2026_04');
@@ -4118,7 +4399,7 @@ test('Apps Script pilot invoice payment can pay a historical invoice split into 
     appendFakeInvoice(sheets, { valor_previsto: 70 });
     appendFakeInvoice(sheets, { valor_previsto: 50 });
 
-    const result = postPilotMessage(context, 'paguei fatura historica 120');
+    const result = postPilotMessageConfirmingIfRequested(context, 'paguei fatura historica 120');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const firstInvoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
@@ -4161,7 +4442,7 @@ test('Apps Script pilot invoice payment charges only outstanding amount on parti
         status: 'parcialmente_paga',
     });
 
-    const result = postPilotMessage(context, 'paguei restante fatura nubank 70');
+    const result = postPilotMessageConfirmingIfRequested(context, 'paguei restante fatura nubank 70');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
     const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
@@ -4206,6 +4487,90 @@ test('Apps Script pilot invoice payment requires reviewed invoice and amount', (
     assert.strictEqual(invoice.status, 'prevista');
 });
 
+test('Apps Script invoice payment correction replaces a linked payment without reopening or duplicating the invoice', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
+    appendFakeInvoice(sheets, { valor_previsto: 100, valor_pago: '', valor_aberto: 100, status: 'prevista' });
+    const config = context.readConfig_();
+    const referenceData = context.readRuntimeReferenceData_(config);
+    const event = {
+        tipo_evento: 'pagamento_fatura', data: '2026-04-30', competencia: '2026-04', valor: 100,
+        descricao: 'pagamento fatura', id_categoria: '', id_fonte: 'FONTE_CONTA_FAMILIA', pessoa: 'Gustavo',
+        escopo: 'Familiar', visibilidade: 'detalhada', id_cartao: '', id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        id_divida: '', id_ativo: '', afeta_dre: false, afeta_patrimonio: false, afeta_caixa_familiar: true,
+        direcao_caixa_familiar: 'saida', status: 'efetivado', parcelas: 1,
+    };
+    const oldUpdate = { update_id: 'old-payment' };
+    const oldMessage = {
+        message_id: 'old-payment', chat: { id: 'chat_1' },
+        __request: { idempotency_key: 'telegram:old-payment:1', source: 'telegram', external_update_id: 'old-payment', external_message_id: 'old-payment', chat_id: 'chat_1', payload_hash: '' },
+    };
+    const oldResult = context.recordPilotInvoicePayment_(oldUpdate, oldMessage, event, config, referenceData);
+    assert.strictEqual(oldResult.ok, true, JSON.stringify(oldResult.errors));
+
+    const newUpdate = { update_id: 'new-payment' };
+    const newMessage = {
+        message_id: 'new-payment', chat: { id: 'chat_1' }, __correction_target_id: oldResult.result_ref,
+        __request: { idempotency_key: 'telegram:new-payment:1', source: 'telegram', external_update_id: 'new-payment', external_message_id: 'new-payment', chat_id: 'chat_1', payload_hash: '' },
+    };
+    const replacement = context.recordPilotInvoicePayment_(newUpdate, newMessage, { ...event, descricao: 'pagamento corrigido' }, config, referenceData);
+    assert.strictEqual(replacement.ok, true, JSON.stringify(replacement.errors));
+    const correction = context.applyCorrectionMutationPlan_(oldResult.result_ref, replacement.result_ref, newUpdate, newMessage, config, []);
+    assert.strictEqual(correction.ok, true, JSON.stringify(correction.errors));
+
+    const launchIds = sheets.Lancamentos.rows.slice(1).map((row) => row[lancamentosHeaders.indexOf('id_lancamento')]);
+    assert.deepStrictEqual(launchIds, [replacement.result_ref]);
+    const paymentLines = sheets.Faturas_Linhas.rows.slice(1).filter((row) => row[faturasLinhasHeaders.indexOf('status_origem')] === 'paga');
+    assert.strictEqual(paymentLines.length, 1);
+    assert.strictEqual(paymentLines[0][faturasLinhasHeaders.indexOf('id_lancamento')], replacement.result_ref);
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
+    assert.strictEqual(invoice.valor_pago, 100);
+    assert.strictEqual(invoice.valor_aberto, 0);
+    assert.strictEqual(invoice.status, 'paga');
+});
+
+test('Apps Script invoice payment correction restores the invoice and resumes after a dependency-boundary failure', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
+    appendFakeInvoice(sheets, { valor_previsto: 100, valor_pago: '', valor_aberto: 100, status: 'prevista' });
+    const config = context.readConfig_();
+    const referenceData = context.readRuntimeReferenceData_(config);
+    const event = {
+        tipo_evento: 'pagamento_fatura', data: '2026-04-30', competencia: '2026-04', valor: 100,
+        descricao: 'pagamento fatura', id_categoria: '', id_fonte: 'FONTE_CONTA_FAMILIA', pessoa: 'Gustavo',
+        escopo: 'Familiar', visibilidade: 'detalhada', id_cartao: '', id_fatura: 'FAT_CARD_NUBANK_GU_2026_04',
+        id_divida: '', id_ativo: '', afeta_dre: false, afeta_patrimonio: false, afeta_caixa_familiar: true,
+        direcao_caixa_familiar: 'saida', status: 'efetivado', parcelas: 1,
+    };
+    const oldUpdate = { update_id: 'restore-payment' };
+    const oldMessage = {
+        message_id: 'restore-payment', chat: { id: 'chat_1' },
+        __request: { idempotency_key: 'telegram:restore-payment:1', source: 'telegram', external_update_id: 'restore-payment', external_message_id: 'restore-payment', chat_id: 'chat_1', payload_hash: '' },
+    };
+    const oldResult = context.recordPilotInvoicePayment_(oldUpdate, oldMessage, event, config, referenceData);
+    assert.strictEqual(oldResult.ok, true, JSON.stringify(oldResult.errors));
+    appendFakeLaunch(sheets, { id_lancamento: 'LAN_PAYMENT_REPLACEMENT', tipo_evento: 'despesa', valor: 100, descricao: 'despesa correta' });
+
+    const correctionUpdate = { update_id: 'restore-payment-correction' };
+    const correctionMessage = {
+        message_id: 'restore-payment-correction', chat: { id: 'chat_1' },
+        __request: { idempotency_key: 'telegram:restore-payment-correction:1', source: 'telegram', external_update_id: 'restore-payment-correction', external_message_id: 'restore-payment-correction', chat_id: 'chat_1', payload_hash: '' },
+    };
+    context.__BFF_FAIL_MUTATION_OPERATION = 'correct_transaction';
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 2;
+    const failed = context.applyCorrectionMutationPlan_(oldResult.result_ref, 'LAN_PAYMENT_REPLACEMENT', correctionUpdate, correctionMessage, config, []);
+    assert.strictEqual(failed.ok, false);
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
+    const retried = context.applyCorrectionMutationPlan_(oldResult.result_ref, 'LAN_PAYMENT_REPLACEMENT', correctionUpdate, correctionMessage, config, []);
+    assert.strictEqual(retried.ok, true, JSON.stringify(retried.errors));
+
+    const launchIds = sheets.Lancamentos.rows.slice(1).map((row) => row[lancamentosHeaders.indexOf('id_lancamento')]);
+    assert.deepStrictEqual(launchIds, ['LAN_PAYMENT_REPLACEMENT']);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.slice(1).filter((row) => row[faturasLinhasHeaders.indexOf('id_lancamento')] === oldResult.result_ref).length, 0);
+    const invoice = Object.fromEntries(faturasResumoHeaders.map((header, index) => [header, sheets.Faturas_Resumo.rows[1][index]]));
+    assert.strictEqual(invoice.valor_pago, '');
+    assert.strictEqual(invoice.valor_aberto, 100);
+    assert.strictEqual(invoice.status, 'prevista');
+});
+
 test('Apps Script pilot internal transfer writes family cash entry only', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'transferencia_interna',
@@ -4229,7 +4594,7 @@ test('Apps Script pilot internal transfer writes family cash entry only', () => 
         status: '',
     });
 
-    const result = postPilotMessage(context, 'Luana mandou 300 para caixa familiar');
+    const result = postPilotMessageConfirmingIfRequested(context, 'Luana mandou 300 para caixa familiar');
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
@@ -4276,7 +4641,7 @@ test('Apps Script pilot internal transfer moves money between own active sources
         { id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU', nome: 'Conta Mercado Pago Gustavo', tipo: 'conta_corrente', titular: 'Gustavo', moeda: 'BRL', ativo: true },
     ].forEach((row) => sheets.Config_Fontes.appendRow(configFontesHeaders.map((header) => row[header] === undefined ? '' : row[header])));
 
-    const result = postPilotMessage(context, 'Transferi 1675 do Nubank Gustavo para Mercado Pago Gustavo em 08/05.');
+    const result = postPilotMessageConfirmingIfRequested(context, 'Transferi 1675 do Nubank Gustavo para Mercado Pago Gustavo em 08/05.');
 
     assert.strictEqual(result.ok, true, JSON.stringify(result));
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
@@ -4443,10 +4808,10 @@ test('Apps Script validation failures return actionable launch guidance', () => 
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_CATEGORY_BLOCKED']);
     assert.match(result.responseText, /O que falta/);
     assert.match(result.responseText, /Categoria/);
-    assert.match(result.responseText, /categoria Mercado da semana/);
+    assert.match(result.responseText, /Responda apenas com o nome da categoria/);
 });
 
-test('Apps Script guided registration asks only for missing source', () => {
+test('Apps Script guided registration asks only for missing source on explicit Pix', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'despesa',
         data: '2026-04-30',
@@ -4469,7 +4834,7 @@ test('Apps Script guided registration asks only for missing source', () => {
         status: 'efetivado',
     });
 
-    const result = postPilotMessage(context, 'mercado 10');
+    const result = postPilotMessage(context, 'mercado 10 via pix');
 
     assert.strictEqual(result.ok, false);
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_SOURCE_BLOCKED']);
@@ -4491,7 +4856,7 @@ test('Apps Script conversation context persists a rolling 5-message window and c
         assert.strictEqual(result.ok, true);
     }
 
-    const state = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1);
+    const state = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1);
     assert.strictEqual(state.messages.length, 10);
     assert.strictEqual(state.messages[0].text, '/ajuda');
     assert.strictEqual(state.messages[0].role, 'user');
@@ -4505,10 +4870,10 @@ test('Apps Script conversation context persists a rolling 5-message window and c
 
     assert.strictEqual(cleared.ok, true);
     assert.match(cleared.responseText, /Contexto limpo/);
-    assert.strictEqual(context.__scriptProperties.BFF_CONVERSATION_chat_1, undefined);
+    assert.strictEqual(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1, undefined);
 });
 
-test('Apps Script conversation context stores user and bot messages', () => {
+test('Apps Script conversation context stores sanitized user and bot messages without financial values', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'compra_cartao',
         data: '2026-04-30',
@@ -4535,15 +4900,261 @@ test('Apps Script conversation context stores user and bot messages', () => {
     const result = postPilotMessage(context, 'farmacia 18 no nubank');
     assert.strictEqual(result.ok, true);
 
-    const state = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1);
+    const state = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1);
     assert.strictEqual(state.messages.length, 2);
     assert.strictEqual(state.messages[0].role, 'user');
-    assert.strictEqual(state.messages[0].text, 'farmacia 18 no nubank');
+    assert.strictEqual(state.messages[0].text, 'farmacia [n] no nubank');
     assert.strictEqual(state.messages[1].role, 'bot');
     assert.match(state.messages[1].text, /Compra no cart/);
+    assert.doesNotMatch(JSON.stringify(state.messages), /\b18\b|R\$/);
 });
 
-test('Apps Script guided registration resumes pending expense when user replies with source only', () => {
+test('Apps Script defaults an ordinary purchase to credit card and resumes it from a card-only reply', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa',
+        data: '2026-08-05',
+        competencia: '2026-08',
+        valor: '145.23',
+        descricao: 'Combustivel trabalho 145,23 5 de ago',
+        id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO',
+        id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU',
+        pessoa: 'Gustavo',
+        escopo: 'Gustavo',
+        visibilidade: 'privada',
+        id_cartao: '',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const ask = postPilotMessage(context, 'Combustível trabalho 145,23 5 de ago', {
+        updateId: 'default_card_purchase_1',
+        messageId: 'default_card_purchase_message_1',
+    });
+
+    assert.strictEqual(ask.ok, false);
+    assert.deepStrictEqual(ask.errors.map((error) => error.code), ['CONFIG_CARD_BLOCKED']);
+    assert.match(ask.responseText, /Cart.o/);
+    assert.match(ask.responseText, /Responda com o cart.o usado/);
+    assert.match(ask.responseText, /d.bito e o nome da conta/);
+    assert.ok(ask.reply_markup.inline_keyboard.flat().some((button) => /^sel:card:/.test(button.callback_data)));
+    const pending = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent;
+    assert.strictEqual(pending.event.valor, 145.23);
+    assert.strictEqual(pending.event.tipo_evento, 'compra_cartao');
+
+    const reminder = postPilotMessage(context, 'ainda vou conferir', {
+        updateId: 'default_card_purchase_reminder',
+        messageId: 'default_card_purchase_reminder',
+    });
+    assert.strictEqual(reminder.ok, false);
+    assert.deepStrictEqual(reminder.errors.map((error) => error.code), ['PENDING_INTENT_UNRESOLVED']);
+    assert.match(reminder.responseText, /Responda com o cart.o usado/);
+    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent.event.valor, 145.23);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+
+    const resumed = postPilotMessage(context, 'cartão mercado pago gustavo', {
+        updateId: 'default_card_purchase_2',
+        messageId: 'default_card_purchase_message_2',
+    });
+
+    assert.strictEqual(resumed.ok, true, JSON.stringify(resumed.errors));
+    assert.match(resumed.responseText, /Compra no cart/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'compra_cartao');
+    assert.strictEqual(launch.data, '2026-08-05');
+    assert.strictEqual(launch.valor, 145.23);
+    assert.strictEqual(launch.id_categoria, 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO');
+    assert.strictEqual(launch.id_cartao, 'CARD_MERCADO_PAGO_GU');
+    assert.strictEqual(launch.id_fonte, 'FONTE_MERCADO_PAGO_GU');
+    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent, null);
+});
+
+test('Apps Script keeps an explicitly stated Pix purchase on the cash-source path', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        valor: '20',
+        descricao: 'mercado 20 via pix pela Conta Mercado Pago Gustavo',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        pessoa: 'Gustavo',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const result = postPilotMessage(context, 'mercado 20 via pix pela Conta Mercado Pago Gustavo', {
+        updateId: 'explicit_pix_purchase',
+        messageId: 'explicit_pix_purchase',
+    });
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'despesa');
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_MERCADO_PAGO_GU');
+    assert.strictEqual(launch.id_cartao, '');
+    assert.strictEqual(launch.afeta_caixa_familiar, true);
+});
+
+test('Apps Script treats com conta as an explicit debit purchase even when the parser returns a card', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'compra_cartao',
+        data: '2026-08-09',
+        competencia: '2026-08',
+        valor: '90',
+        descricao: 'estacionamento trabalho',
+        id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO',
+        id_fonte: 'FONTE_MERCADO_PAGO_GU',
+        pessoa: 'Gustavo',
+        escopo: 'Gustavo',
+        visibilidade: 'privada',
+        id_cartao: 'CARD_MERCADO_PAGO_GU',
+        id_fatura: '',
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: true,
+        afeta_patrimonio: false,
+        afeta_caixa_familiar: false,
+        direcao_caixa_familiar: '',
+        status: 'efetivado',
+    });
+
+    const result = postPilotMessage(context, 'paguei estacionamento trabalho com conta mercado pago gustavo 90 reais', {
+        updateId: 'explicit_account_debit',
+        messageId: 'explicit_account_debit',
+    });
+
+    assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+    assert.match(result.responseText, /Gasto anotado/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 1);
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'despesa');
+    assert.strictEqual(launch.valor, 90);
+    assert.strictEqual(launch.id_categoria, 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO');
+    assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_MERCADO_PAGO_GU');
+    assert.strictEqual(launch.id_cartao, '');
+    assert.strictEqual(launch.afeta_caixa_familiar, true);
+});
+
+test('Apps Script converts a card-pending purchase to debit from either natural correction reply', () => {
+    ['débito conta mercado pago gustavo', 'não foi cartão, foi direto da conta'].forEach((reply, index) => {
+        const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+        const state = context.emptyConversationState_('BFF_CONVERSATION_chat_1_user_1');
+        state.pending_intent = {
+            missing_field: 'cartao',
+            created_at: '2026-08-09T12:00:00Z',
+            event: {
+                tipo_evento: 'compra_cartao', data: '2026-08-09', competencia: '2026-08', valor: 90,
+                descricao: 'estacionamento trabalho',
+                raw_text: 'paguei estacionamento trabalho com conta mercado pago gustavo 90 reais',
+                id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO', id_fonte: '',
+                pessoa: 'Gustavo', escopo: 'Gustavo', visibilidade: 'privada', id_cartao: '',
+                id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: true,
+                afeta_patrimonio: false, afeta_caixa_familiar: false, direcao_caixa_familiar: '',
+                status: 'efetivado', parcelas: 1,
+            },
+        };
+        context.writeConversationState_('chat_1', state, 'user_1');
+
+        const result = postPilotMessage(context, reply, {
+            updateId: `pending_debit_reply_${index}`,
+            messageId: `pending_debit_reply_${index}`,
+        });
+
+        assert.strictEqual(result.ok, true, JSON.stringify(result.errors));
+        assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+        assert.strictEqual(sheets.Faturas_Linhas.rows.length, 1);
+        const launch = Object.fromEntries(lancamentosHeaders.map((header, rowIndex) => [header, sheets.Lancamentos.rows[1][rowIndex]]));
+        assert.strictEqual(launch.tipo_evento, 'despesa');
+        assert.strictEqual(launch.data, '2026-08-09');
+        assert.strictEqual(launch.valor, 90);
+        assert.strictEqual(launch.id_categoria, 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO');
+        assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_MERCADO_PAGO_GU');
+        assert.strictEqual(launch.id_cartao, '');
+        assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent, null);
+    });
+});
+
+test('Apps Script changes a card pending question to source when debit is explicit but the account is missing', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const state = context.emptyConversationState_('BFF_CONVERSATION_chat_1_user_1');
+    state.pending_intent = {
+        missing_field: 'cartao',
+        created_at: '2026-08-09T12:00:00Z',
+        event: {
+            tipo_evento: 'compra_cartao', data: '2026-08-09', competencia: '2026-08', valor: 90,
+            descricao: 'estacionamento trabalho', raw_text: 'estacionamento trabalho 90',
+            id_categoria: 'OPEX_TRANSPORTE_TRABALHO_GUSTAVO_AVULSO', id_fonte: '',
+            pessoa: 'Gustavo', escopo: 'Gustavo', visibilidade: 'privada', id_cartao: '',
+            id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: true,
+            afeta_patrimonio: false, afeta_caixa_familiar: false, direcao_caixa_familiar: '',
+            status: 'efetivado', parcelas: 1,
+        },
+    };
+    context.writeConversationState_('chat_1', state, 'user_1');
+
+    const askSource = postPilotMessage(context, 'não foi cartão, foi direto da conta', {
+        updateId: 'pending_debit_needs_source',
+        messageId: 'pending_debit_needs_source',
+    });
+
+    assert.strictEqual(askSource.ok, false);
+    assert.match(askSource.responseText, /O que falta\s+Fonte/);
+    assert.doesNotMatch(askSource.responseText, /O que falta\s+Cartão/);
+    const pending = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent;
+    assert.strictEqual(pending.missing_field, 'fonte');
+    assert.strictEqual(pending.event.tipo_evento, 'despesa');
+    assert.strictEqual(pending.event.valor, 90);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script upgrades an existing source-pending purchase when the user replies with a card', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const state = context.emptyConversationState_('BFF_CONVERSATION_chat_1_user_1');
+    state.pending_intent = {
+        missing_field: 'fonte',
+        created_at: '2026-04-30T15:00:00Z',
+        event: {
+            tipo_evento: 'despesa', data: '2026-04-30', competencia: '2026-04', valor: 10,
+            descricao: 'mercado 10', raw_text: 'mercado 10', id_categoria: 'OPEX_MERCADO_SEMANA',
+            id_fonte: '', pessoa: 'Gustavo', escopo: 'Familiar', visibilidade: 'detalhada',
+            id_cartao: '', id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: true,
+            afeta_patrimonio: false, afeta_caixa_familiar: true, direcao_caixa_familiar: '',
+            status: 'efetivado', parcelas: 1,
+        },
+    };
+    context.writeConversationState_('chat_1', state, 'user_1');
+
+    const resumed = postPilotMessage(context, 'cartão mercado pago gustavo', {
+        updateId: 'legacy_source_pending_card',
+        messageId: 'legacy_source_pending_card',
+    });
+
+    assert.strictEqual(resumed.ok, true, JSON.stringify(resumed.errors));
+    const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
+    assert.strictEqual(launch.tipo_evento, 'compra_cartao');
+    assert.strictEqual(launch.id_cartao, 'CARD_MERCADO_PAGO_GU');
+    assert.strictEqual(launch.id_fonte, 'FONTE_MERCADO_PAGO_GU');
+    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent, null);
+});
+
+test('Apps Script guided registration resumes pending Pix expense when user replies with source only', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'despesa',
         data: '2026-04-30',
@@ -4566,7 +5177,7 @@ test('Apps Script guided registration resumes pending expense when user replies 
         status: 'efetivado',
     });
 
-    const ask = postPilotMessage(context, 'mercado 10', {
+    const ask = postPilotMessage(context, 'mercado 10 via pix', {
         updateId: 'pending_source_1',
         messageId: 'pending_source_msg_1',
     });
@@ -4584,7 +5195,7 @@ test('Apps Script guided registration resumes pending expense when user replies 
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_FAMILIA');
-    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1).pending_intent, null);
+    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent, null);
 });
 
 test('Apps Script guided registration resumes pending card purchase when user replies with card only', () => {
@@ -4706,7 +5317,7 @@ test('Apps Script guided registration asks only for missing card', () => {
     assert.strictEqual(result.ok, false);
     assert.deepStrictEqual(result.errors.map((error) => error.code), ['CONFIG_CARD_BLOCKED']);
     assert.match(result.responseText, /O que falta/);
-    assert.match(result.responseText, /Cartao/);
+    assert.match(result.responseText, /Cart.o/);
     assert.match(result.responseText, /no Nubank Gustavo/);
     assert.strictEqual(sheets.Lancamentos.rows.length, 1);
     assert.strictEqual(sheets.Faturas_Resumo.rows.length, 1);
@@ -5138,19 +5749,201 @@ test('Apps Script generic launches block inactive asset and debt references', ()
     assert.strictEqual(inactiveDebt.sheets.Lancamentos.rows.length, 1);
 });
 
-test('Apps Script runtime writes pilot expense with idempotency before launch row', () => {
-    assert.ok(code.includes('LockService.getScriptLock()'));
-    assert.ok(code.includes('waitLock(10000)'));
-    assert.ok(code.includes("appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG"));
-    assert.ok(code.includes("appendRow_(launchSheet, SHEETS.LANCAMENTOS"));
-    assert.ok(code.includes("appendRow_(sheet, SHEETS.FATURAS_RESUMO"));
-    assert.ok(code.includes("appendRow_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS"));
-    assert.ok(code.includes("appendRow_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS"));
-    assert.ok(code.includes('updateInvoicePayments_'));
-    assert.ok(code.includes('duplicate_completed'));
-    assert.ok(code.includes('DUPLICATE_PROCESSING'));
-    assert.ok(code.includes("'failed'"));
-    assert.ok(code.includes('REAL_WRITE_FAILED'));
+test('Apps Script MutationPlan resumes a failed expense without duplicating the launch', () => {
+    const { context, sheets } = createAppsScriptHarness({
+        tipo_evento: 'despesa', data: '2026-04-30', competencia: '2026-04', valor: 42,
+        descricao: 'mercado 42', id_categoria: 'OPEX_MERCADO_SEMANA', id_fonte: 'FONTE_CONTA_FAMILIA',
+        pessoa: 'Familiar', escopo: 'Familiar', visibilidade: 'detalhada', id_cartao: '', id_fatura: '',
+        id_divida: '', id_ativo: '', afeta_dre: true, afeta_patrimonio: false, afeta_caixa_familiar: true,
+        direcao_caixa_familiar: '', status: 'efetivado',
+    });
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 1;
+    const failed = postPilotMessage(context, 'mercado 42 via pix pela Conta familia', { updateId: 'recover_1', messageId: 'recover_1' });
+    assert.strictEqual(failed.ok, false);
+    assert.strictEqual(sheets.Idempotency_Log.rows[1][6], 'failed');
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
+    const recovered = postPilotMessage(context, 'mercado 42 via pix pela Conta familia', { updateId: 'recover_1', messageId: 'recover_1' });
+    assert.strictEqual(recovered.ok, true);
+    assert.strictEqual(sheets.Idempotency_Log.rows[1][6], 'completed');
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+
+    const duplicate = postPilotMessage(context, 'mercado 42 via pix pela Conta familia', { updateId: 'recover_1', messageId: 'recover_1' });
+    assert.strictEqual(duplicate.ok, true);
+    assert.strictEqual(duplicate.shouldApplyDomainMutation, false);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+});
+
+test('Apps Script conversation state is isolated by user inside the same chat', () => {
+    const { context } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        properties: { AUTHORIZED_USER_IDS: 'user_1,user_2' },
+    });
+
+    postPilotMessage(context, '/ajuda', { userId: 'user_1', updateId: 'user_1_update', messageId: 'user_1_message' });
+    postPilotMessage(context, '/start', { userId: 'user_2', updateId: 'user_2_update', messageId: 'user_2_message' });
+
+    const first = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1);
+    const second = JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_2);
+    assert.strictEqual(first.messages[0].text, '/ajuda');
+    assert.strictEqual(second.messages[0].text, '/start');
+
+    postPilotMessage(context, '/limpar_contexto', { userId: 'user_1', updateId: 'user_1_clear', messageId: 'user_1_clear_message' });
+    assert.strictEqual(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1, undefined);
+    assert.ok(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_2);
+});
+
+test('Apps Script conversation state expires after 24 hours', () => {
+    const { context } = createAppsScriptHarness(null, { failOnFetch: true });
+    context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1 = JSON.stringify({
+        messages: [{ role: 'user', text: 'stale context' }],
+        pending_action: { type: 'launch_text' },
+        updated_at: '2026-04-29T14:59:59Z',
+    });
+
+    const state = context.readConversationState_('chat_1', 'user_1');
+    assert.deepStrictEqual(Array.from(state.messages), []);
+    assert.strictEqual(state.pending_action, null);
+    assert.strictEqual(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1, undefined);
+});
+
+test('Apps Script /configurar creates a reviewed source only after preview confirmation', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const status = postPilotMessage(context, '/configurar');
+    assert.strictEqual(status.ok, true, JSON.stringify(status.errors));
+    assert.match(status.responseText, /Progresso atual/);
+    assert.ok(status.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === 'flow:setup_source'));
+
+    const prompt = postTelegramCallback(context, 'flow:setup_source');
+    assert.match(prompt.responseText, /Pessoa.*Nome da conta.*Tipo/s);
+    const preview = postPilotMessage(context, 'Luana | Nubank Luana | conta corrente', {
+        updateId: 'setup_source_preview', messageId: 'setup_source_preview_message',
+    });
+    assert.strictEqual(preview.ok, true, JSON.stringify(preview.errors));
+    assert.match(preview.responseText, /Confirmar nova conta/);
+    assert.strictEqual(sheets.Config_Fontes.rows.filter((row) => row[configFontesHeaders.indexOf('nome')] === 'Nubank Luana').length, 0);
+
+    const confirm = preview.reply_markup.inline_keyboard.flat().find((button) => button.callback_data.startsWith('confirm:'));
+    const saved = postTelegramCallback(context, confirm.callback_data, {
+        updateId: 'setup_source_confirm', callbackId: 'setup_source_confirm_callback',
+    });
+    assert.strictEqual(saved.ok, true, JSON.stringify(saved.errors));
+    const row = sheets.Config_Fontes.rows.find((candidate) => candidate[configFontesHeaders.indexOf('nome')] === 'Nubank Luana');
+    assert.ok(row);
+    assert.strictEqual(row[configFontesHeaders.indexOf('titular')], 'Luana');
+    assert.strictEqual(row[configFontesHeaders.indexOf('tipo')], 'conta_corrente');
+});
+
+test('Apps Script recurring-income setup replaces an existing incomplete row without duplication', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    sheets.Rendas_Recorrentes.appendRow(rendasRecorrentesHeaders.map((header) => ({
+        id_renda: 'RENDA_SALARIO_GUSTAVO',
+        pessoa: 'Gustavo',
+        descricao: 'Salário',
+        valor_planejado: 3442.43,
+        tipo_renda: 'salario',
+        beneficio_restrito: false,
+        ativo: true,
+        observacao: 'Base limpa',
+    })[header] ?? ''));
+
+    postPilotMessage(context, '/configurar');
+    const prompt = postTelegramCallback(context, 'flow:setup_income');
+    assert.match(prompt.responseText, /Pessoa.*Descrição.*Fonte/s);
+    const preview = postPilotMessage(context, 'Gustavo | Salário | 3442,43 | dia 5 | Mercado Pago | fixa', {
+        updateId: 'setup_income_preview', messageId: 'setup_income_preview_message',
+    });
+    assert.strictEqual(preview.ok, true, JSON.stringify(preview.errors));
+    assert.match(preview.responseText, /configuração ativa anterior será substituída/i);
+
+    const confirm = preview.reply_markup.inline_keyboard.flat().find((button) => button.callback_data.startsWith('confirm:'));
+    const saved = postTelegramCallback(context, confirm.callback_data, {
+        updateId: 'setup_income_confirm', callbackId: 'setup_income_confirm_callback',
+    });
+    assert.strictEqual(saved.ok, true, JSON.stringify(saved.errors));
+    const rows = sheets.Rendas_Recorrentes.rows.slice(1);
+    assert.strictEqual(rows.length, 1);
+    assert.notStrictEqual(rows[0][rendasRecorrentesHeaders.indexOf('id_renda')], 'RENDA_SALARIO_GUSTAVO');
+    assert.strictEqual(rows[0][rendasRecorrentesHeaders.indexOf('dia_recebimento')], 5);
+    assert.strictEqual(rows[0][rendasRecorrentesHeaders.indexOf('id_fonte')], 'FONTE_CONTA_MERCADO_PAGO_GU');
+});
+
+test('Apps Script parser sends strict schema, store false, and parser-specific model', () => {
+    let payload;
+    const { context } = createAppsScriptHarness(null, {
+        properties: {
+            OPENAI_MODEL: 'legacy-model',
+            OPENAI_PARSER_MODEL: 'parser-model',
+            OPENAI_NARRATOR_MODEL: 'narrator-model',
+        },
+        onOpenAiRequest(request) {
+            payload = request;
+        },
+    });
+
+    postPilotMessage(context, 'mercado 10 hoje', { updateId: 'strict_schema', messageId: 'strict_schema' });
+
+    assert.strictEqual(payload.model, 'parser-model');
+    assert.strictEqual(payload.store, false);
+    assert.deepStrictEqual(payload.reasoning, { effort: 'none' });
+    assert.strictEqual(payload.text.format.type, 'json_schema');
+    assert.strictEqual(payload.text.format.strict, true);
+    assert.deepStrictEqual(Array.from(payload.text.format.schema.required), Array.from(context.PARSED_EVENT_FIELDS));
+    assert.strictEqual(payload.text.format.schema.additionalProperties, false);
+});
+
+test('Apps Script OpenAI boundary retries transient failures once and never retries authentication errors', () => {
+    const { context } = createAppsScriptHarness(null);
+    let calls = 0;
+    context.UrlFetchApp.fetch = function() {
+        calls += 1;
+        const status = calls === 1 ? 429 : 200;
+        return {
+            getResponseCode: () => status,
+            getContentText: () => '{}',
+            getAllHeaders: () => ({ 'Retry-After': '0' }),
+        };
+    };
+    const recovered = context.fetchOpenAIResponseWithRetry_({ model: 'test' }, { openAiApiKey: 'test' }, 'retry_test');
+    assert.strictEqual(recovered.getResponseCode(), 200);
+    assert.strictEqual(calls, 2);
+
+    calls = 0;
+    context.UrlFetchApp.fetch = function() {
+        calls += 1;
+        return {
+            getResponseCode: () => 401,
+            getContentText: () => '{}',
+            getAllHeaders: () => ({}),
+        };
+    };
+    const rejected = context.fetchOpenAIResponseWithRetry_({ model: 'test' }, { openAiApiKey: 'test' }, 'auth_test');
+    assert.strictEqual(rejected.getResponseCode(), 401);
+    assert.strictEqual(calls, 1);
+});
+
+test('Apps Script installment purchase recovers after every sheet boundary without duplicates', () => {
+    for (const boundary of [1, 2, 3]) {
+        const { context, sheets } = createAppsScriptHarness({
+            tipo_evento: 'compra_cartao', data: '2026-04-30', competencia: '2026-04', valor: 300,
+            descricao: 'notebook 300 em 3x', id_categoria: 'OPEX_ELETRONICOS_E_EQUIPAMENTOS',
+            id_fonte: 'FONTE_NUBANK_GU', pessoa: 'Gustavo', escopo: 'Familiar', visibilidade: 'detalhada',
+            id_cartao: 'CARD_NUBANK_GU', id_fatura: '', id_divida: '', id_ativo: '', afeta_dre: true,
+            afeta_patrimonio: false, afeta_caixa_familiar: false, direcao_caixa_familiar: '', status: 'efetivado', parcelas: 3,
+        });
+        context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = boundary;
+        const options = { updateId: `card_recover_${boundary}`, messageId: `card_recover_${boundary}` };
+        const failed = postPilotMessage(context, 'notebook 300 em 3x no nubank categoria eletronicos', options);
+        assert.strictEqual(failed.ok, false);
+
+        context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
+        const recovered = postPilotMessage(context, 'notebook 300 em 3x no nubank categoria eletronicos', options);
+        assert.strictEqual(recovered.ok, true, JSON.stringify(recovered.errors));
+        assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+        assert.strictEqual(sheets.Faturas_Linhas.rows.length, 4);
+        assert.strictEqual(new Set(sheets.Faturas_Linhas.rows.slice(1).map((row) => row[0])).size, 3);
+    }
 });
 
 test('Apps Script runtime does not hardcode private ids or tokens', () => {
@@ -5180,9 +5973,9 @@ test('Apps Script manifest is a web app in project timezone', () => {
 
 test('Apps Script manifest declares runtime service scopes explicitly', () => {
     assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.external_request'));
+    assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.scriptapp'));
     assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.storage'));
     assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/spreadsheets'));
-    assert.ok(!manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.scriptapp'));
 });
 
 test('Apps Script parser prompt formats conversation history context', () => {
@@ -5359,7 +6152,7 @@ test('Apps Script dynamic benefit balance calculates correctly in summary and fo
 
     // /resumo stays compact; benefit detail remains available in the summary payload.
     assert.doesNotMatch(result.responseText, /Saldos de benef/);
-    assert.doesNotMatch(result.responseText, /Alelo Gustavo: R\$ 950,00 \(de R\$ 1500,00\)/);
+    assert.doesNotMatch(result.responseText, /Alelo Gustavo: R\$ 950,00 \(de R\$ 1\.500,00\)/);
 });
 
 test('Apps Script correction using last_success_ref rolls back purchase and rewrites with new category', () => {
@@ -5401,7 +6194,7 @@ test('Apps Script correction using last_success_ref rolls back purchase and rewr
 
     // Setup conversation state with last_success_ref
     context.PropertiesService.getScriptProperties().setProperty(
-        'BFF_CONVERSATION_chat_1',
+        'BFF_CONVERSATION_chat_1_user_1',
         JSON.stringify({
             messages: [{ role: 'user', text: 'mercado 39.46', at: '2026-04-30T15:00:00Z' }],
             pending_intent: null,
@@ -5409,72 +6202,58 @@ test('Apps Script correction using last_success_ref rolls back purchase and rewr
         })
     );
 
-    // Mock OpenAI fetch responses in sequence
+    // A correção explícita é interpretada em uma única chamada estruturada.
     let callCount = 0;
     context.UrlFetchApp.fetch = function(url) {
         callCount += 1;
-        if (callCount === 1) {
-            // First call: parse "nao, e farmacia" -> correcao_transacao
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'correcao_transacao',
-                                valor: 0,
-                                data: '',
-                                descricao: '39.46 farmacia no nubank',
-                            }),
-                        }],
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+                output: [{
+                    content: [{
+                        text: JSON.stringify({
+                            target_valor: '0',
+                            target_data: '',
+                            tipo_evento: 'compra_cartao',
+                            data: '2026-04-30',
+                            competencia: '2026-04',
+                            valor: '39.46',
+                            descricao: '39.46 farmacia no nubank',
+                            id_categoria: 'OPEX_FARMACIA',
+                            id_fonte: 'FONTE_NUBANK_GU',
+                            pessoa: 'Gustavo',
+                            escopo: 'Familiar',
+                            visibilidade: 'detalhada',
+                            id_cartao: 'CARD_NUBANK_GU',
+                            id_fatura: '',
+                            id_divida: '',
+                            id_ativo: '',
+                            afeta_dre: true,
+                            afeta_patrimonio: false,
+                            afeta_caixa_familiar: false,
+                            direcao_caixa_familiar: '',
+                            status: '',
+                            parcelas: 1,
+                        }),
                     }],
-                }),
-            };
-        } else {
-            // Second call: parse the new command
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'compra_cartao',
-                                data: '2026-04-30',
-                                competencia: '2026-04',
-                                valor: 39.46,
-                                descricao: '39.46 farmacia no nubank',
-                                id_categoria: 'OPEX_FARMACIA',
-                                id_fonte: 'FONTE_NUBANK_GU',
-                                pessoa: 'Gustavo',
-                                escopo: 'Familiar',
-                                visibilidade: 'detalhada',
-                                id_cartao: 'CARD_NUBANK_GU',
-                                id_fatura: '',
-                                id_divida: '',
-                                id_ativo: '',
-                                afeta_dre: true,
-                                afeta_patrimonio: false,
-                                afeta_caixa_familiar: false,
-                                direcao_caixa_familiar: '',
-                                status: '',
-                            }),
-                        }],
-                    }],
-                }),
-            };
-        }
+                }],
+            }),
+        };
     };
 
     const result = postPilotMessage(context, 'nao, e farmacia');
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Lan.amento corrigido/);
-    assert.match(result.responseText, /Deletado: "mercado/);
+    assert.match(result.responseText, /Substitu.do: "mercado|Deletado: "mercado/);
+    assert.strictEqual(callCount, 1);
 
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     const finalLaunch = sheets.Lancamentos.rows[1];
     assert.strictEqual(finalLaunch[lancamentosHeaders.indexOf('id_categoria')], 'OPEX_FARMACIA');
     assert.strictEqual(finalLaunch[lancamentosHeaders.indexOf('valor')], 39.46);
-    assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 4);
+    assert.strictEqual(sheets.Idempotency_Log.rows[3][idempotencyHeaders.indexOf('status')], 'completed');
+    assert.match(sheets.Idempotency_Log.rows[3][idempotencyHeaders.indexOf('observacao')], /correct_transaction/);
     assert.strictEqual(sheets.Faturas_Linhas.rows.length, 2);
 });
 
@@ -5501,65 +6280,51 @@ test('Apps Script tardio correction lookup by value and date successfully delete
         descricao: 'outro lanche',
     });
 
-    // Mock OpenAI fetch responses
+    // Uma única resposta contém o alvo e o lançamento substituto.
     let callCount = 0;
     context.UrlFetchApp.fetch = function(url) {
         callCount += 1;
-        if (callCount === 1) {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'correcao_transacao',
-                                valor: 70.36,
-                                data: '2026-04-23',
-                                descricao: '70.36 lanche casal categoria OPEX_FARMACIA',
-                            }),
-                        }],
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+                output: [{
+                    content: [{
+                        text: JSON.stringify({
+                            target_valor: '70.36',
+                            target_data: '2026-04-23',
+                            tipo_evento: 'despesa',
+                            data: '2026-04-23',
+                            competencia: '2026-04',
+                            valor: '70.36',
+                            descricao: '70.36 lanche casal categoria OPEX_FARMACIA',
+                            id_categoria: 'OPEX_FARMACIA',
+                            id_fonte: 'FONTE_CONTA_FAMILIA',
+                            pessoa: 'Gustavo',
+                            escopo: 'Familiar',
+                            visibilidade: 'detalhada',
+                            id_cartao: '',
+                            id_fatura: '',
+                            id_divida: '',
+                            id_ativo: '',
+                            afeta_dre: true,
+                            afeta_patrimonio: false,
+                            afeta_caixa_familiar: true,
+                            direcao_caixa_familiar: 'saida',
+                            status: 'efetivado',
+                            parcelas: 1,
+                        }),
                     }],
-                }),
-            };
-        } else {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'despesa',
-                                data: '2026-04-23',
-                                competencia: '2026-04',
-                                valor: 70.36,
-                                descricao: '70.36 lanche casal categoria OPEX_FARMACIA',
-                                id_categoria: 'OPEX_FARMACIA',
-                                id_fonte: 'FONTE_CONTA_FAMILIA',
-                                pessoa: 'Gustavo',
-                                escopo: 'Familiar',
-                                visibilidade: 'detalhada',
-                                id_cartao: '',
-                                id_fatura: '',
-                                id_divida: '',
-                                id_ativo: '',
-                                afeta_dre: true,
-                                afeta_patrimonio: false,
-                                afeta_caixa_familiar: true,
-                                direcao_caixa_familiar: 'saida',
-                                status: 'efetivado',
-                            }),
-                        }],
-                    }],
-                }),
-            };
-        }
+                }],
+            }),
+        };
     };
 
     const result = postPilotMessage(context, 'corrigir a de 70.36 de ontem para lazer');
 
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Lan.amento corrigido/);
-    assert.match(result.responseText, /Deletado: "lanche casal/);
+    assert.match(result.responseText, /Substitu.do: "lanche casal|Deletado: "lanche casal/);
+    assert.strictEqual(callCount, 1);
 
     assert.strictEqual(sheets.Lancamentos.rows.length, 3);
     const remainingIds = sheets.Lancamentos.rows.slice(1).map(r => r[lancamentosHeaders.indexOf('id_lancamento')]);
@@ -5591,7 +6356,7 @@ test('Apps Script correction fails when target transaction is in a closed period
     });
 
     context.PropertiesService.getScriptProperties().setProperty(
-        'BFF_CONVERSATION_chat_1',
+        'BFF_CONVERSATION_chat_1_user_1',
         JSON.stringify({
             messages: [{ role: 'user', text: 'mercado 39.46', at: '2026-04-30T15:00:00Z' }],
             pending_intent: null,
@@ -5602,64 +6367,50 @@ test('Apps Script correction fails when target transaction is in a closed period
     let callCount = 0;
     context.UrlFetchApp.fetch = function(url) {
         callCount += 1;
-        if (callCount === 1) {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'correcao_transacao',
-                                valor: 0,
-                                data: '',
-                                descricao: '39.46 farmacia no nubank',
-                            }),
-                        }],
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+                output: [{
+                    content: [{
+                        text: JSON.stringify({
+                            target_valor: '0',
+                            target_data: '',
+                            tipo_evento: 'compra_cartao',
+                            data: '2026-05-01',
+                            competencia: '2026-05',
+                            valor: '39.46',
+                            descricao: '39.46 farmacia no nubank',
+                            id_categoria: 'OPEX_FARMACIA',
+                            id_fonte: 'FONTE_NUBANK_GU',
+                            pessoa: 'Gustavo',
+                            escopo: 'Familiar',
+                            visibilidade: 'detalhada',
+                            id_cartao: 'CARD_NUBANK_GU',
+                            id_fatura: '',
+                            id_divida: '',
+                            id_ativo: '',
+                            afeta_dre: true,
+                            afeta_patrimonio: false,
+                            afeta_caixa_familiar: false,
+                            direcao_caixa_familiar: '',
+                            status: '',
+                            parcelas: 1,
+                        }),
                     }],
-                }),
-            };
-        } else {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'compra_cartao',
-                                data: '2026-05-01',
-                                competencia: '2026-05',
-                                valor: 39.46,
-                                descricao: '39.46 farmacia no nubank',
-                                id_categoria: 'OPEX_FARMACIA',
-                                id_fonte: 'FONTE_NUBANK_GU',
-                                pessoa: 'Gustavo',
-                                escopo: 'Familiar',
-                                visibilidade: 'detalhada',
-                                id_cartao: 'CARD_NUBANK_GU',
-                                id_fatura: '',
-                                id_divida: '',
-                                id_ativo: '',
-                                afeta_dre: true,
-                                afeta_patrimonio: false,
-                                afeta_caixa_familiar: false,
-                                direcao_caixa_familiar: '',
-                                status: '',
-                            }),
-                        }],
-                    }],
-                }),
-            };
-        }
+                }],
+            }),
+        };
     };
 
     const result = postPilotMessage(context, 'nao, e farmacia');
 
     assert.strictEqual(result.ok, false);
     assert.match(result.responseText, /N.o . permitido corrigir lan.amentos de compet.ncias fechadas/);
+    assert.strictEqual(callCount, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
 });
 
-test('Apps Script guided registration resumes pending expense when user taps source button', () => {
+test('Apps Script guided registration resumes pending Pix expense when user taps source button', () => {
     const { context, sheets } = createAppsScriptHarness({
         tipo_evento: 'despesa',
         data: '2026-04-30',
@@ -5682,7 +6433,7 @@ test('Apps Script guided registration resumes pending expense when user taps sou
         status: 'efetivado',
     });
 
-    const ask = postPilotMessage(context, 'mercado 10', {
+    const ask = postPilotMessage(context, 'mercado 10 via pix', {
         updateId: 'pending_source_button_1',
         messageId: 'pending_source_button_msg_1',
     });
@@ -5701,7 +6452,7 @@ test('Apps Script guided registration resumes pending expense when user taps sou
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     const launch = Object.fromEntries(lancamentosHeaders.map((header, index) => [header, sheets.Lancamentos.rows[1][index]]));
     assert.strictEqual(launch.id_fonte, 'FONTE_CONTA_FAMILIA');
-    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1).pending_intent, null);
+    assert.strictEqual(JSON.parse(context.__scriptProperties.BFF_CONVERSATION_chat_1_user_1).pending_intent, null);
 });
 
 test('Apps Script guided correction selects an open launch and requires confirmation before replacing it', () => {
@@ -5720,7 +6471,10 @@ test('Apps Script guided correction selects an open launch and requires confirma
         afeta_patrimonio: false,
         afeta_caixa_familiar: true,
     };
-    const { context, sheets } = createAppsScriptHarness(replacementEvent);
+    let openAiCalls = 0;
+    const { context, sheets } = createAppsScriptHarness(replacementEvent, {
+        onOpenAiRequest() { openAiCalls += 1; },
+    });
     appendFakeLaunch(sheets, {
         id_lancamento: 'LAN_TO_FIX',
         descricao: 'mercado errado',
@@ -5743,6 +6497,7 @@ test('Apps Script guided correction selects an open launch and requires confirma
     assert.strictEqual(parsed.ok, true, JSON.stringify(parsed.errors));
     assert.strictEqual(parsed.shouldApplyDomainMutation, false);
     assert.match(parsed.responseText, /Confirmar correcao/);
+    assert.strictEqual(openAiCalls, 1);
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
 
     const stateKey = Object.keys(context.__scriptProperties).find((key) => key.startsWith('BFF_CONVERSATION_'));
@@ -5754,6 +6509,115 @@ test('Apps Script guided correction selects an open launch and requires confirma
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     const descriptions = sheets.Lancamentos.rows.slice(1).map((row) => row[lancamentosHeaders.indexOf('descricao')]);
     assert.deepStrictEqual(descriptions, ['farmacia corrigida']);
+});
+
+test('Apps Script guided correction accepts excluir, confirms, and reconciles the linked card invoice', () => {
+    let openAiCalls = 0;
+    const { context, sheets } = createAppsScriptHarness(null, {
+        failOnFetch: true,
+        onOpenAiRequest() { openAiCalls += 1; },
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_BOOK_LUANA',
+        data: '2026-08-02',
+        competencia: '2026-08',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_LAZER_LUANA',
+        valor: 39.9,
+        id_fonte: 'FONTE_NUBANK_GU',
+        pessoa: 'Luana',
+        escopo: 'Luana',
+        id_cartao: 'CARD_NUBANK_GU',
+        afeta_caixa_familiar: false,
+        descricao: 'livro para Luana',
+    });
+    appendFakeInvoice(sheets, {
+        id_fatura: 'FAT_CARD_NUBANK_GU_2026_08',
+        competencia: '2026-08',
+        valor_previsto_total: 100,
+        valor_aberto: 100,
+    });
+    [
+        {
+            id_linha_fatura: 'FATL_BOOK_LUANA',
+            id_fatura: 'FAT_CARD_NUBANK_GU_2026_08',
+            id_cartao: 'CARD_NUBANK_GU',
+            competencia: '2026-08',
+            valor_previsto: 39.9,
+            status_origem: 'compra_cartao',
+            id_lancamento: 'LAN_BOOK_LUANA',
+        },
+        {
+            id_linha_fatura: 'FATL_OTHER_AUGUST',
+            id_fatura: 'FAT_CARD_NUBANK_GU_2026_08',
+            id_cartao: 'CARD_NUBANK_GU',
+            competencia: '2026-08',
+            valor_previsto: 60.1,
+            status_origem: 'compra_cartao',
+            id_lancamento: 'LAN_OTHER_AUGUST',
+        },
+    ].forEach((line) => sheets.Faturas_Linhas.appendRow(
+        faturasLinhasHeaders.map((header) => line[header] === undefined ? '' : line[header]),
+    ));
+
+    const list = postTelegramCallback(context, 'flow:correction', { updateId: 'delete-list' });
+    const pickButton = list.telegramActions[1].reply_markup.inline_keyboard.flat()
+        .find((button) => /^sel:tx:/.test(button.callback_data) && /livro para Luana/i.test(button.text));
+    assert.ok(pickButton);
+
+    const picked = postTelegramCallback(context, pickButton.callback_data, { updateId: 'delete-pick' });
+    assert.match(picked.telegramActions[1].text, /responda excluir/i);
+
+    const preview = postPilotMessage(context, 'excluir', { updateId: 'delete-text', messageId: 'delete-text' });
+    assert.strictEqual(preview.ok, true, JSON.stringify(preview.errors));
+    assert.strictEqual(preview.shouldApplyDomainMutation, false);
+    assert.match(preview.responseText, /Confirmar exclusão/);
+    assert.strictEqual(openAiCalls, 0);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 3);
+    const confirmation = preview.reply_markup.inline_keyboard.flat()
+        .find((button) => /^confirm:/.test(button.callback_data));
+    assert.ok(confirmation);
+
+    const deleted = postTelegramCallback(context, confirmation.callback_data, {
+        updateId: 'delete-confirm',
+        callbackId: 'delete-confirm',
+    });
+    assert.strictEqual(deleted.ok, true, JSON.stringify(deleted.errors));
+    assert.strictEqual(deleted.shouldApplyDomainMutation, true);
+    assert.match(deleted.telegramActions[1].text, /Lançamento excluído/);
+    assert.match(deleted.telegramActions[1].text, /fatura vinculada foi recalculada/i);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 2);
+    assert.strictEqual(sheets.Faturas_Linhas.rows[1][faturasLinhasHeaders.indexOf('id_linha_fatura')], 'FATL_OTHER_AUGUST');
+    assert.strictEqual(sheets.Faturas_Resumo.rows[1][faturasResumoHeaders.indexOf('valor_previsto_total')], 60.1);
+    assert.strictEqual(sheets.Faturas_Resumo.rows[1][faturasResumoHeaders.indexOf('valor_aberto')], 60.1);
+    const journal = sheets.Idempotency_Log.rows[1][idempotencyHeaders.indexOf('observacao')];
+    assert.match(journal, /delete_transaction/);
+    const stateKey = Object.keys(context.__scriptProperties).find((key) => key.startsWith('BFF_CONVERSATION_'));
+    assert.strictEqual(JSON.parse(context.__scriptProperties[stateKey]).pending_action, null);
+});
+
+test('Apps Script deletion retry completes safely after an injected boundary failure', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeLaunch(sheets, { id_lancamento: 'LAN_DELETE_RETRY', descricao: 'excluir com retry', valor: 20 });
+    const update = { update_id: 'deletion_retry' };
+    const message = {
+        message_id: 'deletion_retry', chat: { id: 'chat_1' },
+        __request: { idempotency_key: 'telegram:deletion:retry', source: 'telegram', external_update_id: 'deletion_retry', external_message_id: 'deletion_retry', chat_id: 'chat_1', payload_hash: '' },
+    };
+    context.__BFF_FAIL_MUTATION_OPERATION = 'delete_transaction';
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 1;
+    const failed = context.applyDeletionMutationPlan_('LAN_DELETE_RETRY', update, message, context.readConfig_(), []);
+    assert.strictEqual(failed.ok, false);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
+    const retried = context.applyDeletionMutationPlan_('LAN_DELETE_RETRY', update, message, context.readConfig_(), []);
+    assert.strictEqual(retried.ok, true, JSON.stringify(retried.errors));
+    assert.strictEqual(retried.status, 'completed');
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Idempotency_Log.rows[1][idempotencyHeaders.indexOf('status')], 'completed');
 });
 
 test('Apps Script guided correction blocks closed-month targets', () => {
@@ -5779,7 +6643,7 @@ test('Apps Script guided correction blocks closed-month targets', () => {
     const list = postTelegramCallback(context, 'flow:correction');
 
     assert.strictEqual(list.ok, true);
-    assert.match(list.telegramActions[1].text, /Nenhum lancamento aberto/);
+    assert.match(list.telegramActions[1].text, /Nenhum lançamento aberto/);
     assert.ok(!JSON.stringify(list.telegramActions).includes('LAN_CLOSED_TARGET'));
 });
 
@@ -5886,7 +6750,7 @@ test('Apps Script validation alerts when category is over budget', () => {
         status: 'efetivado',
     });
 
-    let result = postPilotMessage(context, 'lanche casal 30', { updateId: 'up_bud_1', messageId: 'msg_bud_1' });
+    let result = postPilotMessage(context, 'lanche casal 30 no Nubank Gustavo', { updateId: 'up_bud_1', messageId: 'msg_bud_1' });
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Aten..o: Categoria Alimentacao fora ultrapassou o or.amento mensal \(R\$ 300,00\)! Consumido: R\$ 310,00\./);
 
@@ -5905,7 +6769,8 @@ test('Apps Script validation alerts when category is over budget', () => {
         status: 'efetivado',
     });
 
-    result = postPilotMessage(context, 'lanche casal 30', { updateId: 'up_bud_2', messageId: 'msg_bud_2' });
+    postPilotMessage(context, '/limpar_contexto', { updateId: 'up_bud_clear', messageId: 'msg_bud_clear' });
+    result = postPilotMessage(context, 'lanche casal 30 no Nubank Gustavo', { updateId: 'up_bud_2', messageId: 'msg_bud_2' });
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Categoria Alimentacao fora est. pr.xima do limite do or.amento mensal \(87% consumido\)\./);
 
@@ -5959,7 +6824,7 @@ test('Apps Script validation alerts when category is over budget', () => {
         };
     };
 
-    result = postPilotMessage(context, 'pet 510', { updateId: 'up_bud_3', messageId: 'msg_bud_3' });
+    result = postPilotMessage(context, 'pet 510 no Nubank Gustavo', { updateId: 'up_bud_3', messageId: 'msg_bud_3' });
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Aten..o: Categoria Pet ultrapassou o or.amento acumulado \(R\$ 500,00\)! Consumido: R\$ 510,00\./);
 
@@ -6006,7 +6871,7 @@ test('Apps Script validation alerts when category is over budget', () => {
         };
     };
 
-    result = postPilotMessage(context, 'pet 450', { updateId: 'up_bud_4', messageId: 'msg_bud_4' });
+    result = postPilotMessage(context, 'pet 450 no Nubank Gustavo', { updateId: 'up_bud_4', messageId: 'msg_bud_4' });
     assert.strictEqual(result.ok, true);
     assert.match(result.responseText, /Categoria Pet est. pr.xima do limite do or.amento acumulado \(90% consumido\)\./);
 });
@@ -6110,15 +6975,15 @@ test('Apps Script budget report command displays active categories and rollover 
     assert.strictEqual(result.ok, true);
 
     // Assert summary structure and contents
-    assert.match(result.responseText, /Or.amento por Categoria \(2026-05\)/);
+    assert.match(result.responseText, /Orçamento • maio/);
 
     // OPEX_ALIMENTACAO_FORA: 100/300 (33%) -> ?
-    assert.match(result.responseText, /\*Alimentacao fora\*/);
+    assert.match(result.responseText, /Alimentacao fora/);
     assert.match(result.responseText, /Consumido: R\$ 100,00 \/ R\$ 300,00/);
     assert.match(result.responseText, /Dispon.vel: R\$ 200,00 \(33%\)/);
 
     // OPEX_PET: 450/300 -> over budget because April is ignored (rollover is 0)
-    assert.match(result.responseText, /\*Pet\*/);
+    assert.match(result.responseText, /Pet/);
     assert.match(result.responseText, /Consumido: R\$ 450,00 \/ R\$ 300,00/);
     assert.match(result.responseText, /Dispon.vel: R\$ -150,00 \(150%\)/);
 
@@ -6135,10 +7000,10 @@ test('Apps Script budget report command displays active categories and rollover 
 
     let resultAugust = postPilotMessage(context, '/orcamento 2026-08', { updateId: 'up_bud_rep_3', messageId: 'msg_bud_rep_3' });
     assert.strictEqual(resultAugust.ok, true);
-    assert.match(resultAugust.responseText, /Or.amento por Categoria \(2026-08\)/);
+    assert.match(resultAugust.responseText, /Orçamento • agosto/);
 
     // Pet limit 300 + rollover 600 (capped from 900) -> total available 900.
-    assert.match(resultAugust.responseText, /\*Pet\*/);
+    assert.match(resultAugust.responseText, /Pet/);
     assert.match(resultAugust.responseText, /Consumido: R\$ 0,00 \/ R\$ 300,00 \(Acumulado: R\$ 900,00\)/);
     assert.match(resultAugust.responseText, /Saldo anterior: \+R\$ 600,00/);
     sheets.Lancamentos.rows.splice(1);
@@ -6202,13 +7067,12 @@ test('Apps Script budget decision drill-down ranks risk and keeps private line i
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.shouldApplyDomainMutation, false);
-    assert.match(result.responseText, /Or.amento por Categoria \(2026-05\)/);
-    assert.match(result.responseText, /Status/);
-    assert.match(result.responseText, /Categoria em risco: Alimentacao fora/);
+    assert.match(result.responseText, /Orçamento • maio/);
+    assert.match(result.responseText, /Alimentacao fora pede atenção/);
     assert.match(result.responseText, /Categorias em risco/);
     assert.match(result.responseText, /Alimentacao fora.*120%/);
     assert.match(result.responseText, /Cafe trabalho Gustavo.*98%/);
-    assert.match(result.responseText, /A..o sugerida/);
+    assert.match(result.responseText, /Prioridade agora/);
     assert.match(result.responseText, /pausar gasto novo em Alimentacao fora/i);
     assert.match(result.responseText, /Privacidade/);
     assert.match(result.responseText, /detalhes privados ficam agregados/i);
@@ -6231,7 +7095,7 @@ test('Apps Script correction fails and keeps original transaction intact if new 
     });
 
     context.PropertiesService.getScriptProperties().setProperty(
-        'BFF_CONVERSATION_chat_1',
+        'BFF_CONVERSATION_chat_1_user_1',
         JSON.stringify({
             messages: [{ role: 'user', text: 'mercado 50.00', at: '2026-05-15T10:00:00Z' }],
             pending_intent: null,
@@ -6239,55 +7103,43 @@ test('Apps Script correction fails and keeps original transaction intact if new 
         })
     );
 
-    // Mock OpenAI fetch responses:
-    // First call parses to correcao_transacao
-    // Second call parses to an invalid event (e.g., negative money)
+    // A única resposta contém um substituto inválido (fonte ausente).
     let callCount = 0;
     context.UrlFetchApp.fetch = function(url) {
         callCount += 1;
-        if (callCount === 1) {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'correcao_transacao',
-                                valor: 0,
-                                data: '',
-                                descricao: 'invalid event description',
-                            }),
-                        }],
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+                output: [{
+                    content: [{
+                        text: JSON.stringify({
+                            target_valor: '0',
+                            target_data: '',
+                            tipo_evento: 'despesa',
+                            data: '2026-05-15',
+                            competencia: '2026-05',
+                            valor: '50.00',
+                            descricao: 'invalid event description',
+                            id_categoria: 'OPEX_MERCADO_SEMANA',
+                            id_fonte: '',
+                            pessoa: 'Gustavo',
+                            escopo: 'Familiar',
+                            visibilidade: 'detalhada',
+                            id_cartao: '', id_fatura: '', id_divida: '', id_ativo: '',
+                            afeta_dre: true, afeta_patrimonio: false, afeta_caixa_familiar: true,
+                            direcao_caixa_familiar: 'saida', status: 'efetivado', parcelas: 1,
+                        }),
                     }],
-                }),
-            };
-        } else {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'despesa',
-                                data: '2026-05-15',
-                                competencia: '2026-05',
-                                valor: 50.00,
-                                id_categoria: 'OPEX_MERCADO_SEMANA',
-                                id_fonte: '', // Invalid/missing source, will fail validation
-                                pessoa: 'Gustavo',
-                                escopo: 'Familiar',
-                            }),
-                        }],
-                    }],
-                }),
-            };
-        }
+                }],
+            }),
+        };
     };
 
     const result = postPilotMessage(context, 'nao, e farmacia');
 
     assert.strictEqual(result.ok, false);
     assert.match(result.responseText, /A correção informada é inválida/);
+    assert.strictEqual(callCount, 1);
     
     // Assert original launch is still in the database (2 rows = header + 1 launch)
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
@@ -6313,7 +7165,7 @@ test('Apps Script correction fails and keeps original transaction intact if muta
     });
 
     context.PropertiesService.getScriptProperties().setProperty(
-        'BFF_CONVERSATION_chat_1',
+        'BFF_CONVERSATION_chat_1_user_1',
         JSON.stringify({
             messages: [{ role: 'user', text: 'mercado 50.00', at: '2026-05-15T10:00:00Z' }],
             pending_intent: null,
@@ -6324,56 +7176,37 @@ test('Apps Script correction fails and keeps original transaction intact if muta
     let callCount = 0;
     context.UrlFetchApp.fetch = function(url, options) {
         callCount += 1;
-        if (callCount === 1) {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'correcao_transacao',
-                                valor: 0,
-                                data: '',
-                                descricao: 'invalid event description',
-                            }),
-                        }],
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+                output: [{
+                    content: [{
+                        text: JSON.stringify({
+                            target_valor: '0', target_data: '',
+                            tipo_evento: 'despesa', data: '2026-05-15', competencia: '2026-05', valor: '50.00',
+                            descricao: 'mercado da semana 50', id_categoria: 'OPEX_MERCADO_SEMANA', id_fonte: 'FONTE_CONTA_FAMILIA',
+                            pessoa: 'Gustavo', escopo: 'Familiar', visibilidade: 'detalhada', id_cartao: '', id_fatura: '', id_divida: '', id_ativo: '',
+                            afeta_dre: true, afeta_patrimonio: false, afeta_caixa_familiar: true,
+                            direcao_caixa_familiar: 'saida', status: 'efetivado', parcelas: 1,
+                        }),
                     }],
-                }),
-            };
-        } else {
-            return {
-                getResponseCode: () => 200,
-                getContentText: () => JSON.stringify({
-                    output: [{
-                        content: [{
-                            text: JSON.stringify({
-                                tipo_evento: 'despesa',
-                                data: '2026-05-15',
-                                competencia: '2026-05',
-                                valor: 50.00,
-                                id_categoria: 'OPEX_MERCADO_SEMANA',
-                                id_fonte: 'CASH_NUBANK_GU',
-                                pessoa: 'Gustavo',
-                                escopo: 'Familiar',
-                            }),
-                        }],
-                    }],
-                }),
-            };
-        }
+                }],
+            }),
+        };
     };
 
     const result = postPilotMessage(context, 'nao, mercado da semana');
 
     assert.strictEqual(result.ok, false);
-    assert.match(result.responseText, /Piloto financeiro ainda nao habilitado/);
+    assert.match(result.responseText, /registro financeiro ainda não está habilitado/);
+    assert.strictEqual(callCount, 1);
     
     // Assert original launch is still in the database (2 rows = header + 1 launch)
     assert.strictEqual(sheets.Lancamentos.rows.length, 2);
     assert.strictEqual(sheets.Lancamentos.rows[1][lancamentosHeaders.indexOf('id_lancamento')], 'LAN_VALID_1');
 });
 
-test('Apps Script invoice line deletion uses id_lancamento and does not delete other card purchase lines of identical value', () => {
+test('Apps Script correction plan uses id_lancamento and does not delete other card purchase lines of identical value', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
 
     // Setup initial state: two card purchases of the same amount but different launch IDs
@@ -6397,6 +7230,16 @@ test('Apps Script invoice line deletion uses id_lancamento and does not delete o
         valor: 100.00,
         id_cartao: 'CARD_NUBANK_GU',
         descricao: 'other purchase',
+    });
+
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_REPLACEMENT',
+        data: '2026-05-15',
+        competencia: '2026-05',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_FARMACIA',
+        valor: 100.00,
+        descricao: 'replacement purchase',
     });
 
     // Add corresponding invoice lines in Faturas_Linhas
@@ -6423,9 +7266,16 @@ test('Apps Script invoice line deletion uses id_lancamento and does not delete o
     // Assert initially 2 lines exist
     assert.strictEqual(sheets.Faturas_Linhas.rows.length, 3); // header + 2 rows
 
-    // Call deleteFinancialTransaction_ for the target ID
-    const deleteResult = context.deleteFinancialTransaction_('LAN_TARGET', { spreadsheetId: 'sheet_1' }, []);
-    assert.strictEqual(deleteResult.ok, true);
+    const inspection = context.inspectCorrectionTarget_('LAN_TARGET', { spreadsheetId: 'sheet_1' }, []);
+    assert.strictEqual(inspection.ok, true);
+    assert.strictEqual(sheets.Faturas_Linhas.rows.length, 3);
+    const update = { update_id: 'card-correction' };
+    const message = {
+        message_id: 'card-correction', chat: { id: 'chat_1' },
+        __request: { idempotency_key: 'telegram:card-correction:1', source: 'telegram', external_update_id: 'card-correction', external_message_id: 'card-correction', chat_id: 'chat_1', payload_hash: '' },
+    };
+    const deleteResult = context.applyCorrectionMutationPlan_('LAN_TARGET', 'LAN_REPLACEMENT', update, message, context.readConfig_(), []);
+    assert.strictEqual(deleteResult.ok, true, JSON.stringify(deleteResult.errors));
 
     // Verify target line was deleted but other line remains
     assert.strictEqual(sheets.Faturas_Linhas.rows.length, 2); // header + 1 row remaining
@@ -6434,7 +7284,7 @@ test('Apps Script invoice line deletion uses id_lancamento and does not delete o
     assert.strictEqual(remainingLine.id_lancamento, 'LAN_OTHER');
 });
 
-test('Apps Script deletion fails and returns LEGACY_INVOICE_LINES_NOT_FOUND when target card purchase lacks corresponding invoice lines', () => {
+test('Apps Script correction inspection blocks legacy card purchase without deterministic invoice links', () => {
     const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: false });
 
     // Setup initial state: a legacy card purchase launch
@@ -6460,13 +7310,728 @@ test('Apps Script deletion fails and returns LEGACY_INVOICE_LINES_NOT_FOUND when
         id_lancamento: '', // empty id_lancamento
     })[h] ?? ''));
 
-    // Call deleteFinancialTransaction_ for the target ID
-    const deleteResult = context.deleteFinancialTransaction_('LAN_LEGACY_TARGET', { spreadsheetId: 'sheet_1' }, []);
+    const deleteResult = context.inspectCorrectionTarget_('LAN_LEGACY_TARGET', { spreadsheetId: 'sheet_1' }, []);
     
     assert.strictEqual(deleteResult.ok, false);
     assert.strictEqual(deleteResult.error, 'LEGACY_INVOICE_LINES_NOT_FOUND');
 
     // Verify launch was NOT deleted
     assert.strictEqual(sheets.Lancamentos.rows.length, 2); // header + 1 row remaining
+});
+
+test('Apps Script correction retry completes delete-and-replace after an injected boundary failure', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeLaunch(sheets, { id_lancamento: 'LAN_CORR_OLD', descricao: 'original', valor: 20 });
+    appendFakeLaunch(sheets, { id_lancamento: 'LAN_CORR_NEW', descricao: 'substituto', valor: 25 });
+    const update = { update_id: 'correction_retry' };
+    const message = {
+        message_id: 'correction_retry', chat: { id: 'chat_1' },
+        __request: { idempotency_key: 'telegram:correction_retry:1', source: 'telegram', external_update_id: 'correction_retry', external_message_id: 'correction_retry', chat_id: 'chat_1', payload_hash: '' },
+    };
+    context.__BFF_FAIL_MUTATION_OPERATION = 'correct_transaction';
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 1;
+    const failed = context.applyCorrectionMutationPlan_('LAN_CORR_OLD', 'LAN_CORR_NEW', update, message, context.readConfig_(), []);
+    assert.strictEqual(failed.ok, false);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(sheets.Lancamentos.rows[1][lancamentosHeaders.indexOf('id_lancamento')], 'LAN_CORR_NEW');
+
+    context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
+    const retried = context.applyCorrectionMutationPlan_('LAN_CORR_OLD', 'LAN_CORR_NEW', update, message, context.readConfig_(), []);
+    assert.strictEqual(retried.ok, true, JSON.stringify(retried.errors));
+    const ids = sheets.Lancamentos.rows.slice(1).map(row => row[lancamentosHeaders.indexOf('id_lancamento')]);
+    assert.deepStrictEqual(ids, ['LAN_CORR_NEW']);
+    assert.strictEqual(sheets.Idempotency_Log.rows[1][idempotencyHeaders.indexOf('status')], 'completed');
+});
+
+test('Apps Script imports a confirmed OFX batch through one MutationPlan and rejects reupload duplicates', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { properties: { TELEGRAM_BOT_TOKEN: '123456:test_token' } });
+    appendFakeImportRule(sheets);
+    const ofx = 'OFXHEADER:100\n<OFX><BANKTRANLIST><STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20260430<TRNAMT>-42.50<FITID>fit-runtime-1<NAME>Mercado Central</STMTTRN></BANKTRANLIST></OFX>';
+    const bytes = Array.from(Buffer.from(ofx, 'utf8'));
+    let fetchCount = 0;
+    context.UrlFetchApp.fetch = function(url) {
+        fetchCount += 1;
+        if (url.includes('/getFile')) return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, result: { file_path: 'documents/test.ofx', file_size: bytes.length } }) };
+        if (url.includes('/file/bot')) return { getResponseCode: () => 200, getBlob: () => ({ getBytes: () => bytes }) };
+        throw new Error('unexpected URL');
+    };
+    const document = { file_id: 'file-id', file_unique_id: 'file-unique', file_name: 'extrato.ofx', mime_type: 'application/x-ofx', file_size: bytes.length };
+
+    const preview = postTelegramDocument(context, document, { caption: 'Conta familia' });
+    assert.strictEqual(preview.ok, true, JSON.stringify(preview.errors));
+    assert.match(preview.responseText, /Prontos para importar: 1/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    const ephemeral = JSON.parse(context.__scriptProperties.BFF_IMPORT_chat_1);
+    assert.deepStrictEqual(Object.keys(ephemeral).sort(), ['expires_at', 'file_id', 'file_unique_id', 'hash', 'origin', 'token']);
+    assert.doesNotMatch(JSON.stringify(ephemeral), /Mercado|TRNAMT|OFXHEADER/);
+    const confirmData = preview.reply_markup.inline_keyboard.flat().find(button => button.callback_data.startsWith('imp:confirm:')).callback_data;
+    const confirmed = postTelegramCallback(context, confirmData, { updateId: 'confirm-import', messageId: 'preview-message' });
+    assert.strictEqual(confirmed.ok, true, JSON.stringify(confirmed.errors));
+    assert.match(confirmed.responseText, /1 transações incluídas/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
+    assert.strictEqual(sheets.Lancamentos.rows[1][lancamentosHeaders.indexOf('descricao')], 'Mercado Central');
+
+    const reupload = postTelegramDocument(context, document, { caption: 'Conta familia', updateId: 'document-reupload', messageId: 'document-reupload' });
+    assert.match(reupload.responseText, /Prontos para importar: 0/);
+    assert.match(reupload.responseText, /Duplicados ignorados: 1/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+    assert.strictEqual(fetchCount, 6);
+});
+
+test('Apps Script card import retries every sheet boundary without duplicate launch invoice line or summary', () => {
+    [1, 2, 3].forEach((boundary) => {
+        const { context, sheets } = createAppsScriptHarness(null, { properties: { TELEGRAM_BOT_TOKEN: '123456:test_token' } });
+        appendFakeImportRule(sheets, {
+            id_regra: `REG_CARD_${boundary}`,
+            assinatura_descricao: 'restaurante',
+            tipo_evento: 'compra_cartao',
+            id_categoria: 'OPEX_ALIMENTACAO_FORA',
+            id_fonte: '',
+            id_cartao: 'CARD_NUBANK_GU',
+        });
+        const ofx = `OFXHEADER:100\n<OFX><BANKTRANLIST><STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20260420<TRNAMT>-30.00<FITID>card-${boundary}<NAME>Restaurante</STMTTRN></BANKTRANLIST></OFX>`;
+        const bytes = Array.from(Buffer.from(ofx, 'utf8'));
+        context.UrlFetchApp.fetch = function(url) {
+            if (url.includes('/getFile')) return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, result: { file_path: 'documents/card.ofx', file_size: bytes.length } }) };
+            return { getResponseCode: () => 200, getBlob: () => ({ getBytes: () => bytes }) };
+        };
+        const preview = postTelegramDocument(context, { file_id: `card-file-${boundary}`, file_unique_id: `card-unique-${boundary}`, file_name: 'card.ofx', mime_type: 'application/x-ofx', file_size: bytes.length }, { caption: 'Nubank Gustavo', updateId: `card-doc-${boundary}` });
+        const confirmData = preview.reply_markup.inline_keyboard.flat().find(button => button.callback_data.startsWith('imp:confirm:')).callback_data;
+        context.__BFF_FAIL_MUTATION_OPERATION = 'import_statement';
+        context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = boundary;
+        postTelegramCallback(context, confirmData, { updateId: `card-confirm-${boundary}`, messageId: `card-preview-${boundary}` });
+        context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
+        const retried = postTelegramCallback(context, confirmData, { updateId: `card-confirm-retry-${boundary}`, messageId: `card-preview-${boundary}` });
+        assert.strictEqual(retried.ok, true);
+        assert.match(retried.responseText, /1 transa(?:ç|Ã§)(?:õ|Ãµ)es inclu(?:í|Ã­)das/);
+        assert.strictEqual(sheets.Lancamentos.rows.length, 2);
+        assert.strictEqual(sheets.Faturas_Linhas.rows.length, 2);
+        assert.strictEqual(sheets.Faturas_Resumo.rows.length, 2);
+        assert.strictEqual(sheets.Idempotency_Log.rows.length, 2);
+        assert.strictEqual(sheets.Idempotency_Log.rows[1][idempotencyHeaders.indexOf('status')], 'completed');
+    });
+});
+
+test('Apps Script import validates file before download and keeps group preview aggregated', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { properties: { TELEGRAM_BOT_TOKEN: '123456:test_token' } });
+    appendFakeImportRule(sheets);
+    let calls = 0;
+    const csv = 'data;descricao;valor\n30/04/2026;Mercado privado;-10,00';
+    const bytes = Array.from(Buffer.from(csv, 'utf8'));
+    context.UrlFetchApp.fetch = function(url) {
+        calls += 1;
+        if (url.includes('/getFile')) return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, result: { file_path: 'documents/test.csv', file_size: bytes.length } }) };
+        return { getResponseCode: () => 200, getBlob: () => ({ getBytes: () => bytes }) };
+    };
+    const tooLarge = postTelegramDocument(context, { file_id: 'x', file_unique_id: 'x', file_name: 'x.csv', mime_type: 'text/csv', file_size: 5 * 1024 * 1024 + 1 });
+    assert.strictEqual(tooLarge.ok, false);
+    assert.strictEqual(calls, 0);
+    const group = postTelegramDocument(context, { file_id: 'y', file_unique_id: 'y', file_name: 'x.csv', mime_type: 'text/csv', file_size: bytes.length }, { caption: 'Conta familia', chatType: 'group', updateId: 'group-import' });
+    assert.strictEqual(group.ok, true);
+    assert.match(group.responseText, /Prontos para importar: 1/);
+    assert.doesNotMatch(group.responseText, /Mercado privado/);
+});
+
+test('Apps Script AI import suggestion uses strict store-false output and saves only after individual confirmation', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { properties: { TELEGRAM_BOT_TOKEN: '123456:test_token', OPENAI_PARSER_MODEL: 'parser-model' } });
+    const marketRow = sheets.Config_Categorias.rows.find((row) => row[configCategoriasHeaders.indexOf('id_categoria')] === 'OPEX_MERCADO_SEMANA');
+    marketRow[configCategoriasHeaders.indexOf('tipo_evento_padrao')] = 'compra_cartao';
+    marketRow[configCategoriasHeaders.indexOf('afeta_caixa_familiar_padrao')] = true;
+    appendFakeImportRule(sheets, { id_regra: 'DRAFT_UNUSED', assinatura_descricao: 'unused', status_revisao: 'sugerido', ativo: false });
+    const csv = 'data;descricao;valor\n30/04/2026;Loja desconhecida;-15,00';
+    const bytes = Array.from(Buffer.from(csv, 'utf8'));
+    let aiPayload;
+    context.UrlFetchApp.fetch = function(url, options) {
+        if (url.includes('/getFile')) return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, result: { file_path: 'documents/unknown.csv', file_size: bytes.length } }) };
+        if (url.includes('/file/bot')) return { getResponseCode: () => 200, getBlob: () => ({ getBytes: () => bytes }) };
+        if (url === 'https://api.openai.com/v1/responses') {
+            aiPayload = JSON.parse(options.payload);
+            return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ output: [{ content: [{ text: JSON.stringify({ tipo_evento: 'despesa', id_categoria: 'OPEX_MERCADO_SEMANA' }) }] }] }) };
+        }
+        throw new Error('unexpected URL');
+    };
+    const document = { file_id: 'unknown-file', file_unique_id: 'unknown-unique', file_name: 'unknown.csv', mime_type: 'text/csv', file_size: bytes.length };
+    const preview = postTelegramDocument(context, document, { caption: 'Conta familia', updateId: 'unknown-doc' });
+    assert.match(preview.responseText, /Precisam de categoria: 1/);
+    const suggestData = preview.reply_markup.inline_keyboard.flat().find(button => button.callback_data.startsWith('imp:suggest:')).callback_data;
+    const suggestion = postTelegramCallback(context, suggestData, { updateId: 'suggest-rule', messageId: 'suggest-preview' });
+    assert.strictEqual(aiPayload.model, 'parser-model');
+    assert.strictEqual(aiPayload.store, false);
+    assert.deepStrictEqual(aiPayload.reasoning, { effort: 'none' });
+    assert.strictEqual(aiPayload.text.format.type, 'json_schema');
+    assert.strictEqual(aiPayload.text.format.strict, true);
+    assert.ok(aiPayload.input.includes('OPEX_MERCADO_SEMANA'));
+    assert.match(suggestion.responseText, /Ainda não foi salva/);
+    assert.strictEqual(sheets.Regras_Importacao.rows.length, 2);
+    const saveData = suggestion.reply_markup.inline_keyboard.flat().find(button => button.callback_data.startsWith('imp:save:')).callback_data;
+    const saved = postTelegramCallback(context, saveData, { updateId: 'save-rule', messageId: 'suggest-preview' });
+    assert.match(saved.responseText, /Regra revisada salva/);
+    assert.strictEqual(sheets.Regras_Importacao.rows.length, 3);
+    const newRule = Object.fromEntries(regrasImportacaoHeaders.map((header, index) => [header, sheets.Regras_Importacao.rows[2][index]]));
+    assert.strictEqual(newRule.status_revisao, 'revisado');
+    assert.strictEqual(newRule.ativo, true);
+    assert.strictEqual(newRule.id_categoria, 'OPEX_MERCADO_SEMANA');
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    const refreshed = postTelegramDocument(context, document, { caption: 'Conta familia', updateId: 'unknown-doc-2', messageId: 'unknown-doc-2' });
+    assert.match(refreshed.responseText, /Prontos para importar: 1/);
+});
+
+test('Apps Script import selftest is read-only', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const result = runRemoteAction(context, 'import_selftest');
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.processed, 1);
+    assert.strictEqual(result.stores_raw_file, false);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+});
+
+test('Apps Script OpenAI selftest validates configured Luna once without spreadsheet mutation', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeCategory(sheets, {
+        id_categoria: 'OPEX_MORADIA_MANUTENCAO', nome: 'Manutenção e melhorias da casa',
+        grupo: 'Moradia', tipo_evento_padrao: 'compra_cartao', escopo_padrao: 'Familiar',
+        visibilidade_padrao: 'detalhada',
+    });
+    const calls = [];
+    context.UrlFetchApp.fetch = function(url, options) {
+        assert.strictEqual(url, 'https://api.openai.com/v1/responses');
+        const payload = JSON.parse(options.payload);
+        calls.push(payload);
+        const output = payload.text.format.name === 'financial_event'
+            ? {
+                tipo_evento: 'compra_cartao', data: '2026-08-07', competencia: '2026-08', valor: '28.40',
+                descricao: 'Ralo para banheiro Tumelero', id_categoria: 'OPEX_MORADIA_MANUTENCAO',
+                id_fonte: 'FONTE_MERCADO_PAGO_GU', pessoa: 'Gustavo', escopo: 'Familiar',
+                visibilidade: 'detalhada', id_cartao: 'CARD_MERCADO_PAGO_GU', id_fatura: '', id_divida: '', id_ativo: '',
+                afeta_dre: true, afeta_patrimonio: false, afeta_caixa_familiar: false,
+                direcao_caixa_familiar: '', status: 'efetivado', parcelas: 1,
+            }
+            : { status: 'ok' };
+        return {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({ output: [{ content: [{ text: JSON.stringify(output) }] }] }),
+        };
+    };
+
+    const result = runRemoteAction(context, 'openai_selftest');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(result.parser_model, 'gpt-5.6-luna');
+    assert.strictEqual(result.narrator_model, 'gpt-5.6-luna');
+    assert.strictEqual(result.financial_parser_ok, true);
+    assert.strictEqual(calls.length, 2);
+    assert.strictEqual(calls[0].model, 'gpt-5.6-luna');
+    assert.strictEqual(calls[0].store, false);
+    assert.deepStrictEqual(calls[0].reasoning, { effort: 'none' });
+    assert.strictEqual(calls[0].text.format.type, 'json_schema');
+    assert.strictEqual(calls[0].text.format.strict, true);
+    assert.strictEqual(calls[1].text.format.name, 'financial_event');
+    assert.deepStrictEqual(calls[1].reasoning, { effort: 'none' });
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+});
+
+test('Apps Script synthetic conversational analyst selftest validates both model calls without Sheets mutation', () => {
+    const planner = {
+        route: 'read', period: { start: '2026-04', end: '2026-04' }, scope: 'Gustavo',
+        queries: [{ id: 'q1', kind: 'spending_analysis', args: { category_refs: ['cat_1'], groups: ['Moradia'], terms: ['obra'], compare_competencias: [], focus: 'comprometimento da renda', person: 'Gustavo' } }],
+        assumptions: [], clarification: '',
+        context_update: { topic: 'obra da casa', period: '2026-04', scope: 'Gustavo', entities: ['Moradia'], open_question: '' },
+    };
+    const answer = {
+        answer: 'A base sintética foi analisada com evidência determinística.',
+        evidence_ids: ['q1'], confidence: 'medium', assumptions: [], missing_data: [],
+        next_action: 'Revise a base sintética.',
+    };
+    const requests = [];
+    let spreadsheetOpenCount = 0;
+    const { context, sheets } = createAppsScriptHarness(null, {
+        openAiEvents: [planner, answer],
+        onOpenAiRequest(payload) { requests.push(payload); },
+        onSpreadsheetOpen() { spreadsheetOpenCount += 1; },
+    });
+
+    const result = runRemoteAction(context, 'copilot_analyst_selftest');
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.strictEqual(result.route, 'read');
+    assert.deepStrictEqual(result.query_kinds, ['spending_analysis']);
+    assert.strictEqual(result.answer_valid, true);
+    assert.strictEqual(requests.length, 2);
+    assert.strictEqual(spreadsheetOpenCount, 0);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 1);
+    assert.strictEqual(sheets.Idempotency_Log.rows.length, 1);
+});
+
+test('Apps Script accepts one final natural message for monthly salary and extra income', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const result = postPilotMessage(
+        context,
+        'Meu salário líquido será 3.500,00 e a renda extra 900,00; ambos cairão dia 5 no Mercado Pago. Ignore Santander e portabilidade.',
+        { updateId: 'monthly-income-1', messageId: 'monthly-income-1' },
+    );
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, true);
+    assert.match(result.responseText, /Renda do mês programada/);
+    assert.match(result.responseText, /Salário líquido: R\$ 3\.500,00/);
+    assert.match(result.responseText, /Renda extra: R\$ 900,00/);
+    assert.match(result.responseText, /não precisa confirmar novamente/i);
+    assert.doesNotMatch(result.responseText, /Santander|portabilidade/i);
+
+    const scheduled = sheets.Lancamentos.rows.slice(1).map((row) => Object.fromEntries(
+        lancamentosHeaders.map((header, index) => [header, row[index]]),
+    ));
+    assert.strictEqual(scheduled.length, 2);
+    assert.deepStrictEqual(scheduled.map((row) => row.valor).sort((a, b) => a - b), [900, 3500]);
+    scheduled.forEach((row) => {
+        assert.strictEqual(row.status, 'agendado');
+        assert.strictEqual(row.data, '2026-05-05');
+        assert.strictEqual(row.id_fonte, 'FONTE_CONTA_MERCADO_PAGO_GU');
+        assert.strictEqual(row.pessoa, 'Gustavo');
+        assert.strictEqual(row.visibilidade, 'privada');
+    });
+    assert.ok(scheduled.some((row) => row.id_categoria === 'REC_SALARIO_LIQUIDO'));
+    assert.ok(scheduled.some((row) => row.id_categoria === 'REC_RENDA_EXTRA'));
+});
+
+test('Apps Script answers house-work income commitment with deterministic monthly and total ratios', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    [
+        {
+            id_categoria: 'OPEX_MORADIA_MANUTENCAO',
+            nome: 'Manutenção e melhorias da casa',
+            grupo: 'Moradia',
+            tipo_evento_padrao: 'compra_cartao',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: false,
+            visibilidade_padrao: 'detalhada',
+            ativo: true,
+        },
+        {
+            id_categoria: 'OPEX_CASA_DOCUMENTACAO_SERVICOS',
+            nome: 'Serviços e documentação da casa',
+            grupo: 'Moradia',
+            tipo_evento_padrao: 'despesa',
+            classe_dre: 'despesa_operacional',
+            escopo_padrao: 'Familiar',
+            afeta_dre_padrao: true,
+            afeta_patrimonio_padrao: false,
+            afeta_caixa_familiar_padrao: true,
+            visibilidade_padrao: 'detalhada',
+            ativo: true,
+        },
+    ].forEach((category) => {
+        sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => category[header] ?? ''));
+    });
+    const income = postPilotMessage(
+        context,
+        'Meu salário será 3500,00 e a renda extra 900,00; ambos depositados em 30/04 no Mercado Pago.',
+        { updateId: 'house-income', messageId: 'house-income' },
+    );
+    assert.strictEqual(income.ok, true);
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_HOUSE_CARD',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        tipo_evento: 'compra_cartao',
+        id_categoria: 'OPEX_MORADIA_MANUTENCAO',
+        valor: 600,
+        afeta_caixa_familiar: false,
+        parcelas: 3,
+        descricao: 'material da obra',
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_HOUSE_SERVICE',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        id_categoria: 'OPEX_CASA_DOCUMENTACAO_SERVICOS',
+        valor: 300,
+        descricao: 'serviço da casa',
+    });
+
+    const result = postPilotMessage(
+        context,
+        'Quanto da minha renda está comprometida por coisas de obra da casa?',
+        { updateId: 'house-question', messageId: 'house-question' },
+    );
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Obra e moradia/);
+    assert.match(result.responseText, /Impacto previsto neste mês: R\$ 500,00/);
+    assert.match(result.responseText, /Compromisso total assumido: R\$ 900,00/);
+    assert.match(result.responseText, /Neste mês: 11,4%/);
+    assert.match(result.responseText, /Total assumido: 20,5%/);
+    assert.doesNotMatch(result.responseText, /Reserva e liquidez/);
+});
+
+test('Apps Script treats income receipt wording as reconciliation context and never duplicates scheduled income', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const scheduled = postPilotMessage(
+        context,
+        'Meu salário será 3500,00 e a renda extra 900,00; ambos depositados em 30/04 no Mercado Pago.',
+        { updateId: 'receipt-schedule', messageId: 'receipt-schedule' },
+    );
+    assert.strictEqual(scheduled.ok, true);
+    const rowsBefore = sheets.Lancamentos.rows.length;
+
+    const both = postPilotMessage(
+        context,
+        'Meu salario e renda variável já caíram na conta',
+        { updateId: 'receipt-both', messageId: 'receipt-both' },
+    );
+    assert.strictEqual(both.ok, true);
+    assert.strictEqual(both.shouldApplyDomainMutation, false);
+    assert.match(both.responseText, /Recebimento entendido/);
+    assert.match(both.responseText, /Não criei outro lançamento/);
+    assert.match(both.responseText, /saldo disponível atual/);
+    assert.match(both.responseText, /sem contar duas vezes/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, rowsBefore);
+
+    const salaryOnly = postPilotMessage(
+        context,
+        'Salario caiu',
+        { updateId: 'receipt-salary', messageId: 'receipt-salary' },
+    );
+    assert.strictEqual(salaryOnly.ok, true);
+    assert.strictEqual(salaryOnly.shouldApplyDomainMutation, false);
+    assert.match(salaryOnly.responseText, /já estava programada/);
+    assert.doesNotMatch(salaryOnly.responseText, /Não entendi o valor/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, rowsBefore);
+});
+
+test('Apps Script conversational analyst plans read-only evidence and answers without a mutation', () => {
+    const planner = {
+        route: 'read',
+        period: { start: '2026-04', end: '2026-04' },
+        scope: 'Gustavo',
+        queries: [
+            {
+                id: 'q1',
+                kind: 'spending_analysis',
+                args: { category_refs: [], groups: ['Moradia'], terms: ['obra', 'reforma'], compare_competencias: [], focus: 'comprometimento da renda', person: 'Gustavo' },
+            },
+            {
+                id: 'q2',
+                kind: 'income_status',
+                args: { category_refs: [], groups: [], terms: [], compare_competencias: [], focus: 'renda do mês', person: 'Gustavo' },
+            },
+        ],
+        assumptions: ['Obra corresponde ao grupo Moradia e aos termos informados.'],
+        clarification: '',
+        context_update: { topic: 'obra da casa', period: '2026-04', scope: 'Gustavo', entities: ['Moradia'], open_question: '' },
+    };
+    const answer = {
+        answer: 'As despesas de obra somam R$ 900,00 e representam 20,5% da renda prevista ou declarada de R$ 4.400,00.',
+        evidence_ids: ['q1', 'q2'],
+        confidence: 'medium',
+        assumptions: ['Considerei o grupo Moradia e descrições relacionadas a obra.'],
+        missing_data: ['A renda ainda não foi conciliada por um saldo posterior ao recebimento.'],
+        next_action: 'Envie o saldo disponível atual da conta de destino para reconciliar a renda.',
+    };
+    const followupEvents = [
+        {
+            route: 'read', period: { start: '2026-03', end: '2026-03' }, scope: 'Gustavo',
+            queries: [{ id: 'q1', kind: 'spending_analysis', args: { category_refs: [], groups: ['Moradia'], terms: ['obra'], compare_competencias: [], focus: 'mês anterior', person: 'Gustavo' } }],
+            assumptions: [], clarification: '',
+            context_update: { topic: 'obra da casa', period: '2026-03', scope: 'Gustavo', entities: ['Moradia'], open_question: '' },
+        },
+        { answer: 'Considerei o mês anterior com a mesma base de obra.', evidence_ids: ['q1'], confidence: 'medium', assumptions: [], missing_data: [], next_action: 'Revise os lançamentos familiares incluídos.' },
+        {
+            route: 'read', period: { start: '2026-04', end: '2026-04' }, scope: 'Familiar',
+            queries: [{ id: 'q1', kind: 'spending_analysis', args: { category_refs: [], groups: ['Moradia'], terms: [], compare_competencias: [], focus: 'despesas da casa', person: '' } }],
+            assumptions: [], clarification: '',
+            context_update: { topic: 'despesas da casa', period: '2026-04', scope: 'Familiar', entities: ['Moradia'], open_question: '' },
+        },
+        { answer: 'Agora considerei somente as despesas familiares da casa.', evidence_ids: ['q1'], confidence: 'high', assumptions: [], missing_data: [], next_action: 'Revise os itens familiares selecionados.' },
+        {
+            route: 'read', period: { start: '2026-04', end: '2026-04' }, scope: 'Gustavo',
+            queries: [{ id: 'q1', kind: 'spending_analysis', args: { category_refs: [], groups: ['Moradia'], terms: [], compare_competencias: [], focus: 'quanto representa da renda', person: 'Gustavo' } }],
+            assumptions: [], clarification: '',
+            context_update: { topic: 'comprometimento da renda com despesas da casa', period: '2026-04', scope: 'Gustavo', entities: ['Moradia', 'renda'], open_question: '' },
+        },
+        { answer: 'Essas despesas representam 20,5% da renda prevista ou declarada de R$ 4.400,00.', evidence_ids: ['q1'], confidence: 'medium', assumptions: [], missing_data: [], next_action: 'Envie o saldo atual para melhorar a conciliação.' },
+    ];
+    const requests = [];
+    let spreadsheetOpenCount = 0;
+    const { context, sheets } = createAppsScriptHarness(null, {
+        openAiEvents: [planner, answer].concat(followupEvents),
+        onOpenAiRequest(payload) { requests.push(payload); },
+        onSpreadsheetOpen() { spreadsheetOpenCount += 1; },
+        properties: {
+            COPILOT_ANALYST_ENABLED: 'YES',
+            OPENAI_ANALYST_MODEL: 'gpt-5.6-luna',
+            TELEGRAM_PERSON_MAP: JSON.stringify({ user_1: 'Gustavo' }),
+        },
+    });
+    sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => ({
+        id_categoria: 'OPEX_MORADIA_MANUTENCAO',
+        nome: 'Manutenção e melhorias da casa',
+        grupo: 'Moradia',
+        tipo_evento_padrao: 'compra_cartao',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Familiar',
+        afeta_dre_padrao: true,
+        afeta_patrimonio_padrao: false,
+        afeta_caixa_familiar_padrao: false,
+        visibilidade_padrao: 'detalhada',
+        ativo: true,
+    })[header] ?? ''));
+    sheets.Config_Categorias.appendRow(configCategoriasHeaders.map((header) => ({
+        id_categoria: 'OPEX_PRIVADO_SENSIVEL',
+        nome: 'Descrição pessoal proibida no prompt',
+        grupo: 'Pessoal',
+        tipo_evento_padrao: 'despesa',
+        classe_dre: 'despesa_operacional',
+        escopo_padrao: 'Gustavo',
+        afeta_dre_padrao: true,
+        visibilidade_padrao: 'privada',
+        ativo: true,
+    })[header] ?? ''));
+    const income = postPilotMessage(
+        context,
+        'Meu salário será 3500,00 e a renda extra 900,00; ambos depositados em 30/04 no Mercado Pago.',
+        { updateId: 'analyst-income', messageId: 'analyst-income' },
+    );
+    assert.strictEqual(income.ok, true);
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_ANALYST_HOUSE_CARD', data: '2026-04-30', competencia: '2026-04',
+        tipo_evento: 'compra_cartao', id_categoria: 'OPEX_MORADIA_MANUTENCAO', valor: 600,
+        afeta_caixa_familiar: false, parcelas: 3, descricao: 'material da obra',
+    });
+    appendFakeLaunch(sheets, {
+        id_lancamento: 'LAN_ANALYST_HOUSE_SERVICE', data: '2026-04-30', competencia: '2026-04',
+        id_categoria: 'OPEX_MORADIA_MANUTENCAO', valor: 300, descricao: 'serviço da casa',
+    });
+    const rowsBefore = sheets.Lancamentos.rows.length;
+    spreadsheetOpenCount = 0;
+
+    const result = postPilotMessage(
+        context,
+        'Quanto da minha renda está comprometida por coisas de obra da casa?',
+        { updateId: 'analyst-question', messageId: 'analyst-question' },
+    );
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /R\$ 900,00/);
+    assert.match(result.responseText, /20,5%/);
+    assert.match(result.responseText, /saldo disponível atual/i);
+    assert.strictEqual(sheets.Lancamentos.rows.length, rowsBefore);
+    assert.strictEqual(requests.length, 2);
+    assert.strictEqual(requests[0].text.format.name, 'financial_analysis_plan');
+    assert.strictEqual(requests[0].text.format.strict, true);
+    assert.strictEqual(requests[0].text.format.schema.properties.queries.maxItems, 4);
+    assert.match(requests[0].input, /untrusted financial intent/);
+    assert.deepStrictEqual(requests[0].reasoning, { effort: 'low' });
+    assert.strictEqual(requests[1].text.format.name, 'financial_copilot_answer');
+    assert.strictEqual(requests[1].text.format.strict, true);
+    assert.deepStrictEqual(requests[1].reasoning, { effort: 'none' });
+    assert.strictEqual(requests[0].store, false);
+    assert.strictEqual(requests[1].store, false);
+    assert.doesNotMatch(requests[0].input, /Descrição pessoal proibida/);
+    assert.match(requests[0].input, /Gastos pessoais privados/);
+    assert.strictEqual(spreadsheetOpenCount, 1);
+    const state = context.readConversationState_('chat_1', 'user_1');
+    assert.strictEqual(state.analysis_context.topic, 'obra da casa');
+    assert.strictEqual(state.analysis_context.scope, 'Gustavo');
+    assert.doesNotMatch(JSON.stringify(state.messages), /900|20[,.]5|4[.]?400/);
+
+    const previousMonth = postPilotMessage(context, 'E no mês passado?', { updateId: 'analyst-followup-1', messageId: 'analyst-followup-1' });
+    const familyOnly = postPilotMessage(context, 'Só as despesas da casa', { updateId: 'analyst-followup-2', messageId: 'analyst-followup-2' });
+    const incomeShare = postPilotMessage(context, 'Quanto isso representa da renda?', { updateId: 'analyst-followup-3', messageId: 'analyst-followup-3' });
+    assert.match(previousMonth.responseText, /mês anterior/);
+    assert.match(familyOnly.responseText, /somente as despesas familiares/);
+    assert.match(incomeShare.responseText, /20,5%/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, rowsBefore);
+    assert.strictEqual(requests.length, 8);
+    assert.match(requests[2].input, /"topic":"obra da casa"/);
+    assert.doesNotMatch(requests[2].input, /900|4[.]?400|20[,.]5/);
+});
+
+test('Apps Script conversational analyst understands bare income receipt and requests only reconciliation data', () => {
+    const planner = {
+        route: 'read', period: { start: '2026-04', end: '2026-04' }, scope: 'Gustavo',
+        queries: [{
+            id: 'q1', kind: 'income_status',
+            args: { category_refs: [], groups: [], terms: [], compare_competencias: [], focus: 'recebimento de salário', person: 'Gustavo' },
+        }],
+        assumptions: [], clarification: '',
+        context_update: { topic: 'renda recebida', period: '2026-04', scope: 'Gustavo', entities: ['salário'], open_question: 'saldo atual da conta' },
+    };
+    const answer = {
+        answer: 'Entendi que o salário caiu. A renda declarada ainda aguarda conciliação pelo saldo da conta.',
+        evidence_ids: ['q1'], confidence: 'medium', assumptions: [],
+        missing_data: ['Falta um saldo da conta de destino posterior ao recebimento.'],
+        next_action: 'Envie somente o saldo disponível atual e o nome da conta.',
+    };
+    const { context, sheets } = createAppsScriptHarness(null, {
+        openAiEvents: [planner, answer],
+        properties: {
+            COPILOT_ANALYST_ENABLED: 'YES',
+            TELEGRAM_PERSON_MAP: JSON.stringify({ user_1: 'Gustavo' }),
+        },
+    });
+    const scheduled = postPilotMessage(
+        context,
+        'Meu salário será 3500,00 e a renda extra 900,00; ambos depositados em 30/04 no Mercado Pago.',
+        { updateId: 'analyst-receipt-income', messageId: 'analyst-receipt-income' },
+    );
+    assert.strictEqual(scheduled.ok, true);
+    const rowsBefore = sheets.Lancamentos.rows.length;
+
+    const result = postPilotMessage(context, 'Salário caiu', { updateId: 'analyst-receipt', messageId: 'analyst-receipt' });
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Entendi que o salário caiu/);
+    assert.match(result.responseText, /somente o saldo disponível atual/i);
+    assert.doesNotMatch(result.responseText, /Não entendi o valor/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, rowsBefore);
+});
+
+test('Apps Script worker update deduplication returns the cached sanitized response without reprocessing', () => {
+    const { context } = createAppsScriptHarness(null, { failOnFetch: true });
+    const options = {
+        updateId: 'worker-dedupe-1',
+        messageId: 'worker-dedupe-message-1',
+        headers: { 'x-bff-worker-request': '1' },
+    };
+    const first = postPilotMessage(context, '/help', options);
+    const second = postPilotMessage(context, '/help', options);
+
+    assert.strictEqual(first.ok, true);
+    assert.deepStrictEqual(second, first);
+    assert.doesNotMatch(JSON.stringify(second), /test_secret|test_openai_key|sheet_1/);
+});
+
+test('Apps Script conversational analyst fails closed with a natural deterministic response when planning is invalid', () => {
+    const { context, sheets } = createAppsScriptHarness({ mutation: { delete: true } }, {
+        properties: {
+            COPILOT_ANALYST_ENABLED: 'YES',
+            TELEGRAM_PERSON_MAP: JSON.stringify({ user_1: 'Gustavo' }),
+        },
+    });
+    const rowsBefore = sheets.Lancamentos.rows.length;
+    const result = postPilotMessage(context, 'Meu salário caiu', { updateId: 'analyst-invalid-plan', messageId: 'analyst-invalid-plan' });
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.shouldApplyDomainMutation, false);
+    assert.match(result.responseText, /Nenhum dado foi alterado/);
+    assert.doesNotMatch(result.responseText, /Não entendi o valor/);
+    assert.strictEqual(sheets.Lancamentos.rows.length, rowsBefore);
+});
+
+test('Apps Script monthly income response keeps component values private in group chat', () => {
+    const { context } = createAppsScriptHarness(null, { failOnFetch: true });
+    const result = postPilotMessage(
+        context,
+        'Meu salário será 3500,00 e a renda extra 900,00; ambos cairão dia 5 no Mercado Pago.',
+        { updateId: 'monthly-group', messageId: 'monthly-group', chatType: 'group' },
+    );
+    assert.strictEqual(result.ok, true);
+    assert.match(result.responseText, /Total previsto: R\$ 4\.400,00/);
+    assert.doesNotMatch(result.responseText, /3\.500,00|900,00/);
+});
+
+test('Apps Script monthly income retry is idempotent and a new declaration updates the same month', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    const text = 'Meu salário será 3500,00 e a renda extra 900,00; ambos vão cair dia 5 na conta Mercado Pago.';
+    const first = postPilotMessage(context, text, { updateId: 'monthly-retry', messageId: 'monthly-retry' });
+    const retry = postPilotMessage(context, text, { updateId: 'monthly-retry', messageId: 'monthly-retry' });
+    assert.strictEqual(first.ok, true);
+    assert.strictEqual(retry.ok, true);
+    assert.strictEqual(retry.shouldApplyDomainMutation, false);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 3);
+
+    const changed = postPilotMessage(
+        context,
+        'Meu salário será 3600,00 e a renda extra 850,00; ambos cairão dia 5 na conta Mercado Pago.',
+        { updateId: 'monthly-change', messageId: 'monthly-change' },
+    );
+    assert.strictEqual(changed.ok, true);
+    assert.strictEqual(sheets.Lancamentos.rows.length, 3);
+    const values = sheets.Lancamentos.rows.slice(1).map((row) => row[lancamentosHeaders.indexOf('valor')]).sort((a, b) => a - b);
+    assert.deepStrictEqual(values, [850, 3600]);
+});
+
+test('Apps Script MutationPlan treats a Sheets-coerced competencia date as the same month', () => {
+    const { context } = createAppsScriptHarness(null, { failOnFetch: true });
+    const planned = {
+        id_lancamento: 'LANR_SALARY',
+        data: '2026-04-30',
+        competencia: '2026-04',
+        tipo_evento: 'receita',
+        valor: 3442.43,
+    };
+    const readBackFromSheets = {
+        ...planned,
+        data: new Date('2026-04-30T12:00:00Z'),
+        competencia: new Date('2026-04-01T12:00:00Z'),
+    };
+
+    assert.strictEqual(context.runtimeMutationRowsEqual_('Lancamentos', readBackFromSheets, planned), true);
+});
+
+test('Apps Script monthly income recovers after every write boundary without duplicates', () => {
+    [1, 2].forEach((boundary) => {
+        const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+        const text = 'Meu salário será 3500,00 e a renda extra 900,00; ambos cairão dia 5 na conta Mercado Pago.';
+        context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = boundary;
+        const failed = postPilotMessage(context, text, { updateId: `monthly-fail-${boundary}`, messageId: `monthly-fail-${boundary}` });
+        assert.strictEqual(failed.ok, false);
+        context.__BFF_FAIL_AFTER_WRITE_BOUNDARY = 0;
+        const recovered = postPilotMessage(context, text, { updateId: `monthly-fail-${boundary}`, messageId: `monthly-fail-${boundary}` });
+        assert.strictEqual(recovered.ok, true);
+        assert.strictEqual(sheets.Lancamentos.rows.length, 3);
+        const ids = sheets.Lancamentos.rows.slice(1).map((row) => row[lancamentosHeaders.indexOf('id_lancamento')]);
+        assert.strictEqual(new Set(ids).size, 2);
+    });
+});
+
+test('Apps Script projection includes declared income without receipt confirmation and reconciles it with a later balance', () => {
+    const { context, sheets } = createAppsScriptHarness(null, { failOnFetch: true });
+    appendFakeRecurringIncome(sheets, {
+        id_renda: 'OLD_SALARY_WITHOUT_SOURCE',
+        valor_planejado: 3500,
+        id_fonte: '',
+        revisao_mensal: true,
+        revisado_em: '2026-04-30',
+    });
+    const recorded = postPilotMessage(
+        context,
+        'Meu salário será 3500,00 e a renda extra 900,00; ambos cairão dia 5 no Mercado Pago.',
+        { updateId: 'monthly-projection', messageId: 'monthly-projection' },
+    );
+    assert.strictEqual(recorded.ok, true);
+
+    const before = context.readCurrentPilotFamilySummary_(context.readConfig_(), '2026-05');
+    assert.strictEqual(before.ok, true);
+    assert.strictEqual(before.summary.renda_mensal_confirmada, 4400);
+    assert.strictEqual(before.summary.renda_extra_confirmada, 900);
+    assert.strictEqual(before.summary.renda_prevista_pendente, 4400);
+    assert.strictEqual(before.summary.rendas_previstas_bloqueadas.length, 0);
+    assert.match(context.formatCopilotDecisionCards_(before.summary), /Renda extra com destino claro/);
+
+    appendFakeSourceBalance(sheets, {
+        id_snapshot: 'MP_AFTER_INCOME',
+        competencia: '2026-05',
+        data_referencia: '2026-05-05',
+        id_fonte: 'FONTE_CONTA_MERCADO_PAGO_GU',
+        saldo_inicial: 0,
+        saldo_final: 4400,
+        saldo_disponivel: 4400,
+    });
+    const after = context.readCurrentPilotFamilySummary_(context.readConfig_(), '2026-05');
+    assert.strictEqual(after.ok, true);
+    assert.strictEqual(after.summary.renda_prevista_pendente, 0);
+    assert.strictEqual(after.summary.sobra_projetada_pos_pagamentos, 4400);
+    assert.match(after.responseText, /Renda já conciliada com o saldo da conta/);
 });
 

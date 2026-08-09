@@ -9,12 +9,12 @@ function buildPilotFamilySummaryResponse_(config) {
   };
 }
 
-function buildCopilotResponse_(config) {
+function buildCopilotResponse_(config, explainWithAi) {
   var result = readCurrentPilotFamilySummary_(config, '');
   if (!result.ok) return result;
   return {
     ok: true,
-    responseText: formatCopilotDecisionCardsMaybeNarrated_(result.summary, config),
+    responseText: appendPendingAttentionBlocker_(formatCopilotDecisionCardsMaybeNarrated_(result.summary, config, explainWithAi === true), result.summary),
     shouldApplyDomainMutation: false,
   };
 }
@@ -34,7 +34,7 @@ function buildSafeToSpendResponse_(config) {
   if (!result.ok) return result;
   return {
     ok: true,
-    responseText: formatSafeToSpendAnswer_(result.summary),
+    responseText: appendPendingAttentionBlocker_(formatSafeToSpendAnswer_(result.summary), result.summary),
     shouldApplyDomainMutation: false,
   };
 }
@@ -54,7 +54,7 @@ function buildMonthlyReviewResponse_(config) {
   if (!result.ok) return result;
   return {
     ok: true,
-    responseText: formatMonthlyReviewAnswer_(result.summary),
+    responseText: appendPendingAttentionBlocker_(formatMonthlyReviewAnswer_(result.summary), result.summary),
     shouldApplyDomainMutation: false,
   };
 }
@@ -244,7 +244,7 @@ function buildBudgetReportResponse_(config, requestedCompetencia) {
       var item = budgetItems[b];
       var limitText = formatMoney_(item.limite);
       var rolloverText = item.acumula_sobra ? ' (Acumulado: ' + formatMoney_(item.total_limite) + ')' : '';
-      lines.push(item.status_emoji + ' *' + item.nome + '*');
+      lines.push(item.status_emoji + ' ' + item.nome);
       lines.push('  • Consumido: ' + formatMoney_(item.consumido) + ' / ' + limitText + rolloverText);
       if (item.acumula_sobra && item.saldo_anterior !== 0) {
         lines.push('  • Saldo anterior: ' + (item.saldo_anterior >= 0 ? '+' : '') + formatMoney_(item.saldo_anterior));
@@ -277,52 +277,82 @@ function formatBudgetDecisionLines_(competencia, budgetItems) {
     return item.visibilidade === 'privada' || item.visibilidade === 'resumo';
   });
   var lines = [
-    '📊 Orçamento por Categoria (' + competencia + ')',
+    '🎛️ Orçamento • ' + friendlyCompetencia_(competencia),
     '',
-    'Status',
   ];
   if (top) {
-    lines.push('Categoria em risco: ' + top.nome + '.');
+    lines.push('🚨 ' + top.nome + ' pede atenção');
     lines.push('');
-    lines.push('Categorias em risco');
+    lines.push('📊 Categorias em risco');
     riskItems.slice(0, 4).forEach(function(item) {
-      lines.push(item.nome + ': ' + formatMoney_(item.consumido) + ' de ' + formatMoney_(item.total_limite) + ' (' + item.percentual + '%).');
+      lines.push('• ' + item.nome + ': ' + formatMoney_(item.consumido) + ' de ' + formatMoney_(item.total_limite) + ' • ' + item.percentual + '%');
     });
     lines.push('');
-    lines.push('Ação sugerida');
+    lines.push('👉 Prioridade agora');
     lines.push(top.disponivel < 0
       ? 'Pausar gasto novo em ' + top.nome + ' até revisar limite, fatura e necessidade.'
       : 'Segurar gasto novo em ' + top.nome + ' antes que vire estouro.');
     lines.push('');
-    lines.push('Não fazer');
+    lines.push('⛔ Evite agora');
     lines.push('Não compensar estouro usando reserva abaixo da meta ou ignorando faturas próximas.');
   } else {
+    lines.push('✅ Categorias dentro dos limites');
     lines.push('Nenhuma categoria ativa está acima de 85% do limite registrado.');
     lines.push('');
-    lines.push('Ação sugerida');
+    lines.push('👉 Próxima melhor ação');
     lines.push('Manter lançamentos atualizados e revisar limites antes de assumir gasto novo relevante.');
     lines.push('');
-    lines.push('Não fazer');
+    lines.push('⛔ Evite agora');
     lines.push('Não criar novo gasto recorrente só porque o mês ainda parece folgado.');
   }
   lines.push('');
-  lines.push('Privacidade');
+  lines.push('🔒 Privacidade');
   lines.push(hasPrivate
     ? 'Categorias pessoais ou resumidas aparecem só por total; detalhes privados ficam agregados.'
     : 'Sem abertura de lançamentos pessoais neste relatório.');
   lines.push('');
-  lines.push('Confiança: alta');
+  lines.push('🔎 Leitura determinística • confiança alta');
   return lines;
 }
 
 function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
+  var startedAt = new Date().getTime();
+  var result = readCurrentPilotFamilySummaryInternal_(config, requestedCompetencia);
+  logRuntimeTiming_('sheets_summary_read', startedAt, { ok: Boolean(result && result.ok) });
+  return result;
+}
+
+function buildCopilotCategoryReferences_(categoryRows) {
+  return (categoryRows || []).filter(function(row) {
+    return row && row.ativo !== false && stringValue_(row.id_categoria);
+  }).slice().sort(function(left, right) {
+    return stringValue_(left.id_categoria) < stringValue_(right.id_categoria) ? -1 : 1;
+  }).map(function(row, index) {
+    var scope = stringValue_(row.escopo_padrao) || 'Familiar';
+    var visibility = stringValue_(row.visibilidade_padrao) || 'detalhada';
+    var privateCategory = scope !== 'Familiar' || visibility !== 'detalhada';
+    return {
+      ref: 'cat_' + String(index + 1),
+      id: stringValue_(row.id_categoria),
+      name: privateCategory ? 'Gastos pessoais privados' : (stringValue_(row.nome) || friendlyIdentifier_(row.id_categoria)),
+      group: privateCategory ? 'Pessoal privado' : stringValue_(row.grupo),
+      scope: scope,
+      visibility: visibility,
+      monthly_limit: numberFromSheetValue_(row.limite_mensal),
+      accumulates: row.acumula_sobra === true,
+    };
+  });
+}
+
+function readCopilotFinancialSnapshot_(config, plan, referenceData) {
+  var startedAt = new Date().getTime();
   var runtimeCheck = verifyReportingRuntimeConfig_(config);
   if (!runtimeCheck.ok) return runtimeCheck;
-  var competenciaCheck = normalizeRequestedCompetencia_(requestedCompetencia);
-  if (!competenciaCheck.ok) return competenciaCheck;
-
   try {
-    var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+    var spreadsheet = referenceData && referenceData.__spreadsheet
+      ? referenceData.__spreadsheet
+      : SpreadsheetApp.openById(config.spreadsheetId);
+    var preloaded = referenceData && referenceData.__raw ? referenceData.__raw : {};
     var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
     var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
     var transferSheet = spreadsheet.getSheetByName(SHEETS.TRANSFERENCIAS_INTERNAS);
@@ -346,9 +376,146 @@ function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
     verifySheetHeaders_(cardSheet, SHEETS.CARTOES);
     verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
 
+    var launches = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS).map(function(row) {
+      row.data = formatSheetDate_(row.data);
+      row.competencia = normalizeSheetCompetencia_(row.competencia);
+      return row;
+    });
+    var invoices = preloaded.invoices || readRowsAsObjects_(invoiceSheet, SHEETS.FATURAS_RESUMO);
+    var transfers = readRowsAsObjects_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS).map(function(row) {
+      row.data = formatSheetDate_(row.data);
+      row.competencia = normalizeSheetCompetencia_(row.competencia);
+      return row;
+    });
+    var assets = preloaded.assets || readRowsAsObjects_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
+    var debts = preloaded.debts || readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS);
+    var recurringIncomes = readRowsAsObjects_(recurringIncomeSheet, SHEETS.RENDAS_RECORRENTES).map(function(row) {
+      row.revisado_em = formatSheetDate_(row.revisado_em);
+      return row;
+    });
+    var sourceBalances = (preloaded.sourceBalances || readRowsAsObjects_(sourceBalanceSheet, SHEETS.SALDOS_FONTES)).map(function(row) {
+      row.data_referencia = formatSheetDate_(row.data_referencia);
+      row.competencia = normalizeSheetCompetencia_(row.competencia);
+      return row;
+    });
+    var categoryRows = preloaded.categories || readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
+    var cardRows = preloaded.cards || readRowsAsObjects_(cardSheet, SHEETS.CARTOES);
+    var sourceRows = preloaded.sources || readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES);
+    var commitments = [];
+    if (commitmentSheet) {
+      verifyOptionalV56SheetHeaders_(commitmentSheet, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES);
+      commitments = readOptionalV56RowsAsObjects_(commitmentSheet, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES);
+    }
+
+    var categoriesById = indexBy_(categoryRows, 'id_categoria');
+    var cardsById = indexBy_(cardRows, 'id_cartao');
+    var sourcesById = indexBy_(sourceRows, 'id_fonte');
+    var reserveTarget = Number(config.essentialCostOfLife || 5000) * Number(config.reserveMonths || 3);
+    var competencias = BFFCore.competenciaRange(plan.period.start, plan.period.end, 60);
+    (plan.queries || []).forEach(function(query) {
+      (query.args && query.args.compare_competencias || []).forEach(function(competencia) {
+        if (competencias.indexOf(competencia) === -1) competencias.push(competencia);
+      });
+    });
+    var currentCompetencia = todaySaoPaulo_().slice(0, 7);
+    if (competencias.indexOf(currentCompetencia) === -1) competencias.push(currentCompetencia);
+
+    var summaries = {};
+    competencias.forEach(function(competencia) {
+      var competenceLaunches = launches.filter(function(row) { return row.competencia === competencia; });
+      var effectiveLaunches = competenceLaunches.filter(function(row) { return row.status === 'efetivado'; });
+      var scheduledIncomeLaunches = competenceLaunches.filter(function(row) {
+        return row.status === 'agendado' && row.tipo_evento === 'receita' && isMonthlyIncomeCategoryId_(row.id_categoria);
+      });
+      var competenceTransfers = transfers.filter(function(row) {
+        return row.competencia === competencia && row.escopo === 'Familiar';
+      });
+      var summary = computePilotFamilySummary_(competencia, effectiveLaunches, competenceTransfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget, commitments, scheduledIncomeLaunches);
+      if (competencia === currentCompetencia) {
+        var declaredIncomePeople = {};
+        scheduledIncomeLaunches.forEach(function(row) { declaredIncomePeople[stringValue_(row.pessoa)] = true; });
+        summary.pending_attention = BFFCore.buildPendingAttention({
+          today: todaySaoPaulo_(),
+          freshnessDays: config.balanceFreshnessDays,
+          sources: sourceRows,
+          balances: sourceBalances,
+          invoices: invoices,
+          assets: assets,
+          debts: debts,
+          goals: [],
+          commitments: commitments,
+          importRules: [],
+          recurringIncomes: recurringIncomes.filter(function(row) { return !declaredIncomePeople[stringValue_(row.pessoa)]; }),
+        });
+      }
+      summaries[competencia] = summary;
+    });
+
+    var snapshot = {
+      read_at: isoNow_(),
+      current_competencia: currentCompetencia,
+      launches: launches,
+      recurring_incomes: recurringIncomes,
+      source_balances: sourceBalances,
+      categories: buildCopilotCategoryReferences_(referenceData && referenceData.categories ? referenceData.categories : categoryRows),
+      closed_competencias: referenceData && referenceData.closedCompetencias ? referenceData.closedCompetencias.slice() : [],
+      summaries: summaries,
+      current_summary: summaries[currentCompetencia] || summaries[plan.period.end] || {},
+    };
+    logRuntimeTiming_('sheets_analyst_snapshot', startedAt, {
+      ok: true,
+      periods: competencias.length,
+      launches: launches.length,
+    });
+    return { ok: true, snapshot: snapshot, shouldApplyDomainMutation: false };
+  } catch (_err) {
+    logRuntimeTiming_('sheets_analyst_snapshot', startedAt, { ok: false });
+    return fail_('ANALYST_SNAPSHOT_READ_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+  }
+}
+
+function readCurrentPilotFamilySummaryInternal_(config, requestedCompetencia) {
+  var runtimeCheck = verifyReportingRuntimeConfig_(config);
+  if (!runtimeCheck.ok) return runtimeCheck;
+  var competenciaCheck = normalizeRequestedCompetencia_(requestedCompetencia);
+  if (!competenciaCheck.ok) return competenciaCheck;
+
+  try {
+    var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+    var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
+    var invoiceSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
+    var transferSheet = spreadsheet.getSheetByName(SHEETS.TRANSFERENCIAS_INTERNAS);
+    var assetSheet = spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS);
+    var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
+    var recurringIncomeSheet = spreadsheet.getSheetByName(SHEETS.RENDAS_RECORRENTES);
+    var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
+    var categorySheet = spreadsheet.getSheetByName(SHEETS.CONFIG_CATEGORIAS);
+    var cardSheet = spreadsheet.getSheetByName(SHEETS.CARTOES);
+    var sourceSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_FONTES);
+    var commitmentSheet = spreadsheet.getSheetByName(OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES);
+    var goalSheet = spreadsheet.getSheetByName(OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS);
+    var importRuleSheet = spreadsheet.getSheetByName(OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO);
+
+    verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
+    verifySheetHeaders_(invoiceSheet, SHEETS.FATURAS_RESUMO);
+    verifySheetHeaders_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS);
+    verifySheetHeaders_(assetSheet, SHEETS.PATRIMONIO_ATIVOS);
+    verifySheetHeaders_(debtSheet, SHEETS.DIVIDAS);
+    verifySheetHeaders_(recurringIncomeSheet, SHEETS.RENDAS_RECORRENTES);
+    verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
+    verifySheetHeaders_(categorySheet, SHEETS.CONFIG_CATEGORIAS);
+    verifySheetHeaders_(cardSheet, SHEETS.CARTOES);
+    verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
+
     var competencia = competenciaCheck.competencia || todaySaoPaulo_().slice(0, 7);
-    var launches = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS).filter(function(row) {
-      return normalizeSheetCompetencia_(row.competencia) === competencia && row.status === 'efetivado';
+    var competenceLaunches = readRowsAsObjects_(launchSheet, SHEETS.LANCAMENTOS).filter(function(row) {
+      return normalizeSheetCompetencia_(row.competencia) === competencia;
+    });
+    var launches = competenceLaunches.filter(function(row) {
+      return row.status === 'efetivado';
+    });
+    var scheduledIncomeLaunches = competenceLaunches.filter(function(row) {
+      return row.status === 'agendado' && row.tipo_evento === 'receita' && isMonthlyIncomeCategoryId_(row.id_categoria);
     });
     var transfers = readRowsAsObjects_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS).filter(function(row) {
       return normalizeSheetCompetencia_(row.competencia) === competencia && row.escopo === 'Familiar';
@@ -363,15 +530,52 @@ function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
       verifyOptionalV56SheetHeaders_(commitmentSheet, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES);
       commitments = readOptionalV56RowsAsObjects_(commitmentSheet, OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES);
     }
+    var goals = [];
+    if (goalSheet) {
+      verifyOptionalV56SheetHeaders_(goalSheet, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS);
+      goals = readOptionalV56RowsAsObjects_(goalSheet, OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS);
+    }
+    var importRules = [];
+    if (importRuleSheet) {
+      verifyOptionalV56SheetHeaders_(importRuleSheet, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO);
+      importRules = readOptionalV56RowsAsObjects_(importRuleSheet, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO);
+    }
     var categoriesById = indexBy_(readRowsAsObjects_(categorySheet, SHEETS.CONFIG_CATEGORIAS), 'id_categoria');
     var cardsById = indexBy_(readRowsAsObjects_(cardSheet, SHEETS.CARTOES), 'id_cartao');
-    var sourcesById = indexBy_(readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES), 'id_fonte');
+    var sourceRows = readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES);
+    var sourcesById = indexBy_(sourceRows, 'id_fonte');
     var reserveTarget = Number(config.essentialCostOfLife || 5000) * Number(config.reserveMonths || 3);
-    var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget, commitments);
+    var summary = computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget, commitments, scheduledIncomeLaunches);
+    var declaredIncomePeople = {};
+    scheduledIncomeLaunches.forEach(function(row) { declaredIncomePeople[stringValue_(row.pessoa)] = true; });
+    var attentionRecurringIncomes = recurringIncomes.filter(function(row) {
+      return !declaredIncomePeople[stringValue_(row.pessoa)];
+    });
+    summary.pending_attention = BFFCore.buildPendingAttention({
+      today: todaySaoPaulo_(),
+      freshnessDays: config.balanceFreshnessDays,
+      sources: sourceRows,
+      balances: sourceBalances,
+      invoices: invoices,
+      assets: assets,
+      debts: debts,
+      goals: goals,
+      commitments: commitments,
+      importRules: importRules,
+      recurringIncomes: attentionRecurringIncomes,
+    });
+    if (summary.pending_attention.blocking) {
+      summary.capacidade_aporte_segura = 0;
+      summary.parcela_maxima_segura = 0;
+      summary.pode_avaliar_amortizacao = false;
+      summary.destino_investimentos = 0;
+      summary.destino_amortizacao = 0;
+      summary.motivo_bloqueio_amortizacao = summary.pending_attention.primary_blocker.code;
+    }
 
     return {
       ok: true,
-      responseText: formatPilotFamilySummary_(summary),
+      responseText: appendPendingAttentionBlocker_(formatPilotFamilySummary_(summary), summary),
       summary: summary,
       shouldApplyDomainMutation: false,
     };
@@ -380,7 +584,7 @@ function readCurrentPilotFamilySummary_(config, requestedCompetencia) {
   }
 }
 
-function computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget, commitments) {
+function computePilotFamilySummary_(competencia, launches, transfers, invoices, assets, debts, recurringIncomes, sourceBalances, categoriesById, cardsById, sourcesById, reserveTarget, commitments, scheduledIncomeLaunches) {
   var dre = launches.reduce(function(summary, row) {
     var amount = numberFromSheetValue_(row.valor);
     if (row.afeta_dre !== true) return summary;
@@ -428,7 +632,12 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
   var recurringIncome = summarizePilotRecurringIncome_(recurringIncomes || []);
   var sourceBalanceSummary = summarizePilotSourceBalances_(sourceBalances || [], competencia, sourcesById || {});
   var benefitBalances = computePilotBenefitBalances_(launches, sourceBalances, recurringIncomes || [], sourcesById || {}, competencia);
-  var projectedCashFlow = computePilotProjectedCashFlow_(competencia, recurringIncome, dre, sourceBalanceSummary, currentInvoiceExposure.total, obligationExposure.cycle_total);
+  var projectedCashFlow = computePilotProjectedCashFlow_(competencia, recurringIncomes || [], recurringIncome, dre, sourceBalanceSummary, currentInvoiceExposure.total, obligationExposure.cycle_total, scheduledIncomeLaunches || []);
+  var effectiveIncome = Object.assign({}, recurringIncome, {
+    renda_caixa_planejada: projectedCashFlow.renda_mensal_confirmada > 0
+      ? projectedCashFlow.renda_mensal_confirmada
+      : recurringIncome.renda_caixa_planejada,
+  });
   var coverageBase = sourceBalanceSummary.saldos_fontes_count > 0
     ? roundMoney_(sourceBalanceSummary.saldos_fontes_disponivel + reservaTotal)
     : cash.sobra_caixa;
@@ -436,20 +645,34 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
   var capacity = computePilotDecisionCapacity_(coverageBase, reservaTotal, faturas60d, obrigacoes60d, debts, reserveTarget);
 
   var categoriasDicionario = {};
+  var categoriasGrupos = {};
   if (categoriesById) {
     Object.keys(categoriesById).forEach(function(catId) {
       categoriasDicionario[catId] = categoriesById[catId].nome || catId;
+      categoriasGrupos[catId] = categoriesById[catId].grupo || '';
     });
   }
 
   var categoryForecast = summarizePilotForecastCategories_(launches, categoriesById || {}, competencia);
   var categoryDetails = summarizePilotCategoryDetails_(launches, categoriesById || {}, competencia);
+  var proactiveAlerts = BFFCore.buildHighSignalAlerts({
+    usage: categoryForecast.map(function(item) {
+      var category = categoriesById[stringValue_(item.id_categoria)] || {};
+      var privateCategory = category.visibilidade_padrao === 'privada' || category.visibilidade_padrao === 'resumo' || category.escopo_padrao === 'Gustavo' || category.escopo_padrao === 'Luana';
+      return {
+        category: item.categoria,
+        limit: numberFromSheetValue_(category.limite_mensal),
+        spent: numberFromSheetValue_(item.valor),
+        privacy_level: privateCategory ? 'private' : 'shared',
+      };
+    }),
+  });
   var healthCheck = computeFamilyFinancialHealth_({
     competencia: competencia,
     launches: launches,
     categoriesById: categoriesById || {},
     dre: dre,
-    recurringIncome: recurringIncome,
+    recurringIncome: effectiveIncome,
     faturasAtuais: currentInvoiceExposure.total,
     obrigacoesCiclo: obligationExposure.cycle_total,
     reservaTotal: reservaTotal,
@@ -478,10 +701,14 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     patrimonio_liquido: roundMoney_(ativosTotal - dividasTotal),
     rendas_recorrentes_ativas: recurringIncome.rendas_recorrentes_ativas,
     rendas_recorrentes_planejadas: recurringIncome.rendas_recorrentes_planejadas,
-    renda_caixa_planejada: recurringIncome.renda_caixa_planejada,
+    renda_caixa_planejada: effectiveIncome.renda_caixa_planejada,
     beneficios_restritos_planejados: recurringIncome.beneficios_restritos_planejados,
     renda_prevista_data: projectedCashFlow.renda_prevista_data,
     renda_prevista_pendente: projectedCashFlow.renda_prevista_pendente,
+    renda_mensal_confirmada: projectedCashFlow.renda_mensal_confirmada,
+    renda_extra_confirmada: projectedCashFlow.renda_extra_confirmada,
+    rendas_previstas_detalhe: projectedCashFlow.rendas_previstas_detalhe,
+    rendas_previstas_bloqueadas: projectedCashFlow.rendas_previstas_bloqueadas,
     pagamentos_programados: projectedCashFlow.pagamentos_programados,
     sobra_projetada_pos_pagamentos: projectedCashFlow.sobra_projetada_pos_pagamentos,
     saldos_fontes_count: sourceBalanceSummary.saldos_fontes_count,
@@ -491,6 +718,7 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     saldos_fontes_detalhe: sourceBalanceSummary.saldos_fontes_detalhe,
     beneficios_detalhe: benefitBalances,
     categorias_dicionario: categoriasDicionario,
+    categorias_grupos: categoriasGrupos,
     margem_pos_obrigacoes: margemPosObrigacoes,
     capacidade_aporte_segura: capacity.capacidade_aporte_segura,
     parcela_maxima_segura: capacity.parcela_maxima_segura,
@@ -505,6 +733,7 @@ function computePilotFamilySummary_(competencia, launches, transfers, invoices, 
     eventos_detalhados_preview: buildSharedDetailedEventPreview_(launches, 5, categoriesById || {}),
     categorias_gastos: summarizePilotSpendingCategories_(launches, categoriesById || {}, competencia),
     categorias_previsao: categoryForecast,
+    proactive_alerts: proactiveAlerts,
     categorias_detalhe: categoryDetails,
     health_check: healthCheck,
     caixa_saida_pagamento_fatura: summarizePilotCashOutByType_(launches, competencia, 'pagamento_fatura'),
@@ -863,21 +1092,175 @@ function summarizePilotRecurringIncome_(rows) {
   });
 }
 
-function computePilotProjectedCashFlow_(competencia, recurringIncome, dre, sourceBalanceSummary, currentInvoices, obligations) {
+function computePilotProjectedCashFlow_(competencia, recurringRows, recurringIncome, dre, sourceBalanceSummary, currentInvoices, obligations, scheduledIncomeLaunches) {
   var plannedCashIncome = numberFromSheetValue_(recurringIncome && recurringIncome.renda_caixa_planejada);
   var actualRevenue = numberFromSheetValue_(dre && dre.receitas_dre);
-  var incomeDate = nextSalaryBusinessDate_(todaySaoPaulo_());
-  var pendingIncome = incomeDate.slice(0, 7) === normalizeSheetCompetencia_(competencia)
-    ? roundMoney_(Math.max(0, plannedCashIncome - actualRevenue))
-    : plannedCashIncome;
+  var schedule = buildRecurringIncomeSchedule_(recurringRows || [], competencia);
+  var declaredPeople = {};
+  var declaredSchedule = buildDeclaredMonthlyIncomeSchedule_(scheduledIncomeLaunches || [], sourceBalanceSummary);
+  declaredSchedule.items.forEach(function(item) { declaredPeople[stringValue_(item.pessoa)] = true; });
+  schedule.items = schedule.items.filter(function(item) { return !declaredPeople[stringValue_(item.pessoa)]; });
+  schedule.blocked = schedule.blocked.filter(function(item) { return !declaredPeople[stringValue_(item.pessoa)]; });
+  var remainingActual = actualRevenue;
+  schedule.items.forEach(function(item) {
+    var sameCompetencia = stringValue_(item.data_prevista).slice(0, 7) === normalizeSheetCompetencia_(competencia);
+    var covered = sameCompetencia ? Math.min(item.valor_planejado, remainingActual) : 0;
+    item.valor_pendente = roundMoney_(item.valor_planejado - covered);
+    if (sameCompetencia) remainingActual = roundMoney_(Math.max(0, remainingActual - covered));
+  });
+  var recurringPendingIncome = roundMoney_(schedule.items.reduce(function(sum, item) {
+    return sum + item.valor_pendente;
+  }, 0));
+  if (!schedule.items.length && !schedule.blocked.length && !declaredSchedule.items.length) recurringPendingIncome = roundMoney_(Math.max(0, plannedCashIncome - actualRevenue));
+  var declaredPendingIncome = roundMoney_(declaredSchedule.items.reduce(function(sum, item) { return sum + item.valor_pendente; }, 0));
+  var pendingIncome = roundMoney_(recurringPendingIncome + declaredPendingIncome);
+  var allScheduleItems = declaredSchedule.items.concat(schedule.items).sort(function(left, right) {
+    return stringValue_(left.data_prevista).localeCompare(stringValue_(right.data_prevista));
+  });
+  var incomeDate = allScheduleItems.length ? allScheduleItems[0].data_prevista : nextSalaryBusinessDate_(todaySaoPaulo_());
   var scheduledPayments = roundMoney_(numberFromSheetValue_(currentInvoices) + numberFromSheetValue_(obligations));
   var availableCash = numberFromSheetValue_(sourceBalanceSummary && sourceBalanceSummary.saldos_fontes_disponivel);
   return {
     renda_prevista_data: incomeDate,
     renda_prevista_pendente: pendingIncome,
+    renda_mensal_confirmada: roundMoney_(declaredSchedule.items.reduce(function(sum, item) { return sum + item.valor_planejado; }, 0)),
+    renda_extra_confirmada: roundMoney_(declaredSchedule.items.reduce(function(sum, item) { return sum + (item.tipo_renda === 'extra' ? item.valor_planejado : 0); }, 0)),
+    rendas_previstas_detalhe: allScheduleItems,
+    rendas_previstas_bloqueadas: schedule.blocked,
     pagamentos_programados: scheduledPayments,
     sobra_projetada_pos_pagamentos: roundMoney_(availableCash + pendingIncome - scheduledPayments),
   };
+}
+
+function buildDeclaredMonthlyIncomeSchedule_(rows, sourceBalanceSummary) {
+  var latestBalanceBySource = {};
+  ((sourceBalanceSummary && sourceBalanceSummary.saldos_fontes_detalhe) || []).forEach(function(item) {
+    latestBalanceBySource[stringValue_(item.id_fonte)] = item;
+  });
+  var items = (rows || []).map(function(row) {
+    var amount = numberFromSheetValue_(row.valor);
+    var scheduledDate = formatSheetDate_(row.data);
+    var balance = latestBalanceBySource[stringValue_(row.id_fonte)];
+    var reconciled = Boolean(balance && formatSheetDate_(balance.data_referencia) >= scheduledDate);
+    return {
+      id_renda: stringValue_(row.id_lancamento),
+      pessoa: stringValue_(row.pessoa),
+      descricao: stringValue_(row.descricao),
+      id_fonte: stringValue_(row.id_fonte),
+      tipo_renda: stringValue_(row.id_categoria) === MONTHLY_INCOME_CATEGORY_IDS.extra ? 'extra' : 'salary',
+      valor_planejado: amount,
+      valor_pendente: reconciled ? 0 : amount,
+      data_prevista: scheduledDate,
+      revisao_mensal: false,
+      reconciliado_por_saldo: reconciled,
+      confianca: 'alta',
+      faltando: [],
+    };
+  });
+  return { items: items, blocked: [] };
+}
+
+function isMonthlyIncomeCategoryId_(value) {
+  var id = stringValue_(value);
+  return id === MONTHLY_INCOME_CATEGORY_IDS.salary || id === MONTHLY_INCOME_CATEGORY_IDS.extra;
+}
+
+function buildOnboardingSetupResponse_(config) {
+  if (!config || !config.spreadsheetId) return fail_('MISSING_SPREADSHEET_ID', 'spreadsheetId', GENERIC_RECORD_FAILURE);
+  try {
+    var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+    var sourceSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_FONTES);
+    var cardSheet = spreadsheet.getSheetByName(SHEETS.CARTOES);
+    var incomeSheet = spreadsheet.getSheetByName(SHEETS.RENDAS_RECORRENTES);
+    var balanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
+    var assetSheet = spreadsheet.getSheetByName(SHEETS.PATRIMONIO_ATIVOS);
+    var debtSheet = spreadsheet.getSheetByName(SHEETS.DIVIDAS);
+    [SHEETS.CONFIG_FONTES, SHEETS.CARTOES, SHEETS.RENDAS_RECORRENTES, SHEETS.SALDOS_FONTES, SHEETS.PATRIMONIO_ATIVOS, SHEETS.DIVIDAS].forEach(function(name) {
+      verifySheetHeaders_(spreadsheet.getSheetByName(name), name);
+    });
+    var sources = readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES).filter(function(row) { return row.ativo === true && row.tipo !== 'cartao_credito'; });
+    var cards = readRowsAsObjects_(cardSheet, SHEETS.CARTOES).filter(function(row) { return row.ativo === true; });
+    var incomes = readRowsAsObjects_(incomeSheet, SHEETS.RENDAS_RECORRENTES).filter(function(row) { return row.ativo === true; });
+    var balances = readRowsAsObjects_(balanceSheet, SHEETS.SALDOS_FONTES);
+    var assets = readRowsAsObjects_(assetSheet, SHEETS.PATRIMONIO_ATIVOS).filter(function(row) { return row.ativo === true; });
+    var debts = readRowsAsObjects_(debtSheet, SHEETS.DIVIDAS).filter(function(row) { return ['ativa', 'em_aberto', 'renegociada'].indexOf(stringValue_(row.status)) !== -1; });
+    var balanceIds = {};
+    balances.forEach(function(row) { if (row.id_fonte) balanceIds[row.id_fonte] = true; });
+    var statusLines = ['Progresso atual'];
+    ['Gustavo', 'Luana'].forEach(function(person) {
+      var sourceCount = sources.filter(function(row) { return normalizeAliasText_(row.titular) === normalizeAliasText_(person); }).length;
+      var cardCount = cards.filter(function(row) { return normalizeAliasText_(row.titular) === normalizeAliasText_(person); }).length;
+      var incomeCount = incomes.filter(function(row) { return normalizeAliasText_(row.pessoa) === normalizeAliasText_(person); }).length;
+      statusLines.push((sourceCount && cardCount ? '✅ ' : '▫️ ') + person + ': ' + sourceCount + ' conta(s), ' + cardCount + ' cartão(ões), ' + incomeCount + ' renda(s).');
+    });
+    var informedBalances = sources.filter(function(source) { return balanceIds[source.id_fonte]; }).length;
+    statusLines.push((informedBalances === sources.length && sources.length ? '✅ ' : '▫️ ') + 'Saldos: ' + informedBalances + ' de ' + sources.length + ' conta(s).');
+    statusLines.push((assets.length ? '✅ ' : '▫️ ') + 'Patrimônio: ' + assets.length + ' ativo(s).');
+    statusLines.push((debts.length ? '▫️ ' : '✅ ') + 'Dívidas ativas: ' + debts.length + '.');
+    return telegramPlainResponseFromView_(buildTelegramConfigureView_(statusLines.join('\n')));
+  } catch (_err) {
+    return fail_('ONBOARDING_STATUS_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+  }
+}
+
+function buildRecurringIncomeSchedule_(rows, competencia) {
+  var items = [];
+  var blocked = [];
+  (rows || []).forEach(function(row) {
+    if (row.ativo === false || row.beneficio_restrito === true) return;
+    var amount = numberFromSheetValue_(row.valor_planejado);
+    if (amount <= 0) return;
+    var day = Number(row.dia_recebimento || 5);
+    var rule = stringValue_(row.regra_dia_util) || 'dia_fixo_anterior_util';
+    var scheduleCompetencia = normalizeSheetCompetencia_(competencia);
+    var scheduledDate = recurringIncomeDate_(scheduleCompetencia, day, rule);
+    if (scheduledDate && scheduledDate < todaySaoPaulo_()) {
+      scheduleCompetencia = addMonthsToCompetencia_(scheduleCompetencia, 1);
+      scheduledDate = recurringIncomeDate_(scheduleCompetencia, day, rule);
+    }
+    var reviewRequired = row.revisao_mensal === true;
+    var reviewedCompetencia = formatSheetDate_(row.revisado_em).slice(0, 7);
+    var missing = [];
+    if (!stringValue_(row.id_fonte)) missing.push('fonte');
+    if (!isFinite(day) || day < 1 || day > 31) missing.push('dia');
+    if (reviewRequired && reviewedCompetencia !== scheduleCompetencia) missing.push('revisao_mensal');
+    var item = {
+      id_renda: stringValue_(row.id_renda),
+      pessoa: stringValue_(row.pessoa),
+      descricao: stringValue_(row.descricao),
+      id_fonte: stringValue_(row.id_fonte),
+      valor_planejado: amount,
+      valor_pendente: amount,
+      data_prevista: scheduledDate,
+      revisao_mensal: reviewRequired,
+      confianca: missing.length ? 'baixa' : 'alta',
+      faltando: missing,
+    };
+    if (missing.length) blocked.push(item);
+    else items.push(item);
+  });
+  items.sort(function(left, right) {
+    if (left.data_prevista !== right.data_prevista) return left.data_prevista < right.data_prevista ? -1 : 1;
+    return left.id_renda < right.id_renda ? -1 : 1;
+  });
+  return { items: items, blocked: blocked };
+}
+
+function recurringIncomeDate_(competencia, day, rule) {
+  var base = buildClampedMonthDate_(competencia, day);
+  if (!base) return '';
+  var parts = base.split('-');
+  var date = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0));
+  if (rule === 'quinto_dia_util' && typeof BFFCore !== 'undefined' && BFFCore.nthBrazilBankingBusinessDay) {
+    return BFFCore.nthBrazilBankingBusinessDay(Number(parts[0]), Number(parts[1]) - 1, 5).toISOString().slice(0, 10);
+  }
+  if (rule === 'dia_fixo_proximo_util' && typeof BFFCore !== 'undefined' && BFFCore.nextBrazilBankingBusinessDay) {
+    return BFFCore.nextBrazilBankingBusinessDay(date).toISOString().slice(0, 10);
+  }
+  if (rule === 'dia_fixo_anterior_util' && typeof BFFCore !== 'undefined' && BFFCore.previousBrazilBankingBusinessDay) {
+    return BFFCore.previousBrazilBankingBusinessDay(date).toISOString().slice(0, 10);
+  }
+  return base;
 }
 
 function nextSalaryBusinessDate_(referenceDate) {
@@ -935,6 +1318,7 @@ function summarizePilotSourceBalances_(rows, competencia, sourcesById) {
     summary.saldos_fontes_detalhe.push({
       id_fonte: row.id_fonte,
       nome: source ? source.nome : row.id_fonte,
+      data_referencia: formatSheetDate_(row.data_referencia),
       saldo_inicial: numberFromSheetValue_(row.saldo_inicial),
       saldo_final: numberFromSheetValue_(row.saldo_final),
       saldo_disponivel: numberFromSheetValue_(row.saldo_disponivel),
@@ -1291,31 +1675,26 @@ function formatPilotFamilySummary_(summary) {
   var obligations = roundMoney_(summary.faturas_60d + summary.obrigacoes_60d);
   var guidance = buildPilotGuidance_(summary, obligations);
   var lines = [
-    '📊 Resumo de ' + friendlyCompetencia_(summary.competencia),
+    '📊 Resumo • ' + capitalize_(friendlyCompetencia_(summary.competencia)),
     '',
-    '✅ Situação',
+    summary.sobra_projetada_pos_pagamentos < 0 ? '🚨 Situação do mês' : '✅ Situação do mês',
     buildPilotSituationText_(summary, obligations),
   ];
   Array.prototype.push.apply(lines, buildPilotCashPositionLines_(summary));
   Array.prototype.push.apply(lines, buildPilotProjectedFlowLines_(summary));
   Array.prototype.push.apply(lines, buildPilotCurrentInvoiceLines_(summary));
   lines.push('');
-  lines.push('📌 Atenção');
+  lines.push('📌 O que merece atenção');
   Array.prototype.push.apply(lines, buildPilotAttentionLines_(summary));
   lines = lines.concat([
     '',
-    '🧭 Próximo passo',
+    '👉 Próxima melhor ação',
     guidance.action,
     '',
-    'Ver detalhes:',
-    '/agenda',
-    'para onde foi meu dinheiro?',
-    '/revisar_mes',
+    '🛡️ Proteção',
+    guidance.reason,
     '',
-    'Ações agora',
-    '/orcamento',
-    '/gasto_seguro',
-    '/agenda',
+    '🔎 Valores calculados com os dados registrados agora.',
   ]);
   return lines.join('\n');
 }
@@ -1333,35 +1712,67 @@ function buildCopilotInsights_(summary, limit) {
       severity: 'critical',
       confidence: 'high',
       privacy_level: 'shared',
-      title: 'Saldo real ausente',
-      status: 'Falta saldo real das contas para decidir com seguranca.',
+      title: 'Atualize os saldos antes de decidir',
+      status: 'Ainda falta o saldo real das contas para calcular uma margem confiável.',
       evidence: [
         { label: 'Saldos informados', value: 0 },
         { label: 'Faturas atuais', value: roundMoney_(facts.faturas_atuais) }
       ],
-      recommendation: 'Atualizar os saldos das contas antes de decidir gasto, investimento ou amortizacao.',
-      avoid: 'Nao tratar reserva ou limite de cartao como dinheiro livre.',
+      recommendation: 'Informe o saldo atual de cada conta antes de decidir gasto, investimento ou amortização.',
+      avoid: 'Não trate reserva ou limite do cartão como dinheiro disponível.',
       action_key: 'update_balances',
     }));
   }
 
   if (numberFromSheetValue_(facts.sobra_projetada_pos_pagamentos) < 0) {
+    var confirmedIncome = numberFromSheetValue_(facts.renda_mensal_confirmada);
     insights.push(copilotInsight_({
       id: 'INSIGHT_PROJECTED_CASHFLOW_NEGATIVE',
       pillar: 'cash_flow',
       severity: 'critical',
       confidence: numberFromSheetValue_(facts.saldos_fontes_count) > 0 ? 'high' : 'medium',
       privacy_level: 'shared',
-      title: 'Fluxo projetado negativo',
-      status: 'A projecao fica negativa depois da renda e pagamentos registrados.',
+      title: 'Caixa projetado no vermelho',
+      status: confirmedIncome > 0
+        ? 'Mesmo considerando a renda do mês, os pagamentos deixam o caixa projetado negativo.'
+        : 'Os pagamentos deixam o caixa projetado negativo e ainda não há renda mensal confirmada.',
       evidence: [
         { label: 'Sobra projetada', value: roundMoney_(facts.sobra_projetada_pos_pagamentos) },
+        { label: 'Renda do mês considerada', value: roundMoney_(facts.renda_mensal_confirmada || facts.renda_prevista_pendente) },
         { label: 'Faturas atuais', value: roundMoney_(facts.faturas_atuais) },
-        { label: 'Obrigacoes do ciclo', value: roundMoney_(facts.obrigacoes_ciclo) }
+        { label: 'Compromissos do ciclo', value: roundMoney_(facts.obrigacoes_ciclo) }
       ],
-      recommendation: 'Cobrir pagamentos registrados antes de assumir gasto novo.',
-      avoid: 'Nao parcelar compra nova enquanto a sobra projetada estiver negativa.',
+      recommendation: 'Separe primeiro o valor dos pagamentos registrados e revise o que pode ser adiado.',
+      avoid: 'Evite compra nova ou parcelamento enquanto a projeção continuar negativa.',
       action_key: 'safe_to_spend',
+    }));
+  }
+
+  var extraIncome = numberFromSheetValue_(facts.renda_extra_confirmada);
+  if (extraIncome > 0) {
+    var extraNeedsProtection = numberFromSheetValue_(facts.sobra_projetada_pos_pagamentos) < 0 || numberFromSheetValue_(facts.destino_obrigacoes) > 0;
+    var extraNeedsReserve = !extraNeedsProtection && numberFromSheetValue_(facts.destino_reserva) > 0;
+    insights.push(copilotInsight_({
+      id: 'INSIGHT_EXTRA_INCOME_DESTINATION',
+      pillar: 'cash_flow',
+      severity: extraNeedsProtection || extraNeedsReserve ? 'warning' : 'positive',
+      confidence: 'high',
+      privacy_level: 'aggregate_only',
+      title: 'Renda extra com destino claro',
+      status: 'A renda extra foi separada do salário para orientar a próxima decisão sem misturar as duas entradas.',
+      evidence: [
+        { label: 'Renda extra do mês', value: roundMoney_(extraIncome) },
+        { label: 'Sobra após pagamentos', value: roundMoney_(facts.sobra_projetada_pos_pagamentos) }
+      ],
+      recommendation: extraNeedsProtection
+        ? 'Use a renda extra primeiro para proteger faturas e compromissos já registrados.'
+        : (extraNeedsReserve
+          ? 'Direcione a renda extra para reforçar a reserva antes de avaliar investimento novo.'
+          : 'Com pagamentos e reserva protegidos, avalie investir a renda extra sem comprometer a liquidez.'),
+      avoid: extraNeedsProtection
+        ? 'Não trate a renda extra como valor livre enquanto a projeção estiver negativa.'
+        : 'Não comprometa todo o valor sem conferir agenda, parcelas e liquidez.',
+      action_key: extraNeedsProtection ? 'safe_to_spend' : 'reserve_first',
     }));
   }
 
@@ -1380,15 +1791,15 @@ function buildCopilotInsights_(summary, limit) {
       severity: 'warning',
       confidence: 'medium',
       privacy_level: hasPrivate ? 'aggregate_only' : 'shared',
-      title: 'Primeiro corte do mes',
-      status: 'Existe oportunidade de reduzir gasto controlavel sem abrir detalhes privados.',
+      title: 'Melhor oportunidade de economia',
+      status: 'Há espaço para reduzir um gasto controlável sem expor detalhes privados.',
       evidence: [
-        { label: 'Categoria candidata', value: stringValue_(top.nome) || 'Gasto controlavel' },
+        { label: 'Categoria candidata', value: stringValue_(top.nome) || 'Gasto controlável' },
         { label: 'Gasto observado', value: roundMoney_(top.valor) },
         { label: 'Potencial de economia', value: roundMoney_(top.potencial_economia || top.valor) }
       ],
-      recommendation: 'Escolher esse primeiro corte antes de mexer em reserva, divida ou investimento.',
-      avoid: 'Nao abrir itens privados em conversa compartilhada; use apenas o agregado.',
+      recommendation: 'Comece por essa categoria antes de mexer em reserva, dívida ou investimento.',
+      avoid: 'Em conversa compartilhada, mantenha os itens privados apenas no agregado.',
       action_key: 'cut_first',
     }));
   }
@@ -1400,14 +1811,14 @@ function buildCopilotInsights_(summary, limit) {
       severity: 'warning',
       confidence: 'high',
       privacy_level: 'shared',
-      title: 'Investimento bloqueado',
-      status: 'Reserva ou pagamentos ainda bloqueiam uma decisao de investimento.',
+      title: 'Reserva ainda não libera investimento',
+      status: 'A liquidez atual precisa proteger a reserva e os pagamentos antes de destinar dinheiro novo a investimentos.',
       evidence: [
         { label: 'Reserva atual', value: roundMoney_(facts.reserva_total) },
-        { label: 'Motivo', value: stringValue_(health.meta_guardar.motivo) || 'reserva_ou_pagamentos' }
+        { label: 'Proteção necessária', value: friendlyInvestmentBlocker_(health.meta_guardar.motivo) }
       ],
-      recommendation: 'Preservar liquidez e reforcar reserva antes de investir dinheiro novo.',
-      avoid: 'Nao investir valor que pode ser necessario para faturas ou obrigacoes.',
+      recommendation: 'Preserve a liquidez e reforce a reserva antes de investir dinheiro novo.',
+      avoid: 'Não invista um valor que pode ser necessário para faturas ou compromissos.',
       action_key: 'reserve_first',
     }));
   }
@@ -1420,13 +1831,13 @@ function buildCopilotInsights_(summary, limit) {
       confidence: numberFromSheetValue_(facts.saldos_fontes_count) > 0 ? 'high' : 'medium',
       privacy_level: 'shared',
       title: 'Fluxo sob controle',
-      status: 'O fluxo registrado cobre os pagamentos conhecidos.',
+      status: 'O fluxo registrado cobre os pagamentos conhecidos até agora.',
       evidence: [
         { label: 'Sobra projetada', value: roundMoney_(facts.sobra_projetada_pos_pagamentos) },
         { label: 'Faturas atuais', value: roundMoney_(facts.faturas_atuais) }
       ],
-      recommendation: 'Manter agenda e faturas revisadas antes de gasto grande.',
-      avoid: 'Nao assumir que sobra projetada e dinheiro livre sem conferir proximas parcelas.',
+      recommendation: 'Mantenha agenda e faturas revisadas antes de assumir um gasto grande.',
+      avoid: 'Não trate a sobra projetada como dinheiro livre sem conferir as próximas parcelas.',
       action_key: 'review_before_spend',
     }));
   }
@@ -1460,34 +1871,56 @@ function copilotInsight_(input) {
 function formatCopilotDecisionCards_(summary) {
   var insights = buildCopilotInsights_(summary, 3);
   var lines = [
-    'Copiloto financeiro de ' + friendlyCompetencia_(summary && summary.competencia),
+    '🧭 Copiloto • ' + capitalize_(friendlyCompetencia_(summary && summary.competencia)),
     '',
   ];
   insights.forEach(function(item, index) {
-    if (index > 0) lines.push('');
-    lines.push('Status');
-    lines.push(item.status || item.title || 'Ponto de atencao financeiro.');
+    if (index > 0) lines.push('', '────────────', '');
+    lines.push(copilotSeverityEmoji_(item.severity) + ' ' + (item.title || 'Ponto de atenção'));
+    lines.push(item.status || 'Há um ponto financeiro que merece atenção.');
     lines.push('');
-    lines.push('Por que');
     (item.evidence || []).slice(0, 4).forEach(function(evidence) {
-      lines.push('- ' + evidence.label + ': ' + formatCopilotEvidenceValue_(evidence.value));
+      lines.push('• ' + evidence.label + ': ' + formatCopilotEvidenceValue_(evidence.value));
     });
     lines.push('');
-    lines.push('O que fazer agora');
+    lines.push('👉 Prioridade agora');
     lines.push(item.recommendation);
     lines.push('');
-    lines.push('Nao fazer');
-    lines.push(item.avoid || 'Nao decidir com base em chute.');
-    lines.push('');
-    lines.push('Confianca: ' + copilotConfidenceLabel_(item.confidence));
+    lines.push('⛔ Evite agora');
+    lines.push(item.avoid || 'Não decida com base em suposição.');
   });
+  lines.push('', '🔎 Leitura determinística • confiança ' + copilotOverallConfidence_(insights));
   return lines.join('\n');
 }
 
-function formatCopilotDecisionCardsMaybeNarrated_(summary, config) {
+function copilotSeverityEmoji_(severity) {
+  if (severity === 'critical') return '🚨';
+  if (severity === 'warning') return '🛡️';
+  if (severity === 'positive') return '✅';
+  return 'ℹ️';
+}
+
+function copilotOverallConfidence_(insights) {
+  if ((insights || []).some(function(item) { return item.confidence === 'low'; })) return 'baixa';
+  if ((insights || []).some(function(item) { return item.confidence === 'medium'; })) return 'média';
+  return 'alta';
+}
+
+function friendlyInvestmentBlocker_(value) {
+  var normalized = stringValue_(value).toLowerCase();
+  var labels = {
+    reserva_ou_pagamentos: 'reserva e pagamentos ainda precisam de cobertura',
+    reserva: 'reserva ainda abaixo da proteção necessária',
+    pagamentos: 'pagamentos registrados ainda precisam de cobertura',
+    saldos_desatualizados: 'saldos precisam ser atualizados',
+  };
+  return labels[normalized] || 'reserva e pagamentos ainda precisam de cobertura';
+}
+
+function formatCopilotDecisionCardsMaybeNarrated_(summary, config, explainWithAi) {
   var deterministicText = formatCopilotDecisionCards_(summary);
-  if (!config || config.copilotNarratorEnabled !== true) return deterministicText;
-  if (!config.openAiApiKey || !config.openAiModel) return deterministicText;
+  if (explainWithAi !== true) return deterministicText;
+  if (!config.openAiApiKey || !config.openAiNarratorModel) return deterministicText;
 
   var candidateText = fetchCopilotNarrationText_(summary, deterministicText, config);
   var safe = safeCopilotNarrationText_(summary, deterministicText, candidateText);
@@ -1496,13 +1929,7 @@ function formatCopilotDecisionCardsMaybeNarrated_(summary, config) {
 
 function fetchCopilotNarrationText_(summary, deterministicText, config) {
   try {
-    var response = UrlFetchApp.fetch(OPENAI_RESPONSES_URL, {
-      method: 'post',
-      contentType: 'application/json',
-      headers: { Authorization: 'Bearer ' + config.openAiApiKey },
-      payload: JSON.stringify(openAiCopilotNarratorPayload_(summary, deterministicText, config)),
-      muteHttpExceptions: true,
-    });
+    var response = fetchOpenAIResponseWithRetry_(openAiCopilotNarratorPayload_(summary, deterministicText, config), config, 'narrator');
     if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) return '';
     var parsedResponse = parseJsonSafe_(response.getContentText());
     var outputText = extractOpenAIOutputText_(parsedResponse);
@@ -1515,7 +1942,9 @@ function fetchCopilotNarrationText_(summary, deterministicText, config) {
 
 function openAiCopilotNarratorPayload_(summary, deterministicText, config) {
   return {
-    model: config.openAiModel,
+    model: config.openAiNarratorModel,
+    store: false,
+    reasoning: { effort: 'none' },
     input: [
       'You are an optional Telegram phrasing layer for a deterministic family finance copilot.',
       'Use only the provided facts, evidence, recommendation, and avoid rule.',
@@ -1650,8 +2079,8 @@ function buildCopilotWeeklyDigest_(summary) {
       reserve: reserveInsight
         ? digestInsight_(reserveInsight)
         : {
-          label: 'Reserva sem bloqueio critico no resumo atual.',
-          status: 'Nenhum bloqueio deterministico de reserva apareceu entre os principais insights.',
+          label: 'Reserva sem bloqueio crítico no resumo atual.',
+          status: 'Nenhum bloqueio determinístico de reserva apareceu entre os principais insights.',
           action_key: 'reserve_first',
           evidence: [
             { label: 'Reserva atual', value: roundMoney_(facts.reserva_total) }
@@ -1674,40 +2103,40 @@ function formatCopilotWeeklyDigest_(digest) {
   var reserve = sections.reserve || {};
   var missing = sections.data_missing || [];
   var lines = [
-    'Digest semanal do copiloto - ' + friendlyCompetencia_(data.competencia),
+    '🌅 Seu radar da semana • ' + capitalize_(friendlyCompetencia_(data.competencia)),
     '',
-    'O que mudou',
+    '🔄 Leitura da semana',
     changed.status || 'Leitura feita com os dados atuais.',
     '',
-    'Maior risco',
-    risk.status || 'Nenhum risco critico apareceu nos dados atuais.',
+    '🚨 Maior risco',
+    risk.status || 'Nenhum risco crítico apareceu nos dados atuais.',
   ];
 
-  if (risk.recommendation) lines.push('Acao: ' + risk.recommendation);
+  if (risk.recommendation) lines.push('👉 ' + risk.recommendation);
 
   lines.push('');
-  lines.push('Onde cortar primeiro');
-  lines.push(cut.status || 'Nenhum corte prioritario apareceu agora.');
-  if (cut.label) lines.push('Categoria: ' + cut.label);
-  if (typeof cut.potential === 'number') lines.push('Economia possivel: ' + formatMoney_(cut.potential));
+  lines.push('✂️ Onde economizar primeiro');
+  lines.push(cut.status || 'Nenhum corte prioritário apareceu agora.');
+  if (cut.label) lines.push('• Categoria: ' + cut.label);
+  if (typeof cut.potential === 'number') lines.push('• Economia possível: ' + formatMoney_(cut.potential));
 
   lines.push('');
-  lines.push('Gasto seguro');
-  lines.push(safe.status || 'Gasto seguro indisponivel.');
-  lines.push('Gasto seguro agora: ' + formatMoney_(safe.amount));
+  lines.push('🛡️ Gasto seguro agora');
+  lines.push(safe.status || 'Gasto seguro indisponível.');
+  lines.push('• Limite conservador: ' + formatMoney_(safe.amount));
 
   lines.push('');
-  lines.push('Reserva e decisao');
-  lines.push(reserve.status || 'Reserva sem alerta critico.');
-  if (reserve.recommendation) lines.push('Acao: ' + reserve.recommendation);
+  lines.push('🏦 Reserva e decisão');
+  lines.push(reserve.status || 'Reserva sem alerta crítico.');
+  if (reserve.recommendation) lines.push('👉 ' + reserve.recommendation);
 
   lines.push('');
-  lines.push('Dados antes da proxima decisao');
+  lines.push('🧩 Antes da próxima decisão');
   if (missing.length === 0) {
-    lines.push('- Nenhum bloqueio de dado critico no preview.');
+    lines.push('• Nenhum bloqueio crítico de dados.');
   } else {
     missing.forEach(function(item) {
-      lines.push('- ' + item);
+      lines.push('• ' + item);
     });
   }
 
@@ -1718,7 +2147,7 @@ function buildSafeToSpendDigest_(summary) {
   var safe = buildSafeToSpendFacts_(summary || {});
   return {
     status: safe.has_balances
-      ? (safe.safe_to_spend > 0 ? 'Existe folga conservadora para gasto novo.' : 'Nao ha gasto novo seguro pelos dados registrados.')
+      ? (safe.safe_to_spend > 0 ? 'Existe folga conservadora para gasto novo.' : 'Não há gasto novo seguro pelos dados registrados.')
       : 'Sem saldo real das contas, gasto seguro fica bloqueado.',
     amount: safe.safe_to_spend,
     action_key: 'safe_to_spend',
@@ -1734,7 +2163,7 @@ function digestInsight_(item) {
   if (!item) {
     return {
       label: 'Sem insight principal.',
-      status: 'Nenhum insight deterministico disponivel.',
+      status: 'Nenhum insight determinístico disponível.',
       action_key: '',
       evidence: [],
       recommendation: '',
@@ -1762,11 +2191,11 @@ function buildCutFirstDigest_(item) {
   if (!item) {
     return {
       label: '',
-      status: 'Nenhuma oportunidade de corte prioritario apareceu agora.',
+      status: 'Nenhuma oportunidade de corte prioritário apareceu agora.',
       action_key: 'cut_first',
       potential: 0,
       evidence: [],
-      recommendation: 'Manter revisao de categorias antes de gasto novo.',
+      recommendation: 'Manter a revisão de categorias antes de assumir gasto novo.',
     };
   }
   evidence = sanitizeCopilotEvidence_(item.evidence);
@@ -1807,22 +2236,31 @@ function buildPilotCashPositionLines_(summary) {
   return [
     '',
     '💰 Dinheiro hoje',
-    'Contas: ' + formatMoney_(summary.saldos_fontes_disponivel),
-    'Reserva: ' + formatMoney_(summary.reserva_total),
+    '• Contas: ' + formatMoney_(summary.saldos_fontes_disponivel),
+    '• Reserva: ' + formatMoney_(summary.reserva_total),
   ];
 }
 
 function buildPilotProjectedFlowLines_(summary) {
   var currentInvoices = numberFromSheetValue_(summary.faturas_atuais);
-  return [
+  var lines = [
     '',
     '🔭 Fluxo projetado',
-    'Renda prevista ' + formatShortDate_(summary.renda_prevista_data) + ': ' + formatMoney_(summary.renda_prevista_pendente),
-    'Faturas atuais: ' + formatMoney_(currentInvoices),
-    'Obrigacoes do ciclo: ' + formatMoney_(summary.obrigacoes_ciclo),
-    'Pagamentos programados: ' + formatMoney_(summary.pagamentos_programados),
-    'Sobra projetada: ' + formatMoney_(summary.sobra_projetada_pos_pagamentos),
   ];
+  if (numberFromSheetValue_(summary.renda_mensal_confirmada) > 0) {
+    lines.push('• Renda do mês confirmada: ' + formatMoney_(summary.renda_mensal_confirmada));
+    lines.push(numberFromSheetValue_(summary.renda_prevista_pendente) > 0
+      ? '• Ainda a entrar ' + formatShortDate_(summary.renda_prevista_data) + ': ' + formatMoney_(summary.renda_prevista_pendente)
+      : '• Renda já conciliada com o saldo da conta');
+  } else {
+    lines.push('• Renda prevista ' + formatShortDate_(summary.renda_prevista_data) + ': ' + formatMoney_(summary.renda_prevista_pendente));
+  }
+  return lines.concat([
+    '• Faturas atuais: ' + formatMoney_(currentInvoices),
+    '• Compromissos do ciclo: ' + formatMoney_(summary.obrigacoes_ciclo),
+    '• Pagamentos programados: ' + formatMoney_(summary.pagamentos_programados),
+    '• Sobra projetada: ' + formatMoney_(summary.sobra_projetada_pos_pagamentos),
+  ]);
 }
 
 function buildPilotCurrentInvoiceLines_(summary) {
@@ -1831,9 +2269,9 @@ function buildPilotCurrentInvoiceLines_(summary) {
   var currentInvoiceItems = summary.faturas_atuais_detalhe || [];
   if (currentInvoiceItems.length === 0) lines.push('Nenhuma fatura atual aberta registrada.');
   currentInvoiceItems.forEach(function(item) {
-    lines.push(shortCardName_(item.cartao) + ' ' + formatShortDate_(item.data_vencimento) + ': ' + formatMoney_(item.valor));
+    lines.push('• ' + shortCardName_(item.cartao) + ' • ' + formatShortDate_(item.data_vencimento) + ' • ' + formatMoney_(item.valor));
   });
-  lines.push('Total: ' + formatMoney_(currentInvoices));
+  lines.push('Total das faturas: ' + formatMoney_(currentInvoices));
   return lines;
 }
 
@@ -1846,14 +2284,14 @@ function buildPilotAttentionLines_(summary) {
   }
   if (summary.sobra_projetada_pos_pagamentos < 0) {
     return [
-      'A projecao ainda fica negativa depois da renda prevista.',
+      'A projeção ainda fica negativa depois da renda prevista.',
       'Separar dinheiro para pagamentos vem antes de gasto novo.',
     ];
   }
   if (summary.saldos_fontes_disponivel < summary.faturas_atuais) {
     return [
       'Saldo em conta esta baixo.',
-      'A renda prevista deve aliviar a pressao sem transformar reserva em gasto do mes.',
+      'A renda prevista deve aliviar a pressão sem transformar reserva em gasto do mês.',
     ];
   }
   return [
@@ -1863,14 +2301,14 @@ function buildPilotAttentionLines_(summary) {
 }
 
 function buildPilotSituationText_(summary, obligations) {
-  if (numberFromSheetValue_(summary.saldos_fontes_count) === 0) return 'Falta saldo real das contas para projetar sobra com confianca.';
-  if (summary.sobra_projetada_pos_pagamentos < 0) return 'Atencao: a projecao fica negativa apos renda e pagamentos.';
-  if (summary.sobra_projetada_pos_pagamentos > 0) return 'Sobra projetada positiva apos renda e pagamentos registrados.';
+  if (numberFromSheetValue_(summary.saldos_fontes_count) === 0) return 'Falta o saldo real das contas para projetar a sobra com confiança.';
+  if (summary.sobra_projetada_pos_pagamentos < 0) return 'Atenção: a projeção fica negativa após renda e pagamentos.';
+  if (summary.sobra_projetada_pos_pagamentos > 0) return 'Sobra projetada positiva após renda e pagamentos registrados.';
   if (summary.margem_pos_obrigacoes < 0) return 'Atenção: falta cobertura para tudo que está registrado.';
   if (numberFromSheetValue_(summary.faturas_atuais) > 0) return 'Faturas atuais cobertas pela liquidez registrada.';
   if (obligations > 0) return 'Contas registradas cabem na liquidez registrada.';
-  if (summary.sobra_caixa > 0) return 'ha sobra registrada no mes.';
-  return 'ainda nao ha sobra registrada no mes.';
+  if (summary.sobra_caixa > 0) return 'Há sobra registrada no mês.';
+  return 'ainda não há sobra registrada no mês.';
 }
 
 function buildPilotGuidance_(summary, obligations) {
@@ -1887,35 +2325,35 @@ function buildPilotGuidance_(summary, obligations) {
   }
   if (lacksSourceBalances) {
     return {
-      action: 'Ainda nao vou sugerir investimento, reserva ou amortizacao.',
-      reason: 'Tenho lancamentos e contas, mas ainda falta o saldo real das contas. Sem esse dado, a orientacao poderia errar.',
+      action: 'Ainda não vou sugerir investimento, reserva ou amortização.',
+      reason: 'Tenho lançamentos e contas, mas ainda falta o saldo real das contas. Sem esse dado, a orientação poderia errar.',
       caveat: caveat,
     };
   }
   if (summary.reserva_total < 15000) {
     return {
       action: 'Pagar faturas e contas programadas; preservar a reserva.',
-      reason: 'A renda prevista entra na sobra projetada, mas a reserva continua separada da decisao do dia a dia.',
+      reason: 'A renda prevista entra na sobra projetada, mas a reserva continua separada da decisão do dia a dia.',
       caveat: '',
     };
   }
   if (summary.sobra_projetada_pos_pagamentos <= 0) {
     return {
       action: 'Manter a liquidez e revisar antes de assumir gasto novo.',
-      reason: 'A sobra projetada nao abre espaco confortavel para gasto novo.',
+      reason: 'A sobra projetada não abre espaço confortável para gasto novo.',
       caveat: '',
     };
   }
   if (summary.pode_avaliar_amortizacao !== true) {
     return {
       action: 'Manter o dinheiro disponivel e revisar investimento com calma.',
-      reason: 'As contas e a reserva parecem cobertas, mas ainda faltam dados completos da divida para comparar amortizacao com seguranca.',
+      reason: 'As contas e a reserva parecem cobertas, mas ainda faltam dados completos da dívida para comparar amortização com segurança.',
       caveat: '',
     };
   }
   return {
-    action: 'Revisar investimento ou amortizacao antes de decidir.',
-    reason: 'As contas e a reserva parecem cobertas. A proxima decisao depende de comparar retorno, juros e liquidez.',
+    action: 'Revisar investimento ou amortização antes de decidir.',
+    reason: 'As contas e a reserva parecem cobertas. A próxima decisão depende de comparar retorno, juros e liquidez.',
     caveat: '',
   };
 }
@@ -2147,7 +2585,7 @@ function formatAgendaAnswer_(summary, event) {
   });
 
   var lines = [
-    '📅 Agenda financeira' + cardName + ' de ' + friendlyCompetencia_(summary.competencia),
+    '📅 Agenda' + cardName + ' • ' + capitalize_(friendlyCompetencia_(summary.competencia)),
     '',
   ];
   Array.prototype.push.apply(lines, formatAgendaDecisionLines_(summary, invoiceItems, cardId));
@@ -2159,7 +2597,7 @@ function formatAgendaAnswer_(summary, event) {
     lines.push('Nenhuma fatura aberta registrada.');
   } else {
     invoiceItems.slice(0, 8).forEach(function(item) {
-      lines.push(formatShortDate_(item.data_vencimento) + ' ' + shortCardName_(item.cartao) + ': ' + formatMoney_(item.valor));
+      lines.push('• ' + formatShortDate_(item.data_vencimento) + ' • ' + shortCardName_(item.cartao) + ' • ' + formatMoney_(item.valor));
     });
   }
 
@@ -2172,18 +2610,18 @@ function formatAgendaAnswer_(summary, event) {
     } else {
       obligationItems.slice(0, 6).forEach(function(item) {
         if (item.aggregate_only) {
-          lines.push('Privados agregados: ' + formatMoney_(item.exposure || item.valor));
+          lines.push('• Privados agregados: ' + formatMoney_(item.exposure || item.valor));
         } else if (item.data_vencimento) {
-          lines.push(formatShortDate_(item.data_vencimento) + ' ' + item.nome + ': ' + formatMoney_(item.valor));
+          lines.push('• ' + formatShortDate_(item.data_vencimento) + ' • ' + item.nome + ' • ' + formatMoney_(item.valor));
         } else {
-          lines.push('Sem data fixa: ' + item.nome + ' ' + formatMoney_(item.valor));
+          lines.push('• Sem data fixa • ' + item.nome + ' • ' + formatMoney_(item.valor));
         }
       });
     }
   }
 
   lines.push('');
-  lines.push('📌 Atenção');
+  lines.push('🛡️ Proteção');
   if (cardId) {
     lines.push('Use esta agenda para planejar o pagamento deste cartão.');
   } else {
@@ -2210,7 +2648,7 @@ function formatAgendaDecisionLines_(summary, invoiceItems, cardId) {
     nextObligation = datedObligations[0] || null;
   }
   var confidence = numberFromSheetValue_(summary.saldos_fontes_count) > 0 ? 'alta' : 'media';
-  var lines = ['Status'];
+  var lines = ['⏰ Próximo vencimento'];
   if (nextObligation && (!nextInvoice || nextObligation.data_vencimento < nextInvoice.data_vencimento)) {
     lines.push('Próximo vencimento: ' + formatShortDate_(nextObligation.data_vencimento) + ' ' + nextObligation.nome + ' ' + formatMoney_(nextObligation.valor) + '.');
   } else if (nextInvoice) {
@@ -2219,22 +2657,22 @@ function formatAgendaDecisionLines_(summary, invoiceItems, cardId) {
     lines.push('Sem fatura aberta registrada nos próximos 60 dias.');
   }
   lines.push('');
-  lines.push('Evidência');
-  lines.push('Faturas abertas: ' + formatMoney_(totalFaturas));
-  if (!cardId) lines.push('Compromissos registrados: ' + formatMoney_(totalObrigacoes));
-  lines.push('Total a planejar: ' + formatMoney_(totalPlanejar));
+  lines.push('💰 Valor a proteger');
+  lines.push('• Faturas abertas: ' + formatMoney_(totalFaturas));
+  if (!cardId) lines.push('• Compromissos registrados: ' + formatMoney_(totalObrigacoes));
+  lines.push('• Total a planejar: ' + formatMoney_(totalPlanejar));
   lines.push('');
-  lines.push('Ação sugerida');
+  lines.push('👉 Prioridade agora');
   if (totalPlanejar > 0) {
     lines.push('Separar ' + formatMoney_(totalPlanejar) + ' antes de assumir gasto novo relevante.');
   } else {
     lines.push('Manter agenda revisada; não há vencimento registrado para reservar agora.');
   }
   lines.push('');
-  lines.push('Não fazer');
+  lines.push('⛔ Evite agora');
   lines.push('Não tratar cartão como folga livre antes de reservar faturas e compromissos.');
   lines.push('');
-  lines.push('Confianca: ' + confidence);
+  lines.push('🔎 Leitura determinística • confiança ' + (confidence === 'media' ? 'média' : confidence));
   return lines;
 }
 
@@ -2242,7 +2680,7 @@ function formatCanSpendAnswer_(summary, text) {
   var simulation = parseSpendingSimulation_(text);
   if (!simulation.ok) {
     if (isSafeToSpendAmountQuestion_(text)) {
-      return formatSafeToSpendAnswer_(summary);
+      return appendPendingAttentionBlocker_(formatSafeToSpendAnswer_(summary), summary);
     }
     return [
       '🧭 Simulação conservadora',
@@ -2256,74 +2694,116 @@ function formatCanSpendAnswer_(summary, text) {
   var safe = buildSafeToSpendFacts_(summary);
   var installment = roundMoney_(simulation.valor / simulation.parcelas);
   var afterPurchase = roundMoney_(safe.safe_to_spend - installment);
-  var status = afterPurchase >= 0 ? 'Cabe nos dados registrados, preservando pagamentos e reserva.' : 'Nao cabe com seguranca nos dados registrados.';
+  var status = afterPurchase >= 0 ? 'Cabe na margem registrada, preservando pagamentos e reserva.' : 'Não cabe com segurança na margem registrada.';
   var caution = afterPurchase >= 0
-    ? 'Mesmo cabendo, confira a agenda antes de lancar.'
-    : 'Nao usar reserva abaixo da meta como dinheiro livre para consumo.';
-  var decisionPrefix = [
-    'Status',
-    status,
-    '',
-    'Por que',
-  ];
-  return ['Simulacao conservadora', ''].concat(decisionPrefix, [
-    'Compra: ' + formatMoney_(simulation.valor) + ' em ' + simulation.parcelas + 'x',
-    'Parcela estimada: ' + formatMoney_(installment),
-    'Gasto seguro agora: ' + formatMoney_(safe.safe_to_spend),
-    'Folga depois da compra: ' + formatMoney_(afterPurchase),
-    'Dinheiro em contas: ' + formatMoney_(safe.cash_available),
-    'Pagamentos registrados: ' + formatMoney_(safe.registered_payments),
-    '',
-    'O que fazer agora',
-    afterPurchase >= 0
-      ? 'Se for comprar, manter a parcela dentro dessa folga e conferir a agenda antes de lancar.'
-      : 'Nao assumir essa compra agora; primeiro cobrir faturas e compromissos registrados.',
-    '',
-    'Nao fazer',
-    caution,
-    '',
-    'Confianca: ' + (safe.has_balances ? 'alta' : 'media'),
-  ]).join('\n');
+    ? 'Mesmo cabendo, confira os próximos vencimentos antes de comprar.'
+    : 'Não use a reserva abaixo da meta como dinheiro livre para consumo.';
   return [
-    '🧭 Simulação conservadora',
+    '🧮 Simulação de compra',
     '',
-    '💳 Compra simulada',
-    'Compra: ' + formatMoney_(simulation.valor) + ' em ' + simulation.parcelas + 'x',
-    'Parcela estimada: ' + formatMoney_(installment),
-    'Folga depois da compra: ' + formatMoney_(afterPurchase),
-    '',
-    '📌 Leitura',
+    afterPurchase >= 0 ? '✅ A compra cabe na margem atual' : '🛑 A compra não cabe agora',
     status,
+    '',
+    '• Compra: ' + formatMoney_(simulation.valor) + ' em ' + simulation.parcelas + 'x',
+    '• Parcela estimada: ' + formatMoney_(installment),
+    '• Gasto seguro antes: ' + formatMoney_(safe.safe_to_spend),
+    '• Margem depois: ' + formatMoney_(afterPurchase),
+    '• Dinheiro em contas: ' + formatMoney_(safe.cash_available),
+    '• Pagamentos protegidos: ' + formatMoney_(safe.registered_payments),
+    '',
+    '👉 Prioridade agora',
+    afterPurchase >= 0
+      ? 'Se decidir comprar, mantenha a parcela dentro dessa margem e confira a agenda.'
+      : 'Adie a compra e cubra primeiro faturas e compromissos registrados.',
+    '',
+    '⛔ Evite agora',
     caution,
+    '',
+    '🔎 Cenário conservador • confiança ' + (safe.has_balances ? 'alta' : 'média'),
   ].join('\n');
+}
+
+function formatHouseWorkIncomeCommitmentAnswer_(summary) {
+  function isHouseWorkCategory(item) {
+    var id = stringValue_(item && item.id_categoria);
+    var group = normalizeAliasText_((summary.categorias_grupos || {})[id]);
+    return group === 'moradia' ||
+      id === 'OPEX_MORADIA_MANUTENCAO' ||
+      id === 'OPEX_MORADIA_AUTOMACAO_SEGURANCA' ||
+      id === 'OPEX_CASA_DOCUMENTACAO_SERVICOS';
+  }
+  function sumCategories(items) {
+    return roundMoney_((items || []).reduce(function(sum, item) {
+      return isHouseWorkCategory(item) ? sum + numberFromSheetValue_(item.valor) : sum;
+    }, 0));
+  }
+  function percentage(part, total) {
+    if (!(total > 0)) return '';
+    return (Math.round((part / total) * 1000) / 10).toFixed(1).replace('.', ',') + '%';
+  }
+
+  var monthImpact = sumCategories(summary.categorias_previsao);
+  var totalCommitment = sumCategories(summary.categorias_gastos);
+  var income = numberFromSheetValue_(summary.renda_mensal_confirmada);
+  var incomeLabel = 'renda mensal declarada';
+  if (!(income > 0) && !(summary.rendas_previstas_bloqueadas || []).length) {
+    income = numberFromSheetValue_(summary.renda_caixa_planejada);
+    incomeLabel = 'renda mensal revisada';
+  }
+  if (!(income > 0)) {
+    income = numberFromSheetValue_(summary.receitas_dre);
+    incomeLabel = 'receita já efetivada no mês';
+  }
+
+  var lines = [
+    '🏠 Obra e moradia • ' + capitalize_(friendlyCompetencia_(summary.competencia)),
+    '',
+    '💰 Comprometimento',
+    '• Impacto previsto neste mês: ' + formatMoney_(monthImpact),
+    '• Compromisso total assumido: ' + formatMoney_(totalCommitment),
+  ];
+  if (income > 0) {
+    lines.push('• Renda usada na conta: ' + formatMoney_(income) + ' (' + incomeLabel + ')');
+    lines.push('');
+    lines.push('📊 Proporção da renda');
+    lines.push('• Neste mês: ' + percentage(monthImpact, income));
+    lines.push('• Total assumido: ' + percentage(totalCommitment, income) + ' de uma renda mensal');
+    lines.push('');
+    lines.push('Leitura: para decidir o que cabe agora, use primeiro o percentual deste mês.');
+  } else {
+    lines.push('');
+    lines.push('⚠️ Falta uma renda mensal confirmada ou revisada para calcular a porcentagem com confiança.');
+  }
+  lines.push('O total assumido inclui parcelas futuras; pagamento de fatura fica fora para não duplicar gasto.');
+  lines.push('');
+  lines.push('Base: lançamentos efetivados nas categorias cadastradas no grupo Moradia.');
+  return lines.join('\n');
 }
 
 function formatSafeToSpendAnswer_(summary) {
   var safe = buildSafeToSpendFacts_(summary);
-  var status = safe.safe_to_spend > 0 ? 'Ha uma folga conservadora para gasto novo.' : 'Nao ha gasto novo seguro pelos dados registrados.';
+  var status = safe.safe_to_spend > 0 ? 'Há uma margem conservadora para gasto novo.' : 'Não há margem segura para gasto novo pelos dados registrados.';
   return [
-    'Gasto seguro agora',
+    '🛡️ Gasto seguro agora',
     '',
-    'Status',
+    safe.safe_to_spend > 0 ? '✅ ' + formatMoney_(safe.safe_to_spend) + ' disponíveis com proteção' : '🛑 R$ 0,00 para gasto novo',
     status,
     '',
-    'Por que',
-    'Dinheiro em contas: ' + formatMoney_(safe.cash_available),
-    'Reserva usavel agora: ' + formatMoney_(safe.reserve_usable),
-    'Pagamentos registrados: ' + formatMoney_(safe.registered_payments),
-    'Gasto seguro agora: ' + formatMoney_(safe.safe_to_spend),
+    '• Dinheiro em contas: ' + formatMoney_(safe.cash_available),
+    '• Reserva utilizável: ' + formatMoney_(safe.reserve_usable),
+    '• Pagamentos protegidos: ' + formatMoney_(safe.registered_payments),
     '',
-    'O que fazer agora',
+    '👉 Prioridade agora',
     safe.safe_to_spend > 0
       ? 'Usar esse teto como limite antes de assumir gasto novo e conferir /agenda para vencimentos.'
       : 'Atualizar saldos e separar dinheiro para faturas e compromissos antes de gastar.',
     '',
-    'Nao fazer',
+    '⛔ Evite agora',
     safe.reserve_usable > 0
-      ? 'Nao tratar essa folga como autorizacao para ignorar parcelas futuras.'
-      : 'Nao usar reserva abaixo da meta como dinheiro livre para consumo.',
+      ? 'Não trate essa margem como autorização para ignorar parcelas futuras.'
+      : 'Não use reserva abaixo da meta como dinheiro livre para consumo.',
     '',
-    'Confianca: ' + (safe.has_balances ? 'alta' : 'media'),
+    '🔎 Limite conservador • confiança ' + (safe.has_balances ? 'alta' : 'média'),
   ].join('\n');
 }
 
@@ -2332,52 +2812,50 @@ function formatCutFirstDecisionAnswer_(summary) {
   var opportunities = health.oportunidades_economia || [];
   var top = opportunities.length > 0 ? opportunities[0] : null;
   var lines = [
-    'Onde cortar em ' + friendlyCompetencia_(summary.competencia),
+    '✂️ Onde economizar • ' + capitalize_(friendlyCompetencia_(summary.competencia)),
     '',
-    'Status',
   ];
   if (!top) {
-    lines.push('Nao encontrei categoria acima de limite ativo nos dados registrados.');
+    lines.push('✅ Nenhuma categoria passou do limite ativo');
+    lines.push('Não encontrei um corte obrigatório nos dados registrados.');
     lines.push('');
-    lines.push('Por que');
-    lines.push('Sem limite ativo estourado, o corte exige revisao manual do orcamento.');
+    lines.push('📌 Leitura');
+    lines.push('Sem limite estourado, qualquer corte depende de uma revisão consciente do orçamento.');
     lines.push('');
-    lines.push('O que fazer agora');
-    lines.push('Revisar /orcamento e conferir se os limites ativos ainda representam a decisao da familia.');
+    lines.push('👉 Próxima melhor ação');
+    lines.push('Confira se os limites ativos ainda refletem as prioridades da família.');
     lines.push('');
-    lines.push('Nao fazer');
-    lines.push('Nao cortar item essencial sem revisar vencimentos e faturas.');
+    lines.push('⛔ Evite agora');
+    lines.push('Não corte item essencial sem revisar vencimentos e faturas.');
     lines.push('');
-    lines.push('Confianca: media');
+    lines.push('🔎 Leitura determinística • confiança média');
     return lines.join('\n');
   }
-  lines.push('Primeiro corte sugerido: ' + top.categoria + '.');
+  lines.push('🎯 Comece por ' + top.categoria);
   lines.push('');
-  lines.push('Por que');
-  lines.push('Categoria: ' + top.categoria);
-  lines.push('Gasto atual: ' + formatMoney_(top.valor_atual));
-  lines.push('Referencia: ' + formatMoney_(top.referencia));
-  lines.push('Economia possivel: ' + formatMoney_(top.economia_potencial));
-  lines.push('Motivo: ' + top.motivo);
+  lines.push('• Gasto atual: ' + formatMoney_(top.valor_atual));
+  lines.push('• Referência: ' + formatMoney_(top.referencia));
+  lines.push('• Economia possível: ' + formatMoney_(top.economia_potencial));
+  lines.push('• Motivo: ' + top.motivo);
   var privateItems = opportunities.filter(function(item) {
     return item.categoria === 'Gastos pessoais privados';
   });
   if (privateItems.length > 0) {
     lines.push('');
-    lines.push('Privacidade');
+    lines.push('🔒 Privacidade protegida');
     privateItems.slice(0, 2).forEach(function(item) {
       lines.push('Gastos pessoais privados: ' + formatMoney_(item.valor_atual));
     });
-    lines.push('Detalhes pessoais ficam fechados; decisao compartilhada usa apenas agregado.');
+    lines.push('Detalhes pessoais ficam fechados; a decisão compartilhada usa apenas o agregado.');
   }
   lines.push('');
-  lines.push('O que fazer agora');
+  lines.push('👉 Prioridade agora');
   lines.push(top.acao_sugerida + '.');
   lines.push('');
-  lines.push('Nao fazer');
-  lines.push('Nao compensar esse corte assumindo nova parcela sem conferir o gasto seguro.');
+  lines.push('⛔ Evite agora');
+  lines.push('Não compense essa economia assumindo nova parcela sem conferir o gasto seguro.');
   lines.push('');
-  lines.push('Confianca: ' + (top.confianca || 'media'));
+  lines.push('🔎 Leitura determinística • confiança ' + ((top.confianca || 'media') === 'media' ? 'média' : top.confianca));
   return lines.join('\n');
 }
 
@@ -2389,13 +2867,15 @@ function buildSafeToSpendFacts_(summary) {
     ? roundMoney_(numberFromSheetValue_(summary.reserva_total) - reserveTarget)
     : 0;
   var hasBalances = numberFromSheetValue_(summary.saldos_fontes_count) > 0;
-  var rawSafe = hasBalances ? roundMoney_(cashAvailable + reserveUsable - registeredPayments) : 0;
+  var dataQualityBlocked = Boolean(summary.pending_attention && summary.pending_attention.blocking);
+  var rawSafe = hasBalances && !dataQualityBlocked ? roundMoney_(cashAvailable + reserveUsable - registeredPayments) : 0;
   return {
     cash_available: cashAvailable,
     reserve_usable: reserveUsable,
     registered_payments: registeredPayments,
     safe_to_spend: Math.max(0, rawSafe),
     has_balances: hasBalances,
+    data_quality_blocked: dataQualityBlocked,
   };
 }
 
@@ -2429,27 +2909,26 @@ function formatSavingsGoalAnswer_(summary) {
   var health = summary.health_check || {};
   var goal = health.meta_guardar || {};
   var lines = [
-    'Meta mensal de guardar dinheiro',
+    '🏦 Plano de reserva • ' + capitalize_(friendlyCompetencia_(summary.competencia)),
     '',
-    'Base usada',
-    'Renda livre: ' + formatMoney_(health.renda_base),
-    'Taxa de poupanca: ' + Math.round(numberFromSheetValue_(health.taxa_poupanca) * 100) + '%',
-    'Meta sugerida: ' + formatMoney_(goal.meta_sugerida),
-    'Prioridade: ' + friendlySavingsPriority_(goal.prioridade),
+    '🎯 Meta sugerida: ' + formatMoney_(goal.meta_sugerida),
+    '• Renda-base: ' + formatMoney_(health.renda_base),
+    '• Taxa de poupança: ' + Math.round(numberFromSheetValue_(health.taxa_poupanca) * 100) + '%',
+    '• Destino prioritário: ' + friendlySavingsPriority_(goal.prioridade),
   ];
   if (goal.investimento_bloqueado) {
     lines.push('');
-    lines.push('Bloqueio de investimento');
+    lines.push('🛡️ Antes de investir');
     (goal.bloqueios_investimento || []).forEach(function(reason) {
-      lines.push('- ' + reason);
+      lines.push('• ' + reason);
     });
   }
   lines.push('');
-  lines.push('Decisao agora');
+  lines.push('👉 Prioridade agora');
   if (goal.prioridade === 'reserva_emergencial') {
-    lines.push('Guardar primeiro para reserva, depois reavaliar amortizacao ou investimento.');
+    lines.push('Guardar primeiro para reserva, depois reavaliar amortização ou investimento.');
   } else {
-    lines.push('A reserva parece coberta; aporte ou amortizacao ainda dependem de comparar juros, retorno e liquidez.');
+    lines.push('A reserva parece coberta; aporte ou amortização ainda dependem de comparar juros, retorno e liquidez.');
   }
   return lines.join('\n');
 }
@@ -2466,55 +2945,55 @@ function formatMonthlyReviewAnswer_(summary) {
   var opportunities = health.oportunidades_economia || [];
   var closingDecision = buildMonthlyReviewDecision_(summary, opportunities);
   var lines = [
-    'Revisao de ' + friendlyCompetencia_(summary.competencia),
+    '🧾 Revisão do mês • ' + capitalize_(friendlyCompetencia_(summary.competencia)),
     '',
-    'Decisao de fechamento',
+    '🎯 Decisão de fechamento',
     closingDecision.status,
     '',
-    'Bloqueadores',
+    '🧩 O que ainda precisa fechar',
   ];
   closingDecision.blockers.forEach(function(item) {
     lines.push(item);
   });
   lines = lines.concat([
     '',
-    'Acao sugerida',
+    '👉 Prioridade agora',
     closingDecision.action,
     '',
-    'Nao fazer',
+    '⛔ Evite agora',
     closingDecision.avoid,
     '',
-    'Confianca: ' + closingDecision.confidence,
+    '🔎 Leitura determinística • confiança ' + (closingDecision.confidence === 'media' ? 'média' : closingDecision.confidence),
     '',
-    'Status',
+    '📅 Estado da competência',
   ]);
   if (summary.competencia >= todaySaoPaulo_().slice(0, 7)) {
-    lines.push('Mes atual ainda aberto.');
-    lines.push('Nao vou fechar este mes agora.');
+    lines.push('Mês atual ainda aberto.');
+    lines.push('O fechamento permanece bloqueado por segurança.');
   } else {
-    lines.push('Mes anterior pode ser revisado para fechamento.');
+    lines.push('Mês anterior disponível para revisão de fechamento.');
   }
   lines = lines.concat([
     '',
-    'Conferencia',
-    'Faturas atuais: ' + formatMoney_(summary.faturas_atuais),
-    'Compromissos 60d: ' + formatMoney_(summary.obrigacoes_60d),
-    'Caixa registrado: ' + formatMoney_(summary.sobra_caixa),
-    'Taxa de poupanca: ' + Math.round(numberFromSheetValue_(health.taxa_poupanca) * 100) + '%',
-    'Meta sugerida para guardar: ' + formatMoney_(goal.meta_sugerida),
+    '📊 Conferência rápida',
+    '• Faturas atuais: ' + formatMoney_(summary.faturas_atuais),
+    '• Compromissos 60d: ' + formatMoney_(summary.obrigacoes_60d),
+    '• Caixa registrado: ' + formatMoney_(summary.sobra_caixa),
+    '• Taxa de poupança: ' + Math.round(numberFromSheetValue_(health.taxa_poupanca) * 100) + '%',
+    '• Meta sugerida para guardar: ' + formatMoney_(goal.meta_sugerida),
     '',
-    'Maiores impactos',
+    '📌 Maiores impactos',
   ]);
   var categories = summary.categorias_previsao || [];
   if (categories.length === 0) {
-    lines.push('Ainda nao ha categorias de gasto registradas.');
+    lines.push('Ainda não há categorias de gasto registradas.');
   } else {
     categories.slice(0, 5).forEach(function(item) {
       lines.push(item.categoria + ': ' + formatMoney_(item.valor));
     });
   }
   lines.push('');
-  lines.push('Onde economizar primeiro');
+  lines.push('✂️ Onde economizar primeiro');
   if (opportunities.length === 0) {
     lines.push('Nenhuma categoria com limite ativo apareceu acima do limite.');
   } else {
@@ -2522,30 +3001,30 @@ function formatMonthlyReviewAnswer_(summary) {
       if (item.categoria === 'Gastos pessoais privados') {
         lines.push('Gastos pessoais privados: ' + formatMoney_(item.valor_atual));
         if (item.economia_potencial > 0) {
-          lines.push('Acao: manter o agregado pessoal perto de ' + formatMoney_(item.referencia) + ' libera ' + formatMoney_(item.economia_potencial) + '.');
+          lines.push('👉 Ação: manter o agregado pessoal perto de ' + formatMoney_(item.referencia) + ' libera ' + formatMoney_(item.economia_potencial) + '.');
         }
       } else {
         lines.push(item.acao_sugerida + '.');
       }
-      lines.push('Motivo: ' + item.motivo + ' | confianca: ' + item.confianca + '.');
+      lines.push('• Motivo: ' + item.motivo + ' • confiança ' + item.confianca + '.');
     });
   }
   if (opportunities.some(function(item) { return item.categoria === 'Gastos pessoais privados'; })) {
     lines.push('');
     lines.push('Privacidade');
-    lines.push('Os detalhes pessoais ficam agregados; a revisao compartilhada usa apenas totais.');
+    lines.push('🔒 Os detalhes pessoais ficam agregados; a revisão compartilhada usa apenas totais.');
   }
   lines.push('');
-  lines.push('Decisao agora');
+  lines.push('👉 Decisão agora');
   if (numberFromSheetValue_(goal.meta_sugerida) > 0) {
     lines.push('Separar ' + formatMoney_(goal.meta_sugerida) + ' para ' + friendlySavingsPriority_(goal.prioridade) + '.');
   } else {
-    lines.push('Priorizar cobertura de faturas, obrigacoes e caixa minimo antes de guardar dinheiro novo.');
+    lines.push('Priorizar a cobertura de faturas, obrigações e caixa mínimo antes de guardar dinheiro novo.');
   }
-  lines.push('Nao fazer: investir antes de cobrir reserva e pagamentos registrados.');
+  lines.push('⛔ Evite investir antes de cobrir reserva e pagamentos registrados.');
   lines.push('');
-  lines.push('Proximo passo');
-  lines.push('Conferir faturas reais, saldos e reembolsaveis antes de fechar.');
+  lines.push('✅ Para concluir');
+  lines.push('Conferir faturas reais, saldos e reembolsáveis antes de fechar.');
   return lines.join('\n');
 }
 
@@ -2555,19 +3034,22 @@ function buildMonthlyReviewDecision_(summary, opportunities) {
   var blockers = [];
   if (isCurrentOrFuture) blockers.push('Mes atual ainda aberto.');
   if (numberFromSheetValue_(summary.saldos_fontes_count) === 0) blockers.push('Falta saldo real das contas.');
+  if (summary.pending_attention && summary.pending_attention.primary_blocker) {
+    blockers.push('Qualidade dos dados: ' + summary.pending_attention.primary_blocker.label + '.');
+  }
   if (numberFromSheetValue_(summary.faturas_atuais) > 0) blockers.push('Faturas atuais: ' + formatMoney_(summary.faturas_atuais) + '.');
   if (numberFromSheetValue_(summary.obrigacoes_60d) > 0) blockers.push('Compromissos 60d: ' + formatMoney_(summary.obrigacoes_60d) + '.');
   if ((opportunities || []).length > 0) {
-    blockers.push('Ha categorias para revisar antes de fechar.');
+    blockers.push('Há categorias para revisar antes de fechar.');
   }
-  if (blockers.length === 0) blockers.push('Sem bloqueador deterministico registrado.');
+  if (blockers.length === 0) blockers.push('Sem bloqueador determinístico registrado.');
   return {
-    status: isCurrentOrFuture ? 'Ainda nao fechar.' : 'Pode revisar antes de fechar.',
+    status: isCurrentOrFuture ? 'Ainda não fechar.' : 'Pode revisar antes de fechar.',
     blockers: blockers,
     action: isCurrentOrFuture
-      ? 'Conferir faturas reais, saldos e reembolsaveis; deixar fechamento para depois do fim do mes.'
-      : 'Conferir divergencias e gerar rascunho de fechamento apenas quando os dados baterem.',
-    avoid: 'Nao fechar mes atual nem investir dinheiro novo antes de cobrir faturas, obrigacoes e reserva.',
+      ? 'Conferir faturas reais, saldos e reembolsáveis; deixar o fechamento para depois do fim do mês.'
+      : 'Conferir divergências e gerar rascunho de fechamento apenas quando os dados baterem.',
+    avoid: 'Não fechar o mês atual nem investir dinheiro novo antes de cobrir faturas, obrigações e reserva.',
     confidence: numberFromSheetValue_(summary.saldos_fontes_count) > 0 ? 'alta' : 'media',
   };
 }
@@ -2576,6 +3058,58 @@ function filterActiveOptionalRows_(rows) {
   return (rows || []).filter(function(row) {
     return row.ativo !== false;
   });
+}
+
+function buildPendingAttentionResponse_(config) {
+  var result = readCurrentPilotFamilySummary_(config, '');
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    responseText: formatPendingAttention_(result.summary.pending_attention),
+    pending_attention: result.summary.pending_attention,
+    shouldApplyDomainMutation: false,
+  };
+}
+
+function buildAlertsPreviewResponse_(config) {
+  var result = readCurrentPilotFamilySummary_(config, '');
+  if (!result.ok) return result;
+  var alerts = result.summary.proactive_alerts || { alerts: [], hysteresis: {} };
+  alerts.enabled = config.copilotAlertsEnabled === true;
+  alerts.preview_only = true;
+  var lines = ['🚦 Preview de alertas', ''];
+  if (alerts.alerts.length === 0) lines.push('Nenhum alerta de limite em 85% ou 100%.');
+  alerts.alerts.forEach(function(alert) {
+    lines.push('• ' + alert.category + ': ' + alert.percent + '% • ' + alert.severity);
+  });
+  lines.push('');
+  lines.push('Envio imediato: desativado. Privacidade aplicada antes da exibicao.');
+  return { ok: true, responseText: lines.join('\n'), alerts: alerts, shouldApplyDomainMutation: false };
+}
+
+function formatPendingAttention_(pending) {
+  var data = pending || { items: [] };
+  var lines = ['🧩 Central de pendências', ''];
+  if (!data.items || data.items.length === 0) {
+    lines.push('✅ Tudo em dia');
+    lines.push('Nenhuma pendência determinística encontrada agora.');
+  } else {
+    lines.push(data.blocking ? '🚨 Há dados que bloqueiam uma decisão segura' : '📌 Há itens para revisar');
+    lines.push('');
+    data.items.forEach(function(item) {
+      lines.push((item.kind === 'blocking' ? '⛔ ' : '• ') + item.count + ' ' + item.label);
+    });
+  }
+  lines.push('');
+  lines.push('🔒 Somente contagens agregadas; nenhum lançamento privado foi aberto.');
+  lines.push('🔎 Leitura determinística • confiança alta');
+  return lines.join('\n');
+}
+
+function appendPendingAttentionBlocker_(text, summary) {
+  var pending = summary && summary.pending_attention;
+  if (!pending || !pending.primary_blocker) return text;
+  return text + '\n\n🧩 Pendência que bloqueia esta decisão\n' + pending.primary_blocker.count + ' ' + pending.primary_blocker.label + '. Revise as pendências antes de decidir.';
 }
 
 function isReviewedOptionalRow_(row) {
@@ -2599,18 +3133,18 @@ function formatGoalsAnswer_(rows) {
   var activeGoals = filterReviewedOptionalRows_(rows);
   if (activeGoals.length === 0) {
     return [
-      'Metas revisadas ainda nao configuradas',
+      '🎯 Metas financeiras',
       '',
-      'Status',
-      'Nenhuma meta financeira revisada ativa foi encontrada.',
+      '📌 Nenhuma meta revisada ativa',
+      'Ainda não há uma meta financeira pronta para acompanhar.',
       '',
-      'Acao sugerida',
-      'Criar metas revisadas antes de automatizar recomendacoes sobre objetivos.',
+      '👉 Próxima melhor ação',
+      'Cadastre uma meta com valor e prioridade revisados.',
       '',
-      'Nao fazer',
-      'Nao inventar meta, prazo ou valor sem registro na planilha.',
+      '⛔ Proteção',
+      'O Copiloto não inventa meta, prazo ou valor.',
       '',
-      'Confianca: alta',
+      '🔎 Leitura determinística • confiança alta',
     ].join('\n');
   }
   var visibleGoals = activeGoals.filter(function(row) { return row.visibilidade !== 'privada'; });
@@ -2624,13 +3158,12 @@ function formatGoalsAnswer_(rows) {
     return stringValue_(a.data_alvo) < stringValue_(b.data_alvo) ? -1 : 1;
   })[0] || null;
   var lines = [
-    'Metas financeiras revisadas',
+    '🎯 Metas financeiras',
     '',
-    'Status',
-    next ? 'Meta prioritaria: ' + stringValue_(next.nome) + '.' : 'Metas ativas existem, mas estao privadas.',
+    next ? '📌 Prioridade: ' + stringValue_(next.nome) : '🔒 As metas ativas são privadas',
     '',
-    'Evidencia',
-    'Total registrado: ' + formatMoney_(totalCurrent) + ' / ' + formatMoney_(totalTarget),
+    '📊 Progresso total',
+    formatMoney_(totalCurrent) + ' de ' + formatMoney_(totalTarget),
   ];
   visibleGoals.slice(0, 5).forEach(function(goal) {
     var target = numberFromSheetValue_(goal.valor_alvo);
@@ -2638,27 +3171,26 @@ function formatGoalsAnswer_(rows) {
     var percent = target > 0 ? Math.round((current / target) * 100) : 0;
     var missing = roundMoney_(Math.max(0, target - current));
     lines.push('');
-    lines.push(stringValue_(goal.nome));
-    lines.push('Progresso: ' + formatMoney_(current) + ' / ' + formatMoney_(target) + ' (' + percent + '%)');
-    lines.push('Falta: ' + formatMoney_(missing));
-    if (goal.data_alvo) lines.push('Data alvo: ' + formatShortDate_(goal.data_alvo));
-    lines.push('Aporte mensal planejado: ' + formatMoney_(goal.contribuicao_mensal_planejada));
+    lines.push('• ' + stringValue_(goal.nome) + ' • ' + percent + '%');
+    lines.push('  ' + formatMoney_(current) + ' de ' + formatMoney_(target) + ' • faltam ' + formatMoney_(missing));
+    if (goal.data_alvo) lines.push('  Data-alvo: ' + formatShortDate_(goal.data_alvo));
+    lines.push('  Aporte planejado: ' + formatMoney_(goal.contribuicao_mensal_planejada) + '/mês');
   });
   lines.push('');
-  lines.push('Acao sugerida');
+  lines.push('👉 Prioridade agora');
   lines.push(next
     ? 'Proteger o aporte de ' + formatMoney_(next.contribuicao_mensal_planejada) + ' para ' + stringValue_(next.nome) + ' depois de reservar faturas e compromissos.'
-    : 'Revisar metas privadas individualmente antes de expor decisao compartilhada.');
+    : 'Revisar metas privadas individualmente antes de expor uma decisão compartilhada.');
   lines.push('');
-  lines.push('Nao fazer');
-  lines.push('Nao usar reserva abaixo da meta para acelerar objetivo novo.');
+  lines.push('⛔ Evite agora');
+  lines.push('Não use reserva abaixo da meta para acelerar um objetivo novo.');
   lines.push('');
-  lines.push('Privacidade');
+  lines.push('🔒 Privacidade');
   lines.push(privateCount > 0
     ? privateCount + (privateCount === 1 ? ' meta privada ficou apenas agregada.' : ' metas privadas ficaram apenas agregadas.')
     : 'Sem metas privadas ativas neste resumo.');
   lines.push('');
-  lines.push('Confianca: alta');
+  lines.push('🔎 Leitura determinística • confiança alta');
   return lines.join('\n');
 }
 
@@ -2676,18 +3208,18 @@ function formatCommitmentsAnswer_(rows) {
   });
   if (activeCommitments.length === 0) {
     return [
-      'Compromissos revisados ainda nao configurados',
+      '🔁 Compromissos recorrentes',
       '',
-      'Status',
-      'Nenhum compromisso recorrente revisado ativo foi encontrado.',
+      '📌 Nenhum compromisso revisado ativo',
+      'Ainda não há conta recorrente pronta para entrar nas projeções.',
       '',
-      'Acao sugerida',
-      'Cadastrar compromissos fixos antes de depender deles em recomendacoes.',
+      '👉 Próxima melhor ação',
+      'Cadastre os compromissos fixos que devem proteger o caixa.',
       '',
-      'Nao fazer',
-      'Nao assumir que uma conta recorrente existe se ela nao esta registrada.',
+      '⛔ Proteção',
+      'O Copiloto não presume uma conta recorrente que não está registrada.',
       '',
-      'Confianca: alta',
+      '🔎 Leitura determinística • confiança alta',
     ].join('\n');
   }
   var visible = activeCommitments.filter(function(row) { return row.visibilidade !== 'privada'; }).sort(function(a, b) {
@@ -2709,35 +3241,34 @@ function formatCommitmentsAnswer_(rows) {
   var upcomingAllTotal = upcomingAll.reduce(function(sum, row) { return roundMoney_(sum + numberFromSheetValue_(row.valor_estimado)); }, 0);
   var next = upcomingVisible[0] || visible[0] || null;
   var lines = [
-    'Compromissos recorrentes revisados',
+    '🔁 Compromissos recorrentes',
     '',
-    'Status',
-    next ? 'Proximo compromisso visivel: ' + stringValue_(next.nome) + '.' : 'Compromissos ativos existem, mas estao privados.',
+    next ? '⏰ Próximo: ' + stringValue_(next.nome) : '🔒 Os compromissos ativos são privados',
     '',
-    'Evidencia',
-    'Pressao 30d visivel: ' + formatMoney_(upcomingVisibleTotal),
-    'Pressao 30d registrada: ' + formatMoney_(upcomingAllTotal),
-    'Total mensal visivel: ' + formatMoney_(visibleTotal),
-    'Total mensal registrado: ' + formatMoney_(allTotal),
+    '💰 Pressão dos próximos 30 dias',
+    '• Visível: ' + formatMoney_(upcomingVisibleTotal),
+    '• Total registrado: ' + formatMoney_(upcomingAllTotal),
+    '• Mensal visível: ' + formatMoney_(visibleTotal),
+    '• Mensal registrado: ' + formatMoney_(allTotal),
   ];
   upcomingVisible.slice(0, 8).forEach(function(item) {
-    lines.push(formatShortDate_(item.proximo_vencimento) + ' ' + stringValue_(item.nome) + ': ' + formatMoney_(item.valor_estimado));
+    lines.push('• ' + formatShortDate_(item.proximo_vencimento) + ' • ' + stringValue_(item.nome) + ' • ' + formatMoney_(item.valor_estimado));
   });
   lines.push('');
-  lines.push('Acao sugerida');
+  lines.push('👉 Prioridade agora');
   lines.push(next
-    ? 'Separar ' + formatMoney_(next.valor_estimado) + ' ate ' + formatShortDate_(next.proximo_vencimento) + ' e conferir /agenda antes de gasto novo.'
-    : 'Revisar compromissos privados individualmente antes de expor decisao compartilhada.');
+    ? 'Separe ' + formatMoney_(next.valor_estimado) + ' até ' + formatShortDate_(next.proximo_vencimento) + ' antes de gasto novo.'
+    : 'Revise os compromissos privados individualmente antes de expor uma decisão compartilhada.');
   lines.push('');
-  lines.push('Nao fazer');
-  lines.push('Nao tratar compromisso recorrente como gasto opcional se ele protege obrigacoes da familia.');
+  lines.push('⛔ Evite agora');
+  lines.push('Não trate compromisso recorrente como opcional quando ele protege obrigações da família.');
   lines.push('');
-  lines.push('Privacidade');
+  lines.push('🔒 Privacidade');
   lines.push(privateCount > 0
     ? privateCount + (privateCount === 1 ? ' compromisso privado ficou apenas agregado.' : ' compromissos privados ficaram apenas agregados.')
     : 'Sem compromissos privados ativos neste resumo.');
   lines.push('');
-  lines.push('Confianca: alta');
+  lines.push('🔎 Leitura determinística • confiança alta');
   return lines.join('\n');
 }
 
@@ -2787,12 +3318,12 @@ function formatReserveAnswer_(summary, event) {
     }
     if (match) {
       return [
-        '🏦 Saldo da fonte ' + match.nome + ' em ' + friendlyCompetencia_(summary.competencia),
+        '🏦 Saldo • ' + match.nome,
         '',
         '💰 Detalhamento do saldo',
-        'Inicial: ' + formatMoney_(match.saldo_inicial),
-        'Final: ' + formatMoney_(match.saldo_final),
-        'Disponível: ' + formatMoney_(match.saldo_disponivel),
+        '• Inicial: ' + formatMoney_(match.saldo_inicial),
+        '• Final: ' + formatMoney_(match.saldo_final),
+        '• Disponível: ' + formatMoney_(match.saldo_disponivel),
         '',
         'Base: último saldo registrado para a fonte ' + match.nome + '.',
       ].join('\n');
@@ -2800,13 +3331,13 @@ function formatReserveAnswer_(summary, event) {
   }
 
   return [
-    '🏦 Reserva e liquidez de ' + friendlyCompetencia_(summary.competencia),
+    '🏦 Reserva e liquidez • ' + capitalize_(friendlyCompetencia_(summary.competencia)),
     '',
     '💰 Dinheiro disponível',
-    'Contas: ' + formatMoney_(summary.saldos_fontes_disponivel),
-    'Reserva: ' + formatMoney_(summary.reserva_total),
+    '• Contas: ' + formatMoney_(summary.saldos_fontes_disponivel),
+    '• Reserva: ' + formatMoney_(summary.reserva_total),
     '',
-    '✅ Depois dos pagamentos registrados',
+    summary.margem_pos_obrigacoes >= 0 ? '✅ Depois dos pagamentos registrados' : '🚨 Depois dos pagamentos registrados',
     formatMoney_(summary.margem_pos_obrigacoes),
     '',
     'Base: saldos e caixinhas/cofrinhos cadastrados no bot.',
@@ -2818,7 +3349,7 @@ function friendlyCompetencia_(competencia) {
   var months = {
     '01': 'janeiro',
     '02': 'fevereiro',
-    '03': 'marco',
+    '03': 'março',
     '04': 'abril',
     '05': 'maio',
     '06': 'junho',
@@ -2830,7 +3361,7 @@ function friendlyCompetencia_(competencia) {
     '12': 'dezembro',
   };
   if (/^\d{4}-\d{2}$/.test(text)) return months[text.slice(5, 7)] || text;
-  return text || 'este mes';
+  return text || 'este mês';
 }
 
 function formatShortDate_(value) {
@@ -2842,12 +3373,15 @@ function formatShortDate_(value) {
 function verifyFinancialRuntimeConfig_(config) {
   if (!config.spreadsheetId) return fail_('MISSING_SPREADSHEET_ID', 'spreadsheetId', GENERIC_RECORD_FAILURE);
   if (!config.openAiApiKey) return fail_('MISSING_OPENAI_API_KEY', 'openAiApiKey', GENERIC_RECORD_FAILURE);
-  if (!config.openAiModel) return fail_('MISSING_OPENAI_MODEL', 'openAiModel', GENERIC_RECORD_FAILURE);
+  if (!config.openAiParserModel) return fail_('MISSING_OPENAI_MODEL', 'openAiParserModel', GENERIC_RECORD_FAILURE);
   return { ok: true };
 }
 
-function canonicalizePilotEvent_(event, referenceData) {
+function canonicalizePilotEvent_(event, referenceData, options) {
   event = overrideParserForDeterministicMoneyMovement_(event, referenceData);
+  if (!(options && options.skipDefaultCreditCardPolicy)) {
+    event = enforceDefaultCreditCardPurchasePolicy_(event, referenceData);
+  }
   if (event.tipo_evento === 'despesa') return canonicalizePilotExpenseEvent_(event, referenceData);
   if (event.tipo_evento === 'compra_cartao') return canonicalizePilotCardPurchaseEvent_(event, referenceData);
   if (event.tipo_evento === 'pagamento_fatura') return canonicalizePilotInvoicePaymentEvent_(event, referenceData);
@@ -2861,14 +3395,25 @@ function canonicalizePilotExpenseEvent_(event, referenceData) {
   if (event.tipo_evento !== 'despesa') return event;
   var explicitCategory = inferExplicitCategoryFromText_(event.raw_text || event.descricao, referenceData, 'despesa');
   if (explicitCategory) event.id_categoria = explicitCategory.id_categoria;
+  if (!explicitCategory) {
+    var inferredCategory = inferUnambiguousSpendingCategoryFromText_(event.raw_text || event.descricao, referenceData, 'despesa');
+    if (inferredCategory) event.id_categoria = inferredCategory.id_categoria;
+  }
   var category = categoryForEvent_(referenceData, event.id_categoria, 'despesa');
   if (!category) return event;
+  var eventText = event.raw_text || event.descricao;
+  var explicitCashSource = inferCashSourceFromText_(eventText, referenceData);
+  var requiresNamedCashSource = category.afeta_caixa_familiar_padrao === true &&
+    isExplicitCashPurchaseText_(eventText) && !explicitCashSource;
   var source = ownerPreferredCashSourceFromText_(event, referenceData) ||
-    (event.id_fonte ? sourceForEvent_(referenceData, event.id_fonte) : defaultCashSourceForScope_(referenceData, category.escopo_padrao));
+    (event.id_fonte
+      ? sourceForEvent_(referenceData, event.id_fonte)
+      : (requiresNamedCashSource ? null : (explicitCashSource || defaultCashSourceForScope_(referenceData, category.escopo_padrao))));
   if (!source || source.tipo === 'cartao_credito') return event;
   if (event.id_cartao || event.id_fatura || event.id_divida || event.id_ativo) return event;
   event.id_fonte = source.id_fonte;
   event.escopo = category.escopo_padrao;
+  if (event.escopo === 'Gustavo' || event.escopo === 'Luana') event.pessoa = event.escopo;
   event.visibilidade = effectiveCategoryVisibility_(category);
   event.status = 'efetivado';
   applyCategoryDefaults_(event, category);
@@ -2905,17 +3450,22 @@ function canonicalizePilotCardPurchaseEvent_(event, referenceData) {
   if (event.tipo_evento !== 'compra_cartao') return event;
   var explicitCategory = inferExplicitCategoryFromText_(event.raw_text || event.descricao, referenceData, 'compra_cartao');
   if (explicitCategory) event.id_categoria = explicitCategory.id_categoria;
+  if (!explicitCategory) {
+    var inferredCategory = inferUnambiguousSpendingCategoryFromText_(event.raw_text || event.descricao, referenceData, 'compra_cartao');
+    if (inferredCategory) event.id_categoria = inferredCategory.id_categoria;
+  }
   var category = categoryForEvent_(referenceData, event.id_categoria, 'compra_cartao');
   if (!category) return event;
   var ownerPreferredCard = ownerPreferredCardFromText_(event, referenceData);
   var card = ownerPreferredCard ||
-    (event.id_cartao ? cardForEvent_(referenceData, event.id_cartao) : (inferActiveCardFromText_(event.raw_text || event.descricao, referenceData) || defaultActiveCard_(referenceData)));
+    (event.id_cartao ? cardForEvent_(referenceData, event.id_cartao) : inferActiveCardFromText_(event.raw_text || event.descricao, referenceData));
   if (!card) return event;
   if (event.id_fonte && event.id_fonte !== card.id_fonte && !ownerPreferredCard) return event;
   if (event.id_fatura || event.id_divida || event.id_ativo) return event;
   event.id_fonte = card.id_fonte;
   event.id_cartao = card.id_cartao;
   event.escopo = category.escopo_padrao;
+  if (event.escopo === 'Gustavo' || event.escopo === 'Luana') event.pessoa = event.escopo;
   event.visibilidade = effectiveCategoryVisibility_(category);
   event.status = 'efetivado';
   applyCategoryDefaults_(event, category);
@@ -3392,7 +3942,7 @@ function guidedMissingFieldText_(field, event, referenceData, eventType) {
   var labelByField = {
     categoria: 'Categoria',
     fonte: 'Fonte',
-    cartao: 'Cartao',
+    cartao: 'Cartão',
     fatura: 'Fatura',
   };
   var example = guidedMissingFieldExample_(field, event, referenceData, eventType);
@@ -3402,7 +3952,9 @@ function guidedMissingFieldText_(field, event, referenceData, eventType) {
     '📌 O que falta',
     labelByField[field] || 'Dado faltante',
     '',
-    'Responda reenviando a frase com esse dado.',
+    field === 'cartao'
+      ? 'Responda com o cartão usado. Se saiu direto da conta, diga débito e o nome da conta.'
+      : (field === 'categoria' ? 'Responda apenas com o nome da categoria.' : 'Responda apenas com esse dado.'),
   ];
   if (example) {
     lines.push('');
@@ -3425,8 +3977,7 @@ function guidedMissingFieldExample_(field, event, referenceData, eventType) {
   var card = firstActiveCard_(referenceData);
   if (field === 'categoria') {
     var categoryName = stringValue_(category && category.nome) || 'Mercado da semana';
-    if (eventType === 'compra_cartao') return 'farmacia ' + amount + ' no Nubank categoria ' + categoryName;
-    return 'mercado ' + amount + ' categoria ' + categoryName;
+    return categoryName;
   }
   if (field === 'fonte') {
     var sourceName = stringValue_(source && source.nome) || 'Conta familia';
@@ -3502,10 +4053,10 @@ function categoryClarificationText_(rawText, referenceData, eventType) {
     '⚠️ Não anotei para não chutar categoria.',
     '',
     '📌 O que falta',
-    'Reenvie com a categoria no texto.',
+    'Responda apenas com o nome da categoria.',
     '',
     'Exemplo:',
-    'notebook 3000 em 3x no nubank categoria Eletronicos e equipamentos',
+    'Eletronicos e equipamentos',
   ];
   if (suggestions.length) {
     lines.push('');
@@ -3622,24 +4173,26 @@ function recordedEventText_(event, actionLabel, referenceData, spreadsheet) {
     title,
     '',
     '💵 Lançamento',
-    'Valor: ' + formatMoney_(event.valor),
+    '• Valor: ' + formatMoney_(event.valor),
   ];
-  if (event.data) lines.push('Data: ' + formatShortDate_(event.data));
+  if (event.data) lines.push('• Data: ' + formatShortDate_(event.data));
   var categoryName = friendlyCategoryName_(event.id_categoria, referenceData);
-  if (categoryName) lines.push('Categoria: ' + categoryName);
-  if (event.escopo) lines.push('Escopo: ' + event.escopo);
-  if (event.parcelas && Number(event.parcelas) > 1) lines.push('Parcela estimada: ' + formatMoney_(roundMoney_(event.valor / Number(event.parcelas))));
+  if (categoryName) lines.push('• Categoria: ' + categoryName);
+  if (event.escopo) lines.push('• Escopo: ' + event.escopo);
+  if (event.parcelas && Number(event.parcelas) > 1) lines.push('• Parcela estimada: ' + formatMoney_(roundMoney_(event.valor / Number(event.parcelas))));
   lines.push('');
   lines.push('📌 Impacto');
   var sourceName = friendlySourceName_(event.id_fonte, referenceData);
-  if (sourceName) lines.push('Fonte: ' + sourceName);
+  if (sourceName) lines.push('• Fonte: ' + sourceName);
+  var estimatedBalance = estimatedSourceBalanceAfterEvent_(event, referenceData);
+  if (estimatedBalance !== null) lines.push('• Saldo estimado após: ' + formatMoney_(estimatedBalance));
   var cardName = friendlyCardName_(event.id_cartao, referenceData);
-  if (cardName) lines.push('Cartão: ' + cardName);
-  if (event.id_fatura) lines.push('Fatura: ' + friendlyInvoiceName_(event.id_fatura, referenceData));
+  if (cardName) lines.push('• Cartão: ' + cardName);
+  if (event.id_fatura) lines.push('• Fatura: ' + friendlyInvoiceName_(event.id_fatura, referenceData));
   lines = lines.concat(friendlyImpactLines_(event));
   lines.push('');
   lines.push('🧭 Próximo passo');
-  lines.push('Use /resumo para revisar o mês.');
+  lines.push('Confira o resumo ou corrija este lançamento pelos botões abaixo.');
   var warning = checkCategoryBudgetWarning_(event, referenceData, spreadsheet);
   if (warning) {
     var nextStepIdx = lines.indexOf('🧭 Próximo passo');
@@ -3731,148 +4284,28 @@ function friendlyInvoiceName_(id, referenceData) {
 }
 
 function recordPilotExpense_(update, message, event, config, referenceData) {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  var idempotencySheetForFailure = null;
-  var idempotencyRowNumberForFailure = null;
-  var resultRefForFailure = '';
-  try {
-    var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
-    var request = mutationRequest_(update, message);
-    var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
-    var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
-    var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
-    idempotencySheetForFailure = idempotencySheet;
-    verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
-    verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
-    verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
-
-    var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-    if (existing && existing.status === 'completed') {
-      return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
-    }
-    if (existing && existing.status === 'processing') {
-      return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
-    }
-
-    var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
-    if (!periodCheck.ok) return periodCheck;
-
-    var now = isoNow_();
-    var resultRef = stableId_('LAN', request.idempotency_key + '|' + event.descricao + '|' + event.valor);
-    resultRefForFailure = resultRef;
-    if (existing && existing.rowNumber) {
-      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
-      idempotencyRowNumberForFailure = existing.rowNumber;
-    } else {
-      appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
-        idempotency_key: request.idempotency_key,
-        source: request.source,
-        external_update_id: request.external_update_id,
-        external_message_id: request.external_message_id,
-        chat_id: request.chat_id,
-        payload_hash: request.payload_hash,
-        status: 'processing',
-        result_ref: resultRef,
-        created_at: now,
-        updated_at: now,
-        error_code: '',
-        observacao: '',
-      });
-      existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-      idempotencyRowNumberForFailure = existing && existing.rowNumber;
-    }
-
-    appendRow_(launchSheet, SHEETS.LANCAMENTOS, {
-      id_lancamento: resultRef,
-      data: event.data,
-      competencia: event.competencia,
-      tipo_evento: event.tipo_evento,
-      id_categoria: event.id_categoria,
-      valor: event.valor,
-      id_fonte: event.id_fonte,
-      pessoa: event.pessoa,
-      escopo: event.escopo,
-      id_cartao: '',
-      id_fatura: '',
-      id_divida: '',
-      id_ativo: '',
-      afeta_dre: event.afeta_dre,
-      afeta_patrimonio: event.afeta_patrimonio,
-      afeta_caixa_familiar: event.afeta_caixa_familiar,
-      visibilidade: event.visibilidade,
-      status: event.status,
-      descricao: event.descricao,
-      parcelas: '',
-      created_at: now,
-    });
-    appendIncrementalSourceBalanceSnapshot_(sourceBalanceSheet, event, referenceData, resultRef, now);
-    updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-    return { ok: true, responseText: recordedEventText_(event, 'anotei gasto da familia.', referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
-  } catch (_err) {
-    if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
-      updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
-    }
-    return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
-  } finally {
-    lock.releaseLock();
-  }
+  return recordPilotLaunchWithMutationPlan_(update, message, event, config, referenceData, 'record_expense', 'anotei gasto da família.');
 }
 
 function recordPilotGenericLaunch_(update, message, event, config, referenceData) {
+  return recordPilotLaunchWithMutationPlan_(update, message, event, config, referenceData, 'record_' + event.tipo_evento, actionLabelForGenericLaunch_(event));
+}
+
+function recordPilotLaunchWithMutationPlan_(update, message, event, config, referenceData, operation, actionLabel) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
-  var idempotencySheetForFailure = null;
-  var idempotencyRowNumberForFailure = null;
-  var resultRefForFailure = '';
   try {
     var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
     var request = mutationRequest_(update, message);
-    var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
-    var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
-    var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
-    idempotencySheetForFailure = idempotencySheet;
-    verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
-    verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
-    verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
-
-    var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-    if (existing && existing.status === 'completed') {
-      return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
-    }
-    if (existing && existing.status === 'processing') {
-      return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
-    }
-
     var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
     if (!periodCheck.ok) return periodCheck;
 
     var now = isoNow_();
-    var resultRef = stableId_('LAN', request.idempotency_key + '|' + event.tipo_evento + '|' + event.descricao + '|' + event.valor);
-    resultRefForFailure = resultRef;
-    if (existing && existing.rowNumber) {
-      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
-      idempotencyRowNumberForFailure = existing.rowNumber;
-    } else {
-      appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
-        idempotency_key: request.idempotency_key,
-        source: request.source,
-        external_update_id: request.external_update_id,
-        external_message_id: request.external_message_id,
-        chat_id: request.chat_id,
-        payload_hash: request.payload_hash,
-        status: 'processing',
-        result_ref: resultRef,
-        created_at: now,
-        updated_at: now,
-        error_code: '',
-        observacao: '',
-      });
-      existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-      idempotencyRowNumberForFailure = existing && existing.rowNumber;
-    }
-
-    appendRow_(launchSheet, SHEETS.LANCAMENTOS, {
+    var resultSeed = operation === 'record_expense'
+      ? request.idempotency_key + '|' + event.descricao + '|' + event.valor
+      : request.idempotency_key + '|' + event.tipo_evento + '|' + event.descricao + '|' + event.valor;
+    var resultRef = stableId_('LAN', resultSeed);
+    var launchRow = {
       id_lancamento: resultRef,
       data: event.data,
       competencia: event.competencia,
@@ -3894,22 +4327,83 @@ function recordPilotGenericLaunch_(update, message, event, config, referenceData
       descricao: event.descricao,
       parcelas: '',
       created_at: now,
+    };
+    var writes = [{ sheet: SHEETS.LANCAMENTOS, id_field: 'id_lancamento', id: resultRef, row: launchRow }];
+    var balanceWrite = buildIncrementalSourceBalanceMutationWrite_(spreadsheet, event, referenceData, resultRef, now);
+    if (balanceWrite) writes.push(balanceWrite);
+    var plan = createRuntimeMutationPlan_({
+      operation: operation,
+      idempotency_key: request.idempotency_key,
+      result_ref: resultRef,
+      writes: writes,
+      deletes: [],
     });
-    appendIncrementalSourceBalanceSnapshot_(sourceBalanceSheet, event, referenceData, resultRef, now);
-    updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-    return { ok: true, responseText: recordedEventText_(event, actionLabelForGenericLaunch_(event), referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
+    if (!plan.ok) return plan;
+    var applied = executeRuntimeMutationPlan_(spreadsheet, request, plan);
+    if (!applied.ok) return applied;
+    return {
+      ok: true,
+      status: applied.status,
+      responseText: applied.status === 'duplicate_completed' ? SUCCESS_TEXT : recordedEventText_(event, actionLabel, referenceData, spreadsheet),
+      shouldApplyDomainMutation: applied.shouldApplyDomainMutation,
+      result_ref: resultRef,
+      mutationPlan: mutationPlanPublicView_(plan),
+    };
   } catch (_err) {
-    if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
-      updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
-    }
     return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
   } finally {
     lock.releaseLock();
   }
 }
 
+function buildIncrementalSourceBalanceMutationWrite_(spreadsheet, event, referenceData, resultRef, now) {
+  var delta = cashDeltaForSourceBalance_(event);
+  if (!delta) return null;
+  var source = referenceData && referenceData.sourcesById && referenceData.sourcesById[stringValue_(event.id_fonte)];
+  if (!source || source.ativo === false || source.tipo === 'cartao_credito' || source.tipo === 'beneficio') return null;
+  var snapshotId = stableId_('SNAP', [resultRef, event.id_fonte, event.data, delta].join('|'));
+  var existing = findRuntimeMutationRow_(spreadsheet, SHEETS.SALDOS_FONTES, 'id_snapshot', snapshotId);
+  if (existing) {
+    return { sheet: SHEETS.SALDOS_FONTES, id_field: 'id_snapshot', id: snapshotId, row: existing.row };
+  }
+  var balanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
+  verifySheetHeaders_(balanceSheet, SHEETS.SALDOS_FONTES);
+  var balanceRows = readRowsAsObjects_(balanceSheet, SHEETS.SALDOS_FONTES);
+  var latest = latestSourceBalanceForEvent_(event, balanceRows);
+  if (!latest) return null;
+  var previous = numberFromSheetValue_(latest.saldo_disponivel !== undefined ? latest.saldo_disponivel : latest.saldo_final);
+  var next = roundMoney_(previous + delta);
+  return {
+    sheet: SHEETS.SALDOS_FONTES,
+    id_field: 'id_snapshot',
+    id: snapshotId,
+    row: {
+      id_snapshot: snapshotId,
+      competencia: event.competencia,
+      data_referencia: event.data,
+      id_fonte: event.id_fonte,
+      saldo_inicial: previous,
+      saldo_final: next,
+      saldo_disponivel: next,
+      observacao: 'automatico por lancamento ' + resultRef,
+      created_at: now,
+    },
+  };
+}
+
+function mutationPlanPublicView_(plan) {
+  return {
+    operation_id: plan.operation_id,
+    idempotency_key: plan.idempotency_key,
+    writes: plan.writes,
+    deletes: plan.deletes,
+    postconditions: plan.postconditions,
+    result_ref: plan.result_ref,
+  };
+}
+
 function actionLabelForGenericLaunch_(event) {
-  if (event.tipo_evento === 'divida_pagamento') return 'anotei pagamento de obrigacao.';
+  if (event.tipo_evento === 'divida_pagamento') return 'anotei pagamento de obrigação.';
   if (event.tipo_evento === 'aporte') return 'anotei aporte.';
   if (event.tipo_evento === 'receita') return 'anotei entrada.';
   if (event.tipo_evento === 'ajuste') return 'anotei ajuste revisado.';
@@ -3919,63 +4413,50 @@ function actionLabelForGenericLaunch_(event) {
 function recordPilotCardPurchase_(update, message, event, config, referenceData) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
-  var idempotencySheetForFailure = null;
-  var idempotencyRowNumberForFailure = null;
-  var resultRefForFailure = '';
   try {
     var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
     var request = mutationRequest_(update, message);
-    var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
-    var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
-    var invoiceResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
-    var invoiceLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
-    idempotencySheetForFailure = idempotencySheet;
-    verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
-    verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
-    verifySheetHeaders_(invoiceResumoSheet, SHEETS.FATURAS_RESUMO);
-    verifySheetHeaders_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS);
-
-    var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-    if (existing && existing.status === 'completed') {
-      return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
-    }
-    if (existing && existing.status === 'processing') {
-      return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
-    }
-
     var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
     if (!periodCheck.ok) return periodCheck;
-
     var now = isoNow_();
     var parcelas = event.parcelas || 1;
     var card = referenceData.cardsById[event.id_cartao];
-    var invoice = assignPilotInvoiceCycle_(event.data, card);
-    event.id_fatura = invoice.id_fatura;
+    var firstInvoice = assignPilotInvoiceCycle_(event.data, card);
+    event.id_fatura = firstInvoice.id_fatura;
     var resultRef = stableId_('LAN', request.idempotency_key + '|' + event.descricao + '|' + event.valor + '|card');
-    resultRefForFailure = resultRef;
-    if (existing && existing.rowNumber) {
-      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
-      idempotencyRowNumberForFailure = existing.rowNumber;
-    } else {
-      appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
-        idempotency_key: request.idempotency_key,
-        source: request.source,
-        external_update_id: request.external_update_id,
-        external_message_id: request.external_message_id,
-        chat_id: request.chat_id,
-        payload_hash: request.payload_hash,
-        status: 'processing',
-        result_ref: resultRef,
-        created_at: now,
-        updated_at: now,
-        error_code: '',
-        observacao: '',
-      });
-      existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-      idempotencyRowNumberForFailure = existing && existing.rowNumber;
-    }
+    var writes = buildCardPurchaseMutationWrites_(spreadsheet, event, card, parcelas, resultRef, now);
+    var plan = createRuntimeMutationPlan_({
+      operation: 'record_card_purchase',
+      idempotency_key: request.idempotency_key,
+      result_ref: resultRef,
+      writes: writes,
+      deletes: [],
+    });
+    if (!plan.ok) return plan;
+    var applied = executeRuntimeMutationPlan_(spreadsheet, request, plan);
+    if (!applied.ok) return applied;
+    var responseMsg = parcelas > 1 ? 'anotei compra parcelada (' + parcelas + 'x) no cartão.' : 'anotei compra no cartão.';
+    return {
+      ok: true,
+      status: applied.status,
+      responseText: applied.status === 'duplicate_completed' ? SUCCESS_TEXT : recordedEventText_(event, responseMsg, referenceData, spreadsheet),
+      shouldApplyDomainMutation: applied.shouldApplyDomainMutation,
+      result_ref: resultRef,
+      mutationPlan: mutationPlanPublicView_(plan),
+    };
+  } catch (_err) {
+    return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
+  } finally {
+    lock.releaseLock();
+  }
+}
 
-    appendRow_(launchSheet, SHEETS.LANCAMENTOS, {
+function buildCardPurchaseMutationWrites_(spreadsheet, event, card, parcelas, resultRef, now) {
+  var writes = [{
+    sheet: SHEETS.LANCAMENTOS,
+    id_field: 'id_lancamento',
+    id: resultRef,
+    row: {
       id_lancamento: resultRef,
       data: event.data,
       competencia: event.competencia,
@@ -3997,267 +4478,357 @@ function recordPilotCardPurchase_(update, message, event, config, referenceData)
       descricao: event.descricao,
       parcelas: parcelas > 1 ? parcelas : '',
       created_at: now,
-    });
+    },
+  }];
+  var totalCents = Math.round(event.valor * 100);
+  var baseCents = Math.floor(totalCents / parcelas);
+  var remainderCents = totalCents % parcelas;
+  var firstInvoice = assignPilotInvoiceCycle_(event.data, card);
+  var firstClosingDate = parseIsoDateUtc_(firstInvoice.data_fechamento);
+  var closingDay = numberFromSheetValue_(card.fechamento_dia);
+  var dueDay = numberFromSheetValue_(card.vencimento_dia);
+  var invoicesById = {};
 
-    if (parcelas > 1) {
-      var totalCents = Math.round(event.valor * 100);
-      var baseParcelaCents = Math.floor(totalCents / parcelas);
-      var remainderCents = totalCents % parcelas;
-      var reconciledInstallmentIds = {};
-
-      var firstInvoice = assignPilotInvoiceCycle_(event.data, card);
-      var firstClosingDate = parseIsoDateUtc_(firstInvoice.data_fechamento);
-      var closingDay = numberFromSheetValue_(card.fechamento_dia);
-      var dueDay = numberFromSheetValue_(card.vencimento_dia);
-
-      for (var pi = 0; pi < parcelas; pi += 1) {
-        var installmentInvoice;
-        if (pi === 0) {
-          installmentInvoice = firstInvoice;
-        } else {
-          var nextMonthDate = addUtcMonths_(firstClosingDate, pi);
-          var cDate = buildClampedUtcDate_(nextMonthDate.getUTCFullYear(), nextMonthDate.getUTCMonth(), closingDay);
-          var dueMonth = dueDay > closingDay ? cDate : addUtcMonths_(cDate, 1);
-          var dDate = buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay);
-          var comp = formatUtcCompetencia_(cDate);
-          installmentInvoice = {
-            id_fatura: 'FAT_' + card.id_cartao + '_' + comp.replace('-', '_'),
-            id_cartao: card.id_cartao,
-            competencia: comp,
-            data_fechamento: formatUtcDate_(cDate),
-            data_vencimento: formatUtcDate_(dDate),
-          };
-        }
-        findOrAppendInvoiceHeader_(invoiceResumoSheet, installmentInvoice);
-        var parcelaCents = baseParcelaCents + (pi < remainderCents ? 1 : 0);
-        var valorParcela = roundMoney_(parcelaCents / 100);
-        var id = stableId_('FATL', [installmentInvoice.id_fatura, event.id_cartao, installmentInvoice.competencia, valorParcela, 'compra_cartao', pi, isoNow_()].join('|'));
-        appendRow_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS, {
-          id_linha_fatura: id,
-          id_fatura: installmentInvoice.id_fatura,
-          id_cartao: event.id_cartao,
-          competencia: installmentInvoice.competencia,
-          valor_previsto: valorParcela,
-          status_origem: 'compra_cartao',
-          id_lancamento: resultRef,
-        });
-        reconciledInstallmentIds[installmentInvoice.id_fatura] = true;
-      }
-      var reconciledKeys = Object.keys(reconciledInstallmentIds);
-      for (var ri = 0; ri < reconciledKeys.length; ri += 1) {
-        reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, reconciledKeys[ri]);
-      }
-    } else {
-      findOrAppendInvoiceHeader_(invoiceResumoSheet, invoice);
-      var id = stableId_('FATL', [invoice.id_fatura, event.id_cartao, invoice.competencia, event.valor, 'compra_cartao', 0, isoNow_()].join('|'));
-      appendRow_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS, {
-        id_linha_fatura: id,
+  for (var index = 0; index < parcelas; index += 1) {
+    var invoice = index === 0
+      ? firstInvoice
+      : installmentInvoiceCycle_(firstClosingDate, index, card, closingDay, dueDay);
+    var amount = roundMoney_((baseCents + (index < remainderCents ? 1 : 0)) / 100);
+    var lineId = stableId_('FATL', [resultRef, invoice.id_fatura, index, amount].join('|'));
+    writes.push({
+      sheet: SHEETS.FATURAS_LINHAS,
+      id_field: 'id_linha_fatura',
+      id: lineId,
+      row: {
+        id_linha_fatura: lineId,
         id_fatura: invoice.id_fatura,
         id_cartao: event.id_cartao,
         competencia: invoice.competencia,
-        valor_previsto: event.valor,
+        valor_previsto: amount,
         status_origem: 'compra_cartao',
         id_lancamento: resultRef,
-      });
-      reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, invoice.id_fatura);
-    }
-    updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-    var responseMsg = parcelas > 1 ? 'anotei compra parcelada (' + parcelas + 'x) no cartao.' : 'anotei compra no cartao.';
-    return { ok: true, responseText: recordedEventText_(event, responseMsg, referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
-  } catch (_err) {
-    if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
-      updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
-    }
-    return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
-  } finally {
-    lock.releaseLock();
+      },
+    });
+    invoicesById[invoice.id_fatura] = invoice;
   }
+
+  Object.keys(invoicesById).sort().forEach(function(invoiceId) {
+    writes.push(buildInvoiceSummaryMutationWrite_(spreadsheet, invoicesById[invoiceId], writes));
+  });
+  return writes;
+}
+
+function installmentInvoiceCycle_(firstClosingDate, index, card, closingDay, dueDay) {
+  var nextMonthDate = addUtcMonths_(firstClosingDate, index);
+  var closingDate = buildClampedUtcDate_(nextMonthDate.getUTCFullYear(), nextMonthDate.getUTCMonth(), closingDay);
+  var dueMonth = dueDay > closingDay ? closingDate : addUtcMonths_(closingDate, 1);
+  var dueDate = BFFCore.nextBrazilBankingBusinessDay(buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay));
+  var competencia = formatUtcCompetencia_(closingDate);
+  return {
+    id_fatura: 'FAT_' + card.id_cartao + '_' + competencia.replace('-', '_'),
+    id_cartao: card.id_cartao,
+    competencia: competencia,
+    data_fechamento: formatUtcDate_(closingDate),
+    data_vencimento: formatUtcDate_(dueDate),
+  };
+}
+
+function buildInvoiceSummaryMutationWrite_(spreadsheet, invoice, plannedWrites) {
+  var found = findRuntimeMutationRow_(spreadsheet, SHEETS.FATURAS_RESUMO, 'id_fatura', invoice.id_fatura);
+  var current = found ? mutationPlanRowFromExisting_(SHEETS.FATURAS_RESUMO, found.row) : null;
+  var target = current ? mutationPlanRowFromExisting_(SHEETS.FATURAS_RESUMO, current) : {
+    id_fatura: invoice.id_fatura,
+    id_cartao: invoice.id_cartao,
+    competencia: invoice.competencia,
+    data_fechamento: invoice.data_fechamento,
+    data_vencimento: invoice.data_vencimento,
+    valor_previsto_total: '',
+    valor_fechado: '',
+    valor_pago: '',
+    valor_aberto: '',
+    status: 'prevista',
+    authority_count: 1,
+  };
+  var status = stringValue_(target.status);
+  if (['prevista', 'parcialmente_paga', ''].indexOf(status) !== -1 && numberFromSheetValue_(target.valor_fechado) <= 0) {
+    var lineSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
+    verifySheetHeaders_(lineSheet, SHEETS.FATURAS_LINHAS);
+    var currentLines = readRowsAsObjects_(lineSheet, SHEETS.FATURAS_LINHAS);
+    var amountsById = {};
+    currentLines.forEach(function(line) {
+      if (stringValue_(line.id_fatura) !== invoice.id_fatura || stringValue_(line.status_origem) === 'paga') return;
+      amountsById[stringValue_(line.id_linha_fatura)] = numberFromSheetValue_(line.valor_previsto);
+    });
+    plannedWrites.forEach(function(write) {
+      if (write.sheet !== SHEETS.FATURAS_LINHAS || stringValue_(write.row.id_fatura) !== invoice.id_fatura) return;
+      amountsById[write.id] = numberFromSheetValue_(write.row.valor_previsto);
+    });
+    var total = Object.keys(amountsById).reduce(function(sum, id) { return roundMoney_(sum + amountsById[id]); }, 0);
+    var paid = numberFromSheetValue_(target.valor_pago);
+    target.valor_previsto_total = total;
+    target.valor_aberto = roundMoney_(Math.max(0, total - paid));
+    if (!status) target.status = 'prevista';
+  }
+  return {
+    sheet: SHEETS.FATURAS_RESUMO,
+    id_field: 'id_fatura',
+    id: invoice.id_fatura,
+    row: target,
+    ...(current ? { expected: current } : {}),
+  };
+}
+
+function mutationPlanRowFromExisting_(sheetName, row) {
+  return HEADERS[sheetName].reduce(function(result, header) {
+    var value = row[header];
+    result[header] = Object.prototype.toString.call(value) === '[object Date]' ? formatSheetDate_(value) : value;
+    return result;
+  }, {});
 }
 
 function recordPilotInvoicePayment_(update, message, event, config, referenceData) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
-  var idempotencySheetForFailure = null;
-  var idempotencyRowNumberForFailure = null;
-  var resultRefForFailure = '';
   try {
     var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
     var request = mutationRequest_(update, message);
-    var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
-    var launchSheet = spreadsheet.getSheetByName(SHEETS.LANCAMENTOS);
-    var sourceBalanceSheet = spreadsheet.getSheetByName(SHEETS.SALDOS_FONTES);
-    var invoiceResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
-    var invoiceLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
-    idempotencySheetForFailure = idempotencySheet;
-    verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
-    verifySheetHeaders_(launchSheet, SHEETS.LANCAMENTOS);
-    verifySheetHeaders_(sourceBalanceSheet, SHEETS.SALDOS_FONTES);
-    verifySheetHeaders_(invoiceResumoSheet, SHEETS.FATURAS_RESUMO);
-    verifySheetHeaders_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS);
-
-    var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-    if (existing && existing.status === 'completed') {
-      return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
-    }
-    if (existing && existing.status === 'processing') {
-      return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
-    }
-
     var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
     if (!periodCheck.ok) return periodCheck;
-
-    var invoice = findInvoicePaymentTarget_(invoiceResumoSheet, event.id_fatura);
+    var journal = findIdempotencyJournalEntry_(spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG), request.idempotency_key);
+    var correctionTargetId = stringValue_(message && message.__correction_target_id);
+    var invoice = buildInvoicePaymentMutationTarget_(spreadsheet, event.id_fatura, correctionTargetId);
     if (!invoice.found) return fail_('PILOT_INVOICE_NOT_FOUND', 'id_fatura', GENERIC_RECORD_FAILURE);
-    if (!invoice.payableRows.length) return fail_('PILOT_INVOICE_ALREADY_PAID', 'id_fatura', GENERIC_RECORD_FAILURE);
-    var expectedAmount = invoice.expectedAmount;
+    if (!invoice.payableRows.length && !journal) return fail_('PILOT_INVOICE_ALREADY_PAID', 'id_fatura', GENERIC_RECORD_FAILURE);
+    var expectedAmount = invoice.payableRows.length ? invoice.expectedAmount : event.valor;
     var reconciliationAmount = invoicePaymentReconciliationAmount_(event, expectedAmount);
-    if (reconciliationAmount < 0) {
-      return fail_('PILOT_INVOICE_AMOUNT_MISMATCH', 'valor', GENERIC_RECORD_FAILURE);
-    }
+    if (reconciliationAmount < 0) return fail_('PILOT_INVOICE_AMOUNT_MISMATCH', 'valor', GENERIC_RECORD_FAILURE);
 
     var now = isoNow_();
     var resultRef = stableId_('LAN', request.idempotency_key + '|' + event.id_fatura + '|' + event.valor + '|invoice_payment');
-    resultRefForFailure = resultRef;
-    if (existing && existing.rowNumber) {
-      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
-      idempotencyRowNumberForFailure = existing.rowNumber;
-    } else {
-      appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
-        idempotency_key: request.idempotency_key,
-        source: request.source,
-        external_update_id: request.external_update_id,
-        external_message_id: request.external_message_id,
-        chat_id: request.chat_id,
-        payload_hash: request.payload_hash,
-        status: 'processing',
-        result_ref: resultRef,
+    var writes = [{
+      sheet: SHEETS.LANCAMENTOS,
+      id_field: 'id_lancamento',
+      id: resultRef,
+      row: {
+        id_lancamento: resultRef,
+        data: event.data,
+        competencia: event.competencia,
+        tipo_evento: event.tipo_evento,
+        id_categoria: '',
+        valor: event.valor,
+        id_fonte: event.id_fonte,
+        pessoa: event.pessoa,
+        escopo: event.escopo,
+        id_cartao: '',
+        id_fatura: event.id_fatura,
+        id_divida: '',
+        id_ativo: '',
+        afeta_dre: event.afeta_dre,
+        afeta_patrimonio: event.afeta_patrimonio,
+        afeta_caixa_familiar: event.afeta_caixa_familiar,
+        visibilidade: event.visibilidade,
+        status: event.status,
+        descricao: event.descricao,
+        parcelas: '',
         created_at: now,
-        updated_at: now,
-        error_code: '',
-        observacao: '',
-      });
-      existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-      idempotencyRowNumberForFailure = existing && existing.rowNumber;
-    }
-
-    appendRow_(launchSheet, SHEETS.LANCAMENTOS, {
-      id_lancamento: resultRef,
-      data: event.data,
-      competencia: event.competencia,
-      tipo_evento: event.tipo_evento,
-      id_categoria: '',
-      valor: event.valor,
-      id_fonte: event.id_fonte,
-      pessoa: event.pessoa,
-      escopo: event.escopo,
-      id_cartao: '',
-      id_fatura: event.id_fatura,
-      id_divida: '',
-      id_ativo: '',
-      afeta_dre: event.afeta_dre,
-      afeta_patrimonio: event.afeta_patrimonio,
-      afeta_caixa_familiar: event.afeta_caixa_familiar,
-      visibilidade: event.visibilidade,
-      status: event.status,
-      descricao: event.descricao,
-      parcelas: '',
-      created_at: now,
+      },
+    }];
+    invoice.summaryWrites.forEach(function(write) { writes.push(write); });
+    var paymentMarkerId = stableId_('FATL', [resultRef, event.id_fatura, expectedAmount, 'pagamento'].join('|'));
+    writes.push({
+      sheet: SHEETS.FATURAS_LINHAS,
+      id_field: 'id_linha_fatura',
+      id: paymentMarkerId,
+      row: {
+        id_linha_fatura: paymentMarkerId,
+        id_fatura: invoice.meta.id_fatura,
+        id_cartao: invoice.meta.id_cartao,
+        competencia: invoice.meta.competencia,
+        valor_previsto: expectedAmount,
+        status_origem: 'paga',
+        id_lancamento: resultRef,
+      },
     });
     if (reconciliationAmount > 0) {
-      appendInvoicePaymentReconciliation_(invoiceLinhasSheet, invoice, reconciliationAmount);
+      var lineId = stableId_('FATL', [resultRef, event.id_fatura, reconciliationAmount, 'ajuste_pagamento'].join('|'));
+      writes.push({
+        sheet: SHEETS.FATURAS_LINHAS,
+        id_field: 'id_linha_fatura',
+        id: lineId,
+        row: {
+          id_linha_fatura: lineId,
+          id_fatura: invoice.meta.id_fatura,
+          id_cartao: invoice.meta.id_cartao,
+          competencia: invoice.meta.competencia,
+          valor_previsto: reconciliationAmount,
+          status_origem: 'fatura_prevista',
+          id_lancamento: resultRef,
+        },
+      });
     }
-    appendIncrementalSourceBalanceSnapshot_(sourceBalanceSheet, event, referenceData, resultRef, now);
-    updateInvoicePayments_(invoiceResumoSheet, invoice.payableRows, 'paga');
-    updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-    return { ok: true, responseText: recordedEventText_(event, 'anotei pagamento da fatura.', referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
+    var balanceWrite = buildIncrementalSourceBalanceMutationWrite_(spreadsheet, event, referenceData, resultRef, now);
+    if (balanceWrite) writes.push(balanceWrite);
+    var plan = createRuntimeMutationPlan_({
+      operation: 'record_invoice_payment',
+      idempotency_key: request.idempotency_key,
+      result_ref: resultRef,
+      writes: writes,
+      deletes: [],
+    });
+    if (!plan.ok) return plan;
+    var applied = executeRuntimeMutationPlan_(spreadsheet, request, plan);
+    if (!applied.ok) return applied;
+    return {
+      ok: true,
+      status: applied.status,
+      responseText: applied.status === 'duplicate_completed' ? SUCCESS_TEXT : recordedEventText_(event, 'anotei pagamento da fatura.', referenceData, spreadsheet),
+      shouldApplyDomainMutation: applied.shouldApplyDomainMutation,
+      result_ref: resultRef,
+      mutationPlan: mutationPlanPublicView_(plan),
+    };
   } catch (_err) {
-    if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
-      updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
-    }
     return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
   } finally {
     lock.releaseLock();
   }
 }
 
+function buildInvoicePaymentMutationTarget_(spreadsheet, invoiceId, correctionTargetId) {
+  var sheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
+  verifySheetHeaders_(sheet, SHEETS.FATURAS_RESUMO);
+  var headers = HEADERS[SHEETS.FATURAS_RESUMO];
+  var rows = sheet.getLastRow() >= 2 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues() : [];
+  var correction = correctionTargetId ? findInvoicePaymentCorrectionMarker_(spreadsheet, correctionTargetId, invoiceId) : null;
+  var correctionAmountRemaining = correction ? correction.amount : 0;
+  var result = { found: false, payableRows: [], expectedAmount: 0, meta: null, summaryWrites: [], correction: correction };
+  for (var index = 0; index < rows.length; index += 1) {
+    var current = mutationPlanRowFromExisting_(SHEETS.FATURAS_RESUMO, rowToObject_(headers, rows[index]));
+    if (stringValue_(current.id_fatura) !== invoiceId) continue;
+    result.found = true;
+    if (!result.meta) {
+      result.meta = {
+        id_fatura: stringValue_(current.id_fatura),
+        id_cartao: stringValue_(current.id_cartao),
+        competencia: normalizeSheetCompetencia_(current.competencia),
+      };
+    }
+    var status = stringValue_(current.status);
+    var virtualPaid = numberFromSheetValue_(current.valor_pago);
+    if (correctionAmountRemaining > 0) {
+      var restoredAmount = Math.min(virtualPaid, correctionAmountRemaining);
+      virtualPaid = roundMoney_(virtualPaid - restoredAmount);
+      correctionAmountRemaining = roundMoney_(correctionAmountRemaining - restoredAmount);
+    }
+    var invoiceTotal = numberFromSheetValue_(current.valor_fechado) > 0
+      ? numberFromSheetValue_(current.valor_fechado)
+      : numberFromSheetValue_(current.valor_previsto_total);
+    var openAmount = correction
+      ? roundMoney_(Math.max(0, invoiceTotal - virtualPaid))
+      : numberFromSheetValue_(current.valor_aberto);
+    if (correction) {
+      status = openAmount <= 0
+        ? 'paga'
+        : (virtualPaid > 0 ? 'parcialmente_paga' : (numberFromSheetValue_(current.valor_fechado) > 0 ? 'fechada' : 'prevista'));
+    }
+    var payable = ['prevista', 'fechada', 'parcialmente_paga'].indexOf(status) !== -1 && openAmount > 0;
+    var target = mutationPlanRowFromExisting_(SHEETS.FATURAS_RESUMO, current);
+    if (payable) {
+      result.expectedAmount = roundMoney_(result.expectedAmount + openAmount);
+      result.payableRows.push(index + 2);
+      target.valor_pago = roundMoney_(virtualPaid + openAmount);
+      target.valor_aberto = 0;
+      target.status = 'paga';
+    }
+    var rowId = String(index + 2);
+    target.__row_number = rowId;
+    current.__row_number = rowId;
+    result.summaryWrites.push({
+      sheet: SHEETS.FATURAS_RESUMO,
+      id_field: '__row_number',
+      id: rowId,
+      row: target,
+      expected: current,
+    });
+  }
+  return result;
+}
+
+function findInvoicePaymentCorrectionMarker_(spreadsheet, targetId, invoiceId) {
+  var launch = findRuntimeMutationRow_(spreadsheet, SHEETS.LANCAMENTOS, 'id_lancamento', targetId);
+  if (!launch || stringValue_(launch.row.tipo_evento) !== 'pagamento_fatura' || stringValue_(launch.row.id_fatura) !== stringValue_(invoiceId)) return null;
+  var lineSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
+  verifySheetHeaders_(lineSheet, SHEETS.FATURAS_LINHAS);
+  var lines = readRowsAsObjects_(lineSheet, SHEETS.FATURAS_LINHAS);
+  var amount = 0;
+  var markerCount = 0;
+  var hasReconciliation = false;
+  lines.forEach(function(line) {
+    if (stringValue_(line.id_lancamento) !== stringValue_(targetId)) return;
+    if (stringValue_(line.status_origem) === 'paga') {
+      amount = roundMoney_(amount + numberFromSheetValue_(line.valor_previsto));
+      markerCount += 1;
+    } else if (stringValue_(line.status_origem) === 'fatura_prevista') {
+      hasReconciliation = true;
+    }
+  });
+  if (markerCount !== 1 || amount <= 0 || hasReconciliation) return null;
+  return { amount: amount, id_lancamento: targetId };
+}
+
 function recordPilotInvoiceExposure_(update, message, event, config, referenceData) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
-  var idempotencySheetForFailure = null;
-  var idempotencyRowNumberForFailure = null;
-  var resultRefForFailure = '';
   try {
     var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
     var request = mutationRequest_(update, message);
-    var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
-    var invoiceResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
-    var invoiceLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
-    idempotencySheetForFailure = idempotencySheet;
-    verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
-    verifySheetHeaders_(invoiceResumoSheet, SHEETS.FATURAS_RESUMO);
-    verifySheetHeaders_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS);
-
-    var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-    if (existing && existing.status === 'completed') {
-      return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
-    }
-    if (existing && existing.status === 'processing') {
-      return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
-    }
-
     var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
     if (!periodCheck.ok) return periodCheck;
-
     var now = isoNow_();
     var card = referenceData.cardsById[event.id_cartao];
-    var invoiceCycle = invoiceCycleForCompetencia_(event.competencia, card);
+    var cycle = invoiceCycleForCompetencia_(event.competencia, card);
+    var invoice = {
+      id_fatura: event.id_fatura,
+      id_cartao: event.id_cartao,
+      competencia: event.competencia,
+      data_fechamento: cycle.data_fechamento,
+      data_vencimento: cycle.data_vencimento,
+    };
     var resultRef = stableId_('FAT', request.idempotency_key + '|' + event.id_fatura + '|' + event.valor + '|invoice_exposure');
-    resultRefForFailure = resultRef;
-    if (existing && existing.rowNumber) {
-      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
-      idempotencyRowNumberForFailure = existing.rowNumber;
-    } else {
-      appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
-        idempotency_key: request.idempotency_key,
-        source: request.source,
-        external_update_id: request.external_update_id,
-        external_message_id: request.external_message_id,
-        chat_id: request.chat_id,
-        payload_hash: request.payload_hash,
-        status: 'processing',
-        result_ref: resultRef,
-        created_at: now,
-        updated_at: now,
-        error_code: '',
-        observacao: '',
-      });
-      existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-      idempotencyRowNumberForFailure = existing && existing.rowNumber;
-    }
-
-    findOrAppendInvoiceHeader_(invoiceResumoSheet, {
-      id_fatura: event.id_fatura,
-      id_cartao: event.id_cartao,
-      competencia: event.competencia,
-      data_fechamento: invoiceCycle.data_fechamento,
-      data_vencimento: invoiceCycle.data_vencimento,
+    var lineId = stableId_('FATL', [resultRef, event.id_fatura, event.valor, 'fatura_prevista'].join('|'));
+    var writes = [{
+      sheet: SHEETS.FATURAS_LINHAS,
+      id_field: 'id_linha_fatura',
+      id: lineId,
+      row: {
+        id_linha_fatura: lineId,
+        id_fatura: event.id_fatura,
+        id_cartao: event.id_cartao,
+        competencia: event.competencia,
+        valor_previsto: event.valor,
+        status_origem: 'fatura_prevista',
+        id_lancamento: '',
+      },
+    }];
+    writes.push(buildInvoiceSummaryMutationWrite_(spreadsheet, invoice, writes));
+    var plan = createRuntimeMutationPlan_({
+      operation: 'record_invoice_exposure',
+      idempotency_key: request.idempotency_key,
+      result_ref: resultRef,
+      writes: writes,
+      deletes: [],
     });
-    var id = stableId_('FATL', [event.id_fatura, event.id_cartao, event.competencia, event.valor, 'fatura_prevista', isoNow_()].join('|'));
-    appendRow_(invoiceLinhasSheet, SHEETS.FATURAS_LINHAS, {
-      id_linha_fatura: id,
-      id_fatura: event.id_fatura,
-      id_cartao: event.id_cartao,
-      competencia: event.competencia,
-      valor_previsto: event.valor,
-      status_origem: 'fatura_prevista',
-    });
-    reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, event.id_fatura);
-    updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-    return { ok: true, responseText: SUCCESS_TEXT, shouldApplyDomainMutation: true, result_ref: resultRef };
+    if (!plan.ok) return plan;
+    var applied = executeRuntimeMutationPlan_(spreadsheet, request, plan);
+    if (!applied.ok) return applied;
+    return {
+      ok: true,
+      status: applied.status,
+      responseText: SUCCESS_TEXT,
+      shouldApplyDomainMutation: applied.shouldApplyDomainMutation,
+      result_ref: resultRef,
+      mutationPlan: mutationPlanPublicView_(plan),
+    };
   } catch (_err) {
-    if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
-      updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
-    }
     return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
   } finally {
     lock.releaseLock();
@@ -4267,26 +4838,9 @@ function recordPilotInvoiceExposure_(update, message, event, config, referenceDa
 function recordPilotInternalTransfer_(update, message, event, config, referenceData) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
-  var idempotencySheetForFailure = null;
-  var idempotencyRowNumberForFailure = null;
-  var resultRefForFailure = '';
   try {
     var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
     var request = mutationRequest_(update, message);
-    var idempotencySheet = spreadsheet.getSheetByName(SHEETS.IDEMPOTENCY_LOG);
-    var transferSheet = spreadsheet.getSheetByName(SHEETS.TRANSFERENCIAS_INTERNAS);
-    idempotencySheetForFailure = idempotencySheet;
-    verifySheetHeaders_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG);
-    verifySheetHeaders_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS);
-
-    var existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-    if (existing && existing.status === 'completed') {
-      return { ok: true, status: 'duplicate_completed', responseText: SUCCESS_TEXT, shouldApplyDomainMutation: false, result_ref: existing.result_ref || '' };
-    }
-    if (existing && existing.status === 'processing') {
-      return fail_('DUPLICATE_PROCESSING', 'idempotency', GENERIC_RECORD_FAILURE);
-    }
-
     var periodCheck = validateOpenPeriodForMutation_(spreadsheet, event);
     if (!periodCheck.ok) return periodCheck;
 
@@ -4294,50 +4848,44 @@ function recordPilotInternalTransfer_(update, message, event, config, referenceD
     var transferSources = resolveInternalTransferSources_(event, referenceData);
     if (!transferSources.ok) return transferSources;
     var resultRef = stableId_('TRF', request.idempotency_key + '|' + event.pessoa + '|' + event.valor + '|family_cash_entry');
-    resultRefForFailure = resultRef;
-    if (existing && existing.rowNumber) {
-      updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'processing', resultRef, now, '');
-      idempotencyRowNumberForFailure = existing.rowNumber;
-    } else {
-      appendRow_(idempotencySheet, SHEETS.IDEMPOTENCY_LOG, {
-        idempotency_key: request.idempotency_key,
-        source: request.source,
-        external_update_id: request.external_update_id,
-        external_message_id: request.external_message_id,
-        chat_id: request.chat_id,
-        payload_hash: request.payload_hash,
-        status: 'processing',
-        result_ref: resultRef,
-        created_at: now,
-        updated_at: now,
-        error_code: '',
-        observacao: '',
-      });
-      existing = findIdempotencyRow_(idempotencySheet, request.idempotency_key);
-      idempotencyRowNumberForFailure = existing && existing.rowNumber;
-    }
-
-    appendRow_(transferSheet, SHEETS.TRANSFERENCIAS_INTERNAS, {
-      id_transferencia: resultRef,
-      data: event.data,
-      competencia: event.competencia,
-      valor: event.valor,
-      fonte_origem: transferSources.fonte_origem,
-      fonte_destino: transferSources.fonte_destino,
-      pessoa_origem: transferSources.pessoa_origem || event.pessoa,
-      pessoa_destino: transferSources.pessoa_destino || 'Familiar',
-      escopo: event.escopo,
-      direcao_caixa_familiar: event.direcao_caixa_familiar,
-      descricao: event.descricao,
-      created_at: now,
+    var plan = createRuntimeMutationPlan_({
+      operation: 'record_internal_transfer',
+      idempotency_key: request.idempotency_key,
+      result_ref: resultRef,
+      writes: [{
+        sheet: SHEETS.TRANSFERENCIAS_INTERNAS,
+        id_field: 'id_transferencia',
+        id: resultRef,
+        row: {
+          id_transferencia: resultRef,
+          data: event.data,
+          competencia: event.competencia,
+          valor: event.valor,
+          fonte_origem: transferSources.fonte_origem,
+          fonte_destino: transferSources.fonte_destino,
+          pessoa_origem: transferSources.pessoa_origem || event.pessoa,
+          pessoa_destino: transferSources.pessoa_destino || 'Familiar',
+          escopo: event.escopo,
+          direcao_caixa_familiar: event.direcao_caixa_familiar,
+          descricao: event.descricao,
+          created_at: now,
+        },
+      }],
+      deletes: [],
     });
-    updateIdempotencyStatus_(idempotencySheet, existing.rowNumber, 'completed', resultRef, now, '');
-    var actionLabel = event.direcao_caixa_familiar === 'interna' ? 'anotei movimentacao interna.' : 'anotei transferencia para a familia.';
-    return { ok: true, responseText: recordedEventText_(event, actionLabel, referenceData, spreadsheet), shouldApplyDomainMutation: true, result_ref: resultRef };
+    if (!plan.ok) return plan;
+    var applied = executeRuntimeMutationPlan_(spreadsheet, request, plan);
+    if (!applied.ok) return applied;
+    var actionLabel = event.direcao_caixa_familiar === 'interna' ? 'anotei movimentação interna.' : 'anotei transferência para a família.';
+    return {
+      ok: true,
+      status: applied.status,
+      responseText: applied.status === 'duplicate_completed' ? SUCCESS_TEXT : recordedEventText_(event, actionLabel, referenceData, spreadsheet),
+      shouldApplyDomainMutation: applied.shouldApplyDomainMutation,
+      result_ref: resultRef,
+      mutationPlan: mutationPlanPublicView_(plan),
+    };
   } catch (_err) {
-    if (idempotencySheetForFailure && idempotencyRowNumberForFailure) {
-      updateIdempotencyStatus_(idempotencySheetForFailure, idempotencyRowNumberForFailure, 'failed', resultRefForFailure, isoNow_(), 'REAL_WRITE_FAILED');
-    }
     return fail_('REAL_WRITE_FAILED', 'spreadsheet', GENERIC_RECORD_FAILURE);
   } finally {
     lock.releaseLock();
@@ -4354,7 +4902,7 @@ function assignPilotInvoiceCycle_(purchaseDateValue, card) {
   var closingDay = numberFromSheetValue_(card.fechamento_dia);
   var dueDay = numberFromSheetValue_(card.vencimento_dia);
   var dueMonth = dueDay > closingDay ? closingDate : addUtcMonths_(closingDate, 1);
-  var dueDate = buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay);
+  var dueDate = BFFCore.nextBrazilBankingBusinessDay(buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay));
   var competencia = formatUtcCompetencia_(closingDate);
   return {
     id_fatura: 'FAT_' + card.id_cartao + '_' + competencia.replace('-', '_'),
@@ -4374,7 +4922,7 @@ function invoiceCycleForCompetencia_(competencia, card) {
   var dueDay = numberFromSheetValue_(card.vencimento_dia);
   var closingDate = buildClampedUtcDate_(year, monthIndex, closingDay);
   var dueMonth = dueDay > closingDay ? closingDate : addUtcMonths_(closingDate, 1);
-  var dueDate = buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay);
+  var dueDate = BFFCore.nextBrazilBankingBusinessDay(buildClampedUtcDate_(dueMonth.getUTCFullYear(), dueMonth.getUTCMonth(), dueDay));
   return {
     data_fechamento: formatUtcDate_(closingDate),
     data_vencimento: formatUtcDate_(dueDate),

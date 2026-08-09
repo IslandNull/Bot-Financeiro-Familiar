@@ -6,3 +6,9 @@ dist/
 *.log
 .agent/
 private/
+apps-script/generated-core.js
+
+# Private financial inputs supplied for local review only.
+docs/*.csv
+docs/*.ofx
+docs/Photos-*.zip

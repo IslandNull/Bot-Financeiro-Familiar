@@ -1,98 +1,90 @@
 # EXECUTION_PLAN.md
 
-Operational authority for Bot Financeiro Familiar V55/V56.
+Operational authority for Bot Financeiro Familiar V56.
 
-### Current State (2026-06-07)
+## Current State (2026-08-09)
 
-### Verified
+### VERIFIED locally
 
-- V55 domain is Caixa Familiar Integrado: family cash, DRE, net worth, obligations, surplus, and suggested destination. No person-to-person settlement.
-- Live local contracts are in `src/`, deterministic tests in `test/`, Apps Script runtime in `apps-script/`, and Val Town proxy in `val-town/telegram-proxy.ts`.
-- Apps Script handles `doPost`, `doGet`, webhook secret, authorization, `/help`, `/resumo`, `/agenda`, `/revisar_mes`, closing actions, sheet auditing, config-driven validation, and mutation paths.
-- Deployed runtime covers expense, card purchase, invoice payment, invoice forecast exposure, internal transfer, receita, aporte, divida_pagamento, ajuste, balances, assets/reserve updates, summary, snapshot, selftest, and closing draft/close.
-- Runtime validation reads active categories, sources, cards, payable invoices, assets, debts, source balances, and closed family closings from Sheets.
-- April 2026 was rebuilt and closed from reviewed local source material. April corrections must now be explicit `ajuste`; historical JSONL import is retired.
-- Historical repair/setup/import actions are not live runtime. See `docs/archive/HISTORICAL_REPAIR_ACTIONS.md`.
-- Live schema authority is `SHEET_SCHEMA.md`. Manual owner check on 2026-05-23 confirmed the real spreadsheet no longer has backup sheets or retired `Telegram_Send_Log`.
-- `/resumo` uses informed source balances plus reserve/liquidity assets to evaluate current invoice and obligation coverage, then points to actionable next commands.
-- Parser and deterministic overrides protect strict dates/money, payable invoices, partial invoice payment, closed periods, benefit conversion, own-source transfers, explicit invoice payments, card/account disambiguation, and category confirmation.
-- Telegram runtime keeps a short persistent conversation state in Script Properties per chat: last 5 user-bot conversation turns (10 messages total) plus one pending intent for guided source/card/invoice completion to support context reference resolution like "essa fatura" or "nesse cartão".
-- Read-only views keep private personal detail aggregate-only in shared reports.
-- Current real closing state in snapshot: 2026-04 closed; 2026-05 open with May usage in progress.
-- Current schema/runtime use split invoice sheets: `Faturas_Resumo` for invoice authority/summary and `Faturas_Linhas` for purchase/installment exposure.
-- Snapshot generated on 2026-06-12 reports 15 real sheets, all live/optional schema headers matching, 2026-04 closed, and 2026-05 open with May usage in progress.
-- Historical invoice migration planning/apply helpers are no longer live runtime actions or local scripts. Future invoice corrections must use current runtime paths or explicit reviewed adjustments.
-- Remote `sheet:audit` after spreadsheet cleanup and debt-reference repair reports 0 errors and 0 warnings.
-- Budget/envelope runtime is deployed: `/orcamento` reads active category limits, ranks categories at/over risk, keeps private detail aggregate-only, starts accumulation at 2026-05, caps accumulating rollover at two monthly limits, and clamps negative carry debt to zero.
-- Delivery/iFood/restaurant couple spending is consolidated under `OPEX_ALIMENTACAO_FORA`; `OPEX_DELIVERY_FAMILIAR` is inactive in the real config snapshot.
-- Individual categories are active for `OPEX_ROUPAS_GUSTAVO`, `OPEX_ROUPAS_LUANA`, `OPEX_CAFE_TRABALHO_GUSTAVO`, and `OPEX_CAFE_TRABALHO_LUANA`.
-- Snapshot generated on 2026-05-24 reports `OPEX_ALIMENTACAO_FORA` with May spending, including private food-out detail aggregated instead of exposed.
-- Telegram inline UX revamp is deployed: webhook setup accepts `callback_query`, Apps Script returns `telegramActions`, Val Town proxy supports callback actions, Home/Help/read-only buttons, guided missing-field buttons, guided correction, and closing confirmations.
-- First deterministic family financial health layer exists in Apps Script reporting: savings rate, cost-of-life buckets, monthly saving goal, investment blockers, saving opportunities, and `/revisar_mes` closing decision guidance with private spending kept aggregate-only.
-- V56 product direction is documented in `docs/COPILOTO_FINANCEIRO_V56_PLAN.md`: Telegram-first financial copilot, deterministic insight engine, IA as explanation layer only, weekly digest plus high-signal alerts, and no automatic banking integration in v1.
-- V56 Phase 1 copilot core is deployed: deterministic `src/copilot-insights.js`, Apps Script `/copiloto`, and Telegram callback `act:copilot_today`.
-- Safe-to-spend answers now use V56 decision-card language and a conservative spendable amount that does not treat reserve below target as free spending.
-- `/onde_cortar`, Telegram callback `act:cut_first`, and remote preview `doGet?action=cut_first` expose the first deterministic saving opportunity without mutating Sheets or opening private line items.
-- `/gasto_seguro`, Telegram callback `act:safe_to_spend`, and remote preview `doGet?action=safe_to_spend` expose the same conservative safe-to-spend decision card without mutating Sheets.
-- `/agenda` and Telegram callback `act:agenda_current` expose next due invoice or reviewed recurring commitment, 60-day payment evidence, suggested action, avoid rule, and confidence without mutating Sheets.
-- `/revisar_mes` and Telegram callback `act:review_month_current` expose closing decision, blockers, suggested action, avoid rule, confidence, and aggregate-only private review without mutating Sheets.
-- V56 goals/commitments are deployed as optional reviewed read-only contracts: `/metas`, `/compromissos`, callbacks, `goals_preview`, `commitments_preview`, `optional_v56_template`, and `sheet_audit` coverage work with real `Metas_Financeiras` / `Compromissos_Recorrentes`; views use active `status_revisao=revisado` rows, show goal progress and upcoming 30-day recurring pressure, keep private rows aggregate-only, and `/resumo`/`/agenda` include reviewed recurring commitment pressure when rows exist. The real goals sheet has the reviewed R$15,000 emergency reserve goal with R$14,529.93 current value; the real commitments sheet has the reviewed R$90 parking commitment due on day 06 from Mercado Pago Gustavo.
-- V56 weekly digest preview is available as `doGet?action=copilot_digest_preview` / `npm run digest:preview`; it returns structured digest payload plus Telegram-ready text and never sends Telegram messages.
-- Gated V56 weekly digest delivery is available as trigger-safe `runCopilotWeeklyDigestDeliveryV56` / `doGet?action=copilot_digest_send` / `npm run digest:send`; it sends only when `COPILOT_DIGEST_ENABLED=YES`.
-- Optional IA narrator is deployed behind `COPILOT_NARRATOR_ENABLED=YES`; it uses OpenAI structured output only over deterministic insight payloads, rejects invented numbers/internal IDs, and falls back to deterministic text.
-- Web App deployment `@234` is authorized; remote quick smoke passes for `selftest` + `summary`, optional goals/commitments/template previews are read-only, and `sheet:audit` reports 0 errors and 0 warnings.
-- The inactive-category audit warning was cleaned on 2026-06-03 by updating exactly 1 `Lancamentos.id_categoria` from `OPEX_VESTUARIO_LUANA` to active replacement `OPEX_ROUPAS_LUANA`; remote `sheet:audit` now reports 0 errors and 0 warnings.
-- Real optional V56 sheets were migrated on 2026-06-03 by creating `Metas_Financeiras` and `Compromissos_Recorrentes` with schema headers only; `schema_upgrade_dry_run` is now idempotent and reports `no_change`.
-- Active category IDs no longer use `_DINHEIRO`; the former cash-like buckets are now `_AVULSO`, and real `Lancamentos` references were migrated with `sheet:audit` clean.
+- Domain remains Caixa Familiar Integrado: family cash, solvency, net worth, obligations, reserve and destination of surplus. No settlement between Gustavo and Luana.
+- Telegram commands and callbacks remain compatible; new read-only commands are `/pendencias`, `/importar` and `/pendencias_importacao`.
+- Val Town ingress accepts only signed `POST application/json`, enforces 1 MB, validates user plus chat before preflight/external fetches and forwards the secret only by header.
+- CI runs `npm run check`; Val Town deploy workflow uses pinned `vt` after merge to `main` and requires GitHub secret `VAL_TOWN_API_KEY` plus variable `VAL_TOWN_VAL`.
+- `npm run build:gas` bundles the pure `src/` core into ignored `apps-script/generated-core.js`; `clasp` includes the generated runtime.
+- Runtime writes use a deterministic `MutationPlan`, journal `processing -> completed/failed`, ID upserts, conflict blocking and retry reconciliation under one `LockService` operation.
+- Expense, generic launch, transfer, card purchase/installments, invoice exposure/payment, balances, assets, corrections and statement imports are covered by executable failure/retry tests.
+- Corrections validate the replacement first, keep closed periods blocked, journal replacement/deletions and physically remove the original and dependent invoice lines. A selected correction also accepts `excluir`, but only an explicit second confirmation executes the journaled deletion and invoice reconciliation.
+- OpenAI parser and optional narrator use `gpt-5.6-luna` with Responses `json_schema`, `strict: true`, `store: false` and explicit `reasoning.effort=none`; role-specific properties still override through `OPENAI_PARSER_MODEL` and `OPENAI_NARRATOR_MODEL`, with legacy `OPENAI_MODEL` compatibility.
+- Deterministic pending-attention blocks safe spending, investment and amortization when any active cash source lacks a balance, a balance is older than 7 days, or an upcoming invoice lacks authority.
+- Weekly digest deduplicates by chat, ISO week and content hash; trigger setup is idempotent for Monday 08:00 `America/Sao_Paulo`.
+- High-signal budget alerts use preview-only 85%/100% thresholds; immediate delivery stays disabled.
+- Telegram import accepts synthetic-tested OFX 1.x/2.x and CSV UTF-8/Windows-1252 up to 5 MB and 200 transactions, re-downloads on confirmation, checks hash/token/expiry and never persists the raw file.
+- Only active reviewed deterministic import rules can enter a batch. AI suggestions use strict/store-false output and require individual Telegram confirmation before saving a reviewed rule.
+- Purpose-based spending categories are compatible with both account expenses and card purchases; import-rule suggestions no longer require duplicate categories by payment medium.
+- Optional `Regras_Importacao` schema and idempotent header migration are implemented with audit coverage.
+- Nominal card due dates advance through weekends and Brazilian national banking holidays; authoritative invoice dates still prevail.
+- Telegram UX uses a compact home plus secondary menu, scannable emoji decision cards, contextual inline actions, immediate processing feedback, chunked long replies, guided `/configurar` onboarding and explicit previews for high-risk or recently duplicated events.
+- Telegram copy prioritizes situation, evidence, one next action and one guardrail; the edge adds safe HTML hierarchy only after escaping dynamic text.
+- V56 conversational reads are implemented behind `COPILOT_ANALYST_ENABLED=YES`: strict `AnalysisPlan`, one `FinancialSnapshot`, six deterministic investigations, validated `EvidencePacket` answers and deterministic fallback. Commands and writes keep their existing parser/`MutationPlan` authority.
+- Structured conversation context is isolated by chat/user for 24 hours; persisted message text is value-sanitized. `TELEGRAM_PERSON_MAP` is required to resolve personal pronouns without guessing.
+- House-work commitment computes DRE purchases/expenses excluding invoice payment and reports both effective and planned-income ratios, blocking incomplete bases. “Salário caiu” investigates declaration/reconciliation without creating income.
+- Val Town proxy now acknowledges Telegram immediately and invokes an authenticated internal worker; Apps Script caches sanitized results by `update_id` without Sheet rows. Versioned edge activation still waits for the normal main-branch workflow.
+- One natural monthly message can schedule net salary and separate extra income atomically with explicit date/account; it is final without a later receipt confirmation.
+- Natural purchases default to credit card; an omitted card creates a resumable 24-hour pending intent. Explicit Pix/transfer/cash/debit/boleto/account wording keeps the cash-source path, and a debit/account follow-up converts an existing card question without losing the preserved purchase fields.
+- Monthly income uses deterministic private scheduled launches, supersedes that person's recurring templates for the competence and reconciles against a destination-account balance dated on/after receipt to prevent double counting.
+- Copilot and summary show confirmed monthly income, separate extra-income guidance and accurate “considered vs reconciled” wording; employer bank and portability are outside the model.
 
-### Unverified
+### Remote rollout state
 
-- Full production readiness beyond owner pilot usage.
-- UX readiness with Luana using real Telegram messages after Gustavo pilot of the new inline buttons.
-- Long-term budget limit tuning beyond the initial pilot limits.
+- VERIFIED: `.env` URL and deployment ID align; Apps Script reports anonymous web-app access and runtime version 259 is published.
+- VERIFIED: anonymous Apps Script HTTP execution recovered on 2026-08-09; quick smoke passed before the migration publish and again on runtime 254.
+- VERIFIED: runtime 254 contains the flagged conversational analyst. Its protected synthetic two-call smoke returned `read`, deterministic evidence, valid answer, `store=false` and zero mutation using `gpt-5.6-luna`.
+- VERIFIED: runtime 256 defaults natural purchases to credit card, retains missing fields for 24 hours, accepts card/category-only follow-ups and deterministically resolves a single clear purpose such as drain/renovation material to house maintenance; quick smoke and the protected parser self-test passed after publish.
+- VERIFIED: runtime 257 separates card ownership from the purchase beneficiary; `lazer Luana` on Gustavo's card resolves to the active private `Lazer Luana` category, while family/couple wording remains family-scoped. Quick smoke passed after publish.
+- VERIFIED: runtime 258 accepts `excluir` only after a transaction was selected for correction, asks for explicit confirmation and journal-reconciles linked invoice rows before completing the deletion; local boundary-retry coverage passed.
+- VERIFIED: runtime 259 lets explicit `conta`, `débito`, Pix or `direto da conta` override the default credit-card path and preserves the pending transaction while asking only for the account when it is still unknown.
+- UNVERIFIED: the new conversational analyst remains disabled until the 20-query latency/quality pilot passes.
+- VERIFIED: production parser and narrator resolve to `gpt-5.6-luna`; protected synthetic Responses and financial-parser checks passed with `reasoning.effort=none`, strict structured output, `store=false` and no spreadsheet mutation.
+- VERIFIED: the Telegram UX redesign is live in Apps Script; quick/full read-only smokes pass and the sheet audit reports zero findings. Safe HTML hierarchy remains staged in the versioned Val Town proxy until merge to `main`.
+- VERIFIED: `Rendas_Recorrentes` was migrated append-only from 8 to 13 columns; the post-deploy dry-run reports `no_change` and the sheet audit has zero findings.
+- VERIFIED: owner OAuth consent covers Spreadsheet, Properties, external requests and Apps Script trigger management.
+- VERIFIED before the current Google access failure: quick/full remote smoke passed, sheet audit had zero findings and the redacted snapshot was current.
+- VERIFIED: on 2026-07-31 the owner-authorized clean restart removed every data row from all 16 live sheets while preserving their schema headers; a private Drive recovery copy was created first.
+- VERIFIED: all 16 remaining sheets have a current runtime/schema/test consumer (13 required V55 plus 3 optional V56); no historical or orphan sheet remains safe to delete.
+- VERIFIED: pending-attention uses the 7-day default; alerts/import/digest previews pass and immediate alerts remain disabled.
+- VERIFIED: exactly one Monday 08:00 weekly digest trigger exists; digest delivery is enabled without an immediate deploy-time send.
+- VERIFIED: GitHub variable `VAL_TOWN_VAL` and secret name `VAL_TOWN_API_KEY` are configured; no secret value was read or stored locally.
+- VERIFIED: the clean base starts on 2026-08-01 with four active Gustavo sources (two accounts and two card sources) plus Nubank and Mercado Pago card configuration.
+- VERIFIED: the Nubank invoice closed on 2026-07-30 and due on 2026-08-07 is registered as an opening authority obligation of BRL 1,013.90; no pre-cutoff purchase was recreated in `Lancamentos` or counted in the August DRE.
+- VERIFIED: July 2026 is closed as the technical pre-cutoff period, so the runtime cannot import or register pre-2026-08-01 purchases as new expenses.
+- VERIFIED: the live base has 29 purpose-based active categories with no invented monthly limits and 23 reviewed high-confidence card import rules; generic marketplaces and the unidentified `Evertonsantosde` purchase have no automatic rule.
+- VERIFIED: Mercado Pago August closed at BRL 3,058.03. Its BRL 2,943.03 pre-cutoff exposure remains isolated from the August DRE, while the BRL 115.00 delivery on 2026-08-02 is the first post-cutoff card purchase, categorized as family food out.
+- VERIFIED: Nubank September BRL 399.41 and Mercado Pago September BRL 1,825.25 remain `prevista` until authoritative closing values are supplied.
+- VERIFIED: opening account balances on 2026-08-01 are Mercado Pago BRL 132.16 and Nubank BRL 1.00, totaling BRL 133.16 of informed liquidity; both active cash sources now satisfy the initial balance requirement.
+- VERIFIED: the August income declaration is stored for Mercado Pago on 2026-08-05: net salary plus separately identified extra income, with no second receipt confirmation required.
+- TODO: rebuild commitments, assets and debts through the guided clean-base onboarding before relying on financial recommendations.
+- TODO: owner reviews and merges the draft PR; the main-branch workflow then publishes the versioned Val Town proxy.
 
-## Execution Rules
+## Remaining release order
 
-- Local validation before deploy: `npm run check`.
-- Runtime deploy after verified Apps Script changes: `npm run push`; then `clasp deploy -i $DEPLOY_ID`.
-- After deploy, run quick remote smoke with `npm run smoke`; it does not run local tests or snapshot.
-- Use `npm run smoke:full` for heavier remote smoke/audit and `npm run snapshot` only when current spreadsheet evidence is required.
-- `npm run sheet:audit` is read-only; it may report issues but must not mutate Sheets.
-- Always commit and push verified non-trivial batches. Do not leave the working tree dirty unless blocked.
-- Never commit `.env`, tokens, spreadsheet IDs, webhook URLs, chat/user IDs, or private financial dumps.
-- Idempotency: write `Idempotency_Log` before financial rows and suppress completed duplicates.
-- Closed monthly records are not changed silently; use `ajuste`.
+1. Configure `OPENAI_ANALYST_MODEL` and `TELEGRAM_PERSON_MAP` in Script Properties while keeping `COPILOT_ANALYST_ENABLED` disabled.
+2. Configure the Val Town `INTERNAL_WORKER_SECRET` before the owner merges; the existing main-branch workflow then publishes the asynchronous worker. Verify the signed edge smoke.
+3. Enable the analyst for the authorized-chat pilot, run 20 non-mutating reads, and require p95 ≤25 seconds plus ≥95% correct live corpus routing; disable again if either gate fails.
+4. After the pilot, keep automatic read routing enabled and remove legacy free-read regex handlers in a later verified batch. Never merge automatically.
 
-## Remote Execution Setup
+## Runtime configuration
 
-The `doGet` endpoint supports `?action=<name>&secret=<WEBHOOK_SECRET>`.
-`scripts/clasp-run.js` reads `WEBAPP_URL` and `WEBHOOK_SECRET` from `.env`.
+Required Script Properties: `WEBHOOK_SECRET`, at least one authorization list, `SPREADSHEET_ID`, `OPENAI_API_KEY`, `PILOT_FINANCIAL_MUTATION_ENABLED`.
 
-Available actions: `snapshot`, `summary`, `cut_first`, `safe_to_spend`, `goals_preview`, `commitments_preview`, `optional_v56_template`, `copilot_digest_preview`, `copilot_digest_send`, `closing_draft`, `closing_close`, `selftest`, `sheet_audit`, `schema_upgrade_dry_run`, and `schema_upgrade`.
-`scripts/smoke.js` defaults to quick sequential `selftest` + `summary` with 30s per action; `--full` adds `sheet_audit`. `snapshot` is intentionally explicit.
+Optional: `OPENAI_MODEL`, `OPENAI_PARSER_MODEL`, `OPENAI_NARRATOR_MODEL`, `OPENAI_ANALYST_MODEL`, `TELEGRAM_PERSON_MAP`, `COPILOT_ANALYST_ENABLED`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`, `BALANCE_FRESHNESS_DAYS`, `COPILOT_DIGEST_ENABLED`, `COPILOT_ALERTS_ENABLED`, `COPILOT_NARRATOR_ENABLED`.
 
-On Windows with PowerShell execution policy, use `npm.cmd` and `clasp.cmd` if needed.
+Val Town required for asynchronous delivery: `INTERNAL_WORKER_SECRET` and `TELEGRAM_BOT_TOKEN` in addition to the existing ingress/authorization variables.
 
-## Architecture
+GitHub-only: `VAL_TOWN_API_KEY` secret and `VAL_TOWN_VAL` variable. Never commit their values.
 
-Telegram -> Val Town proxy -> Apps Script `doPost` -> parser boundary -> Google Sheets
+## Safety rules
 
-- Val Town: edge ack, timeout, HTTPS validation, redacted diagnostics, Telegram reply forwarding.
-- Apps Script: Script Properties config, webhook/authorization gates, parser boundary, canonicalization, validation, LockService, idempotent sheet writes, read-only audit/report actions.
-- Local contracts: pure Node.js modules for schema, domain, parsing, planning, idempotency, reporting, privacy filtering, and sheet auditing.
-
-## Runtime Configuration
-
-Script Properties only; never commit values.
-
-Required keys: `WEBHOOK_SECRET`, `AUTHORIZED_USER_IDS`, `AUTHORIZED_CHAT_IDS`, `SPREADSHEET_ID`, `OPENAI_API_KEY`, `PILOT_FINANCIAL_MUTATION_ENABLED`.
-
-Optional keys: `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `VAL_TOWN_WEBHOOK_URL`, `COPILOT_DIGEST_ENABLED`, `COPILOT_NARRATOR_ENABLED`.
-Val Town callback preflight answers clicks silently with `TELEGRAM_BOT_TOKEN`; editing the message to a loading state needs local trust via `AUTHORIZED_CHAT_IDS` or `AUTHORIZED_USER_IDS`.
-
-Conversation state is stored under `BFF_CONVERSATION_<chat_id>` in Script Properties. Use `/limpar_contexto` from Telegram to clear the current chat state.
-
-## Next Work
-
-1. Keep digest/narrator gated off until pilot review explicitly enables them.
-2. Update real source balances from Telegram before trusting safe-to-spend, investment, reserve, or amortization advice.
+- Deterministic code owns financial values, limits and recommendations; the LLM parses or phrases/suggests only.
+- No destructive real-sheet repair/reset/migration without explicit owner scope and a recovery path.
+- No raw statements, secrets, IDs, URLs or full financial dumps in Git, logs, docs or properties.
+- Always validate before deploy; stop publication if checks fail.

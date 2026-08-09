@@ -25,11 +25,13 @@ For the current redacted state of the real spreadsheet, use `docs/SPREADSHEET_SN
 
 ### Faturas_Linhas
 
-`id_linha_fatura | id_fatura | id_cartao | competencia | valor_previsto | status_origem`
+`id_linha_fatura | id_fatura | id_cartao | competencia | valor_previsto | status_origem | id_lancamento`
 
 ### Lancamentos
 
 `id_lancamento | data | competencia | tipo_evento | id_categoria | valor | id_fonte | pessoa | escopo | id_cartao | id_fatura | id_divida | id_ativo | afeta_dre | afeta_patrimonio | afeta_caixa_familiar | visibilidade | status | descricao | parcelas | created_at`
+
+Monthly salary/extra-income declarations use deterministic `receita` rows with `status=agendado`, personal scope/privacy and categories `REC_SALARIO_LIQUIDO` or `REC_RENDA_EXTRA`. They are projection evidence, not actual DRE/cash. A latest destination-account balance with `data_referencia >= data` reconciles the scheduled amount and prevents double counting without a second receipt message.
 
 ### Transferencias_Internas
 
@@ -37,7 +39,9 @@ For the current redacted state of the real spreadsheet, use `docs/SPREADSHEET_SN
 
 ### Rendas_Recorrentes
 
-`id_renda | pessoa | descricao | valor_planejado | tipo_renda | beneficio_restrito | ativo | observacao`
+`id_renda | pessoa | descricao | valor_planejado | tipo_renda | beneficio_restrito | ativo | observacao | dia_recebimento | regra_dia_util | id_fonte | revisao_mensal | revisado_em`
+
+`regra_dia_util` aceita `sem_ajuste`, `dia_fixo_anterior_util`, `dia_fixo_proximo_util` ou `quinto_dia_util`. Rendas variáveis usam `revisao_mensal=true` e devem atualizar `revisado_em` na competência vigente antes de entrarem na projeção confiante.
 
 ### Saldos_Fontes
 
@@ -71,7 +75,13 @@ These sheets are optional V56 contracts. They exist in the real spreadsheet with
 
 `id_compromisso | nome | tipo | escopo | valor_estimado | dia_vencimento | id_categoria | id_fonte | prioridade | visibilidade | status_revisao | revisado_em | ativo | observacao`
 
-Read-only Telegram views use only active rows with `status_revisao=revisado`; private rows remain aggregate-only.
+### Regras_Importacao
+
+`id_regra | assinatura_descricao | tipo_evento | id_categoria | id_fonte | id_cartao | escopo | visibilidade | status_revisao | revisado_em | ativo | observacao`
+
+A reviewed rule must reference exactly one origin (`id_fonte` or `id_cartao`), an active category, an allowed event type (`despesa`, `receita` or `compra_cartao`) and a review date. Suggested AI rules remain non-automatic until individual confirmation changes them to active `revisado` rows.
+
+Read-only Telegram views and automatic import matching use only active rows with `status_revisao=revisado`; private rows remain aggregate-only.
 
 ## Formula Standard
 

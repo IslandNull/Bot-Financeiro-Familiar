@@ -1,157 +1,342 @@
 'use strict';
 
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
+const { pathToFileURL } = require('url');
 
-function test(name, fn) {
-    fn();
-    console.log(`ok - ${name}`);
-}
+module.exports = (async function runValTownProxyTests() {
+    const env = new Map();
+    globalThis.Deno = {
+        env: {
+            get(name) {
+                return env.get(name);
+            },
+        },
+    };
 
-const root = path.resolve(__dirname, '..');
-const proxy = fs.readFileSync(path.join(root, 'val-town', 'telegram-proxy.ts'), 'utf8');
-const valTownMain = fs.readFileSync(path.join(root, 'val-town', 'main.ts'), 'utf8');
-const syntaxCheck = fs.readFileSync(path.join(root, 'scripts', 'check-syntax.js'), 'utf8');
+    const proxyUrl = pathToFileURL(path.resolve(__dirname, '..', 'val-town', 'telegram-proxy.ts')).href;
+    const mainUrl = pathToFileURL(path.resolve(__dirname, '..', 'val-town', 'main.ts')).href;
+    const proxyModule = await import(proxyUrl);
+    const mainModule = await import(mainUrl);
+    const handler = proxyModule.default;
 
-test('Val Town proxy always acknowledges Telegram with 200 ok', () => {
-    assert.ok(proxy.includes('return new Response("ok", { status: 200 });'));
-});
+    async function test(name, fn) {
+        await fn();
+        console.log(`ok - ${name}`);
+    }
 
-test('Val Town proxy awaits Apps Script before returning a webhook reply when possible', () => {
-    assert.ok(proxy.includes('const appsScriptResult = await forwardToAppsScript(req, body);'));
-    assert.ok(proxy.includes('const telegramReply = telegramWebhookReply(body, appsScriptResult);'));
-    assert.ok(proxy.includes('if (telegramReply) return telegramReply;'));
-    assert.ok(!proxy.includes('void forwardToAppsScript(req, body);'));
-});
+    function configure(overrides = {}) {
+        env.clear();
+        env.set('WEBHOOK_SECRET', 'edge-secret');
+        env.set('APPS_SCRIPT_WEBAPP_URL', 'https://script.google.com/macros/s/example/exec');
+        env.set('AUTHORIZED_USER_IDS', '101');
+        env.set('AUTHORIZED_CHAT_IDS', '-202');
+        env.set('TELEGRAM_BOT_TOKEN', '123:test-token');
+        env.set('INTERNAL_WORKER_SECRET', 'worker-secret');
+        Object.entries(overrides).forEach(([key, value]) => {
+            if (value === undefined) env.delete(key);
+            else env.set(key, value);
+        });
+    }
 
-test('Val Town proxy uses environment variables and secret forwarding', () => {
-    assert.ok(proxy.includes('"APPS_SCRIPT_WEBAPP_URL"'));
-    assert.ok(proxy.includes('"WEBHOOK_SECRET"'));
-    assert.ok(proxy.includes('"X-Telegram-Bot-Api-Secret-Token"'));
-    assert.ok(proxy.includes('Deno.env.get(APPS_SCRIPT_WEBAPP_URL_ENV)'));
-    assert.ok(proxy.includes('Deno.env.get(WEBHOOK_SECRET_ENV)'));
-    assert.ok(proxy.includes('appsScriptForwardUrl(appsScriptUrl, webhookSecret)'));
-    assert.ok(proxy.includes('url.searchParams.set("secret", webhookSecret)'));
-});
+    function telegramBody(overrides = {}) {
+        return JSON.stringify({
+            update_id: 1,
+            message: {
+                message_id: 2,
+                from: { id: 101 },
+                chat: { id: -202, type: 'group' },
+                text: '/help',
+            },
+            ...overrides,
+        });
+    }
 
-test('Val Town proxy sends Apps Script responseText back through Telegram webhook response', () => {
-    assert.ok(proxy.includes('function telegramWebhookReply'));
-    assert.ok(proxy.includes('method: "sendMessage"'));
-    assert.ok(proxy.includes('chat_id: chatId'));
-    assert.ok(proxy.includes('text: telegramText((appsScriptResult as { responseText?: unknown }).responseText)'));
-    assert.ok(proxy.includes('disable_web_page_preview: true'));
-    assert.ok(proxy.includes('Telegram webhook sendMessage response prepared'));
-});
+    function request(body = telegramBody(), overrides = {}) {
+        const headers = new Headers({
+            'content-type': 'application/json; charset=utf-8',
+            'x-telegram-bot-api-secret-token': 'edge-secret',
+            ...(overrides.headers || {}),
+        });
+        return new Request(overrides.url || 'https://example.val.run/', {
+            method: overrides.method || 'POST',
+            headers,
+            body: (overrides.method || 'POST') === 'GET' ? undefined : body,
+        });
+    }
 
-test('Val Town proxy supports telegramActions for callback_query menus', () => {
-    assert.ok(proxy.includes('TELEGRAM_BOT_TOKEN_ENV'));
-    assert.ok(proxy.includes('function telegramActions'));
-    assert.ok(proxy.includes('answerCallbackQuery'));
-    assert.ok(proxy.includes('editMessageText'));
-    assert.ok(proxy.includes('callback_query'));
-    assert.ok(proxy.includes('value.callback_query?.message?.chat?.id'));
-});
+    function workerRequest(body = telegramBody(), overrides = {}) {
+        return new Request(overrides.url || 'https://example.val.run/__bff_process', {
+            method: overrides.method || 'POST',
+            headers: new Headers({
+                'content-type': 'application/json',
+                'x-bff-internal-worker-secret': 'worker-secret',
+                ...(overrides.headers || {}),
+            }),
+            body: JSON.stringify({
+                updateBody: body,
+                preflightAnsweredCallbackId: overrides.preflightAnsweredCallbackId || '',
+            }),
+        });
+    }
 
-test('Val Town proxy can dispatch multiple Telegram actions through Bot API', () => {
-    assert.ok(proxy.includes('await dispatchTelegramActions(actions);'));
-    assert.ok(proxy.includes('https://api.telegram.org/bot'));
-    assert.ok(proxy.includes('encodeURIComponent(botToken)'));
-    assert.ok(proxy.includes('JSON.stringify(actionPayload(action))'));
-});
+    async function withFetchSpy(responseBody, fn) {
+        const previousFetch = globalThis.fetch;
+        const calls = [];
+        globalThis.fetch = async (url, options) => {
+            calls.push({ url: String(url), options });
+            return new Response(JSON.stringify(responseBody), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            });
+        };
+        try {
+            return await fn(calls);
+        } finally {
+            globalThis.fetch = previousFetch;
+        }
+    }
 
-test('Val Town proxy preflights callback clicks with a silent answer before Apps Script', () => {
-    assert.ok(proxy.includes('TELEGRAM_PREFLIGHT_TIMEOUT_MS'));
-    assert.ok(proxy.includes('const preflightActions = telegramCallbackPreflightActions(body);'));
-    assert.ok(proxy.indexOf('const preflightActions = telegramCallbackPreflightActions(body);') < proxy.indexOf('const appsScriptResult = await forwardToAppsScript(req, body);'));
-    assert.ok(proxy.includes('function telegramCallbackPreflightActions'));
-    assert.ok(proxy.includes('telegramCallbackTrustedForPreflight(update)'));
-    assert.ok(proxy.includes('text: ""'));
-    assert.ok(!proxy.includes('text: "Carregando..."'));
-    assert.ok(proxy.includes('text: "⏳ Carregando...\\n\\nEstou processando sua ação."'));
-});
+    await test('Val Town main imports the versioned local proxy', async () => {
+        assert.strictEqual(mainModule.default, handler);
+    });
 
-test('Val Town proxy sends callback answers even without local edit authorization', () => {
-    assert.ok(proxy.includes('if (!telegramCallbackTrustedForPreflight(update)) return actions;'));
-    assert.ok(proxy.indexOf('text: ""') < proxy.indexOf('if (!telegramCallbackTrustedForPreflight(update)) return actions;'));
-});
+    await test('valid signed JSON returns immediately and dispatches the authenticated internal worker', async () => {
+        configure();
+        await withFetchSpy({ ok: true }, async (calls) => {
+            const response = await handler(request());
+            assert.strictEqual(response.status, 200);
+            assert.strictEqual(calls.length, 1);
+            assert.strictEqual(calls[0].url, 'https://example.val.run/__bff_process');
+            assert.ok(!calls[0].url.includes('secret='));
+            assert.strictEqual(calls[0].options.headers['X-BFF-Internal-Worker-Secret'], 'worker-secret');
+            assert.strictEqual(await response.text(), 'ok');
+            assert.strictEqual(JSON.parse(calls[0].options.body).updateBody, telegramBody());
+        });
+    });
 
-test('Val Town proxy only preflights callbacks when local authorization is configured and matched', () => {
-    assert.ok(proxy.includes('AUTHORIZED_USER_IDS_ENV'));
-    assert.ok(proxy.includes('AUTHORIZED_CHAT_IDS_ENV'));
-    assert.ok(proxy.includes('function telegramCallbackTrustedForPreflight'));
-    assert.ok(proxy.includes('const allowedUserIds = envIdSet(AUTHORIZED_USER_IDS_ENV);'));
-    assert.ok(proxy.includes('if (allowedUserIds.size === 0 && allowedChatIds.size === 0) return false;'));
-    assert.ok(proxy.includes('if (allowedUserIds.size > 0 && !allowedUserIds.has(userId)) return false;'));
-    assert.ok(proxy.includes('if (allowedChatIds.size > 0 && !allowedChatIds.has(chatId)) return false;'));
-});
+    await test('internal worker revalidates the update, forwards it to Apps Script, and delivers through Telegram', async () => {
+        configure();
+        const previousFetch = globalThis.fetch;
+        const calls = [];
+        globalThis.fetch = async (url, options) => {
+            calls.push({ url: String(url), options });
+            if (String(url).startsWith('https://script.google.com/')) {
+                return new Response(JSON.stringify({ ok: true, responseText: 'Tudo certo.' }), { status: 200 });
+            }
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        };
+        try {
+            const response = await proxyModule.handleProcessingRequest(workerRequest());
+            assert.strictEqual(response.status, 200);
+            assert.strictEqual(calls.length, 2);
+            assert.ok(calls[0].url.startsWith('https://script.google.com/'));
+            assert.strictEqual(calls[0].options.headers['X-Telegram-Bot-Api-Secret-Token'], 'edge-secret');
+            assert.strictEqual(calls[0].options.headers['X-BFF-Worker-Request'], '1');
+            const payload = JSON.parse(calls[1].options.body);
+            assert.strictEqual(payload.method, 'sendMessage');
+            assert.strictEqual(payload.chat_id, '-202');
+            assert.strictEqual(payload.parse_mode, 'HTML');
+            assert.strictEqual(payload.text, '<b>Tudo certo.</b>');
+        } finally {
+            globalThis.fetch = previousFetch;
+        }
+    });
 
-test('Val Town proxy filters duplicate callback answers only after a successful preflight answer', () => {
-    assert.ok(proxy.includes('const preflightAnsweredCallbackId = firstSuccessfulCallbackAnswerId(preflightActions, preflightResults);'));
-    assert.ok(proxy.includes('actions = filterAnsweredCallbackActions(actions, preflightAnsweredCallbackId);'));
-    assert.ok(proxy.includes('function firstSuccessfulCallbackAnswerId'));
-    assert.ok(proxy.includes('function filterAnsweredCallbackActions'));
-    assert.ok(proxy.includes('result.ok'));
-});
+    for (const scenario of [
+        {
+            name: 'missing secret',
+            expectedStatus: 401,
+            setup: () => request(telegramBody(), { headers: { 'x-telegram-bot-api-secret-token': '' } }),
+        },
+        {
+            name: 'incorrect secret',
+            expectedStatus: 401,
+            setup: () => request(telegramBody(), { headers: { 'x-telegram-bot-api-secret-token': 'forged' } }),
+        },
+        {
+            name: 'GET method',
+            expectedStatus: 405,
+            setup: () => request('', { method: 'GET' }),
+        },
+        {
+            name: 'non-JSON media type',
+            expectedStatus: 415,
+            setup: () => request(telegramBody(), { headers: { 'content-type': 'text/plain' } }),
+        },
+        {
+            name: 'declared body above 1 MB',
+            expectedStatus: 413,
+            setup: () => request('{}', { headers: { 'content-length': String(1024 * 1024 + 1) } }),
+        },
+        {
+            name: 'malformed JSON',
+            expectedStatus: 400,
+            setup: () => request('{'),
+        },
+    ]) {
+        await test(`${scenario.name} is rejected before every external API`, async () => {
+            configure();
+            await withFetchSpy({ ok: true }, async (calls) => {
+                const response = await handler(scenario.setup());
+                assert.strictEqual(response.status, scenario.expectedStatus);
+                assert.strictEqual(calls.length, 0);
+            });
+        });
+    }
 
-test('Val Town proxy replaces stale loading text with a generic error when Apps Script has no callback result', () => {
-    assert.ok(proxy.includes('const fallbackAction = telegramCallbackFailureEditAction(body);'));
-    assert.ok(proxy.includes('function telegramCallbackFailureEditAction'));
-    assert.ok(proxy.includes('text: "⚠️ Não consegui concluir.\\n\\nTente novamente em alguns segundos."'));
-});
+    await test('actual body above 1 MB is rejected without trusting Content-Length', async () => {
+        configure();
+        const oversized = JSON.stringify({ data: 'x'.repeat(1024 * 1024) });
+        await withFetchSpy({ ok: true }, async (calls) => {
+            const response = await handler(request(oversized, { headers: { 'content-length': '1' } }));
+            assert.strictEqual(response.status, 413);
+            assert.strictEqual(calls.length, 0);
+        });
+    });
 
-test('Val Town proxy does not reply to failed auth gates', () => {
-    assert.ok(proxy.includes('"INVALID_WEBHOOK_SECRET"'));
-    assert.ok(proxy.includes('"MISSING_WEBHOOK_SECRET"'));
-    assert.ok(proxy.includes('"UNAUTHORIZED"'));
-    assert.ok(proxy.includes('blockedErrorCodes.has(code)'));
-    assert.ok(proxy.includes('reason: "blocked_" + blockedCode'));
-});
+    await test('authorized user in an unauthorized chat reaches neither Apps Script nor Telegram', async () => {
+        configure();
+        const forgedChat = telegramBody({
+            message: { message_id: 2, from: { id: 101 }, chat: { id: -999 }, text: '/help' },
+        });
+        await withFetchSpy({ ok: true }, async (calls) => {
+            const response = await handler(request(forgedChat));
+            assert.strictEqual(response.status, 403);
+            assert.strictEqual(calls.length, 0);
+        });
+    });
 
-test('Val Town proxy logs redacted diagnostics without token values', () => {
-    assert.ok(proxy.includes('redactedError'));
-    assert.ok(proxy.includes('[REDACTED_TOKEN]'));
-    assert.ok(proxy.includes('secret=[REDACTED]'));
-    assert.ok(proxy.includes('webhook_secret=[REDACTED]'));
-    assert.ok(proxy.includes('Telegram response skipped:'));
-    assert.ok(proxy.includes('Apps Script non-ok response:'));
-    assert.ok(proxy.includes('hasResponseText'));
-    assert.ok(proxy.includes('errorCodes'));
-});
+    await test('forged user in an authorized chat reaches neither Apps Script nor Telegram', async () => {
+        configure();
+        const forgedUser = telegramBody({
+            message: { message_id: 2, from: { id: 999 }, chat: { id: -202 }, text: '/help' },
+        });
+        await withFetchSpy({ ok: true }, async (calls) => {
+            const response = await handler(request(forgedUser));
+            assert.strictEqual(response.status, 403);
+            assert.strictEqual(calls.length, 0);
+        });
+    });
 
-test('Val Town proxy hardens external calls with timeouts and HTTPS validation', () => {
-    assert.ok(proxy.includes('APPS_SCRIPT_TIMEOUT_MS'));
-    assert.ok(proxy.includes('fetchWithTimeout'));
-    assert.ok(proxy.includes('AbortController'));
-    assert.ok(proxy.includes('url.protocol !== "https:"'));
-});
+    await test('a single configured authorization list remains mandatory', async () => {
+        configure({ AUTHORIZED_CHAT_IDS: undefined });
+        assert.deepStrictEqual(proxyModule.authorizeTelegramUpdate(JSON.parse(telegramBody())), { ok: true });
+        assert.strictEqual(proxyModule.authorizeTelegramUpdate(JSON.parse(telegramBody({
+            message: { from: { id: 999 }, chat: { id: -202 } },
+        }))).ok, false);
 
-test('Val Town proxy keeps Telegram replies inside message length limits', () => {
-    assert.ok(proxy.includes('TELEGRAM_MAX_TEXT_LENGTH = 4096'));
-    assert.ok(proxy.includes('TELEGRAM_SAFE_TEXT_LENGTH = 3900'));
-    assert.ok(proxy.includes('function telegramText'));
-    assert.ok(proxy.includes('[resposta truncada]'));
-});
+        configure({ AUTHORIZED_USER_IDS: undefined });
+        assert.deepStrictEqual(proxyModule.authorizeTelegramUpdate(JSON.parse(telegramBody())), { ok: true });
+        assert.strictEqual(proxyModule.authorizeTelegramUpdate(JSON.parse(telegramBody({
+            message: { from: { id: 101 }, chat: { id: -999 } },
+        }))).ok, false);
+    });
 
-test('Val Town proxy does not hardcode private URLs or tokens', () => {
-    assert.ok(!/https:\/\/script\.google\.com\/macros\/s\//.test(proxy));
-    assert.ok(!/sk-[A-Za-z0-9_-]+/.test(proxy));
-    assert.ok(!/bot[0-9]+:[A-Za-z0-9_-]+/.test(proxy));
-});
+    await test('empty authorization configuration fails closed', async () => {
+        configure({ AUTHORIZED_USER_IDS: undefined, AUTHORIZED_CHAT_IDS: undefined });
+        assert.strictEqual(proxyModule.authorizeTelegramUpdate(JSON.parse(telegramBody())).ok, false);
+    });
 
-test('Val Town proxy keeps legacy query secret compatibility', () => {
-    assert.ok(proxy.includes('searchParams.get("webhook_secret")'));
-});
+    await test('internal worker rejects a forged secret and unauthorized update before external APIs', async () => {
+        configure();
+        await withFetchSpy({ ok: true }, async (calls) => {
+            const forgedSecret = await proxyModule.handleProcessingRequest(workerRequest(telegramBody(), {
+                headers: { 'x-bff-internal-worker-secret': 'forged' },
+            }));
+            assert.strictEqual(forgedSecret.status, 401);
+            const forgedUpdate = telegramBody({
+                message: { message_id: 2, from: { id: 999 }, chat: { id: -202 }, text: '/help' },
+            });
+            const unauthorized = await proxyModule.handleProcessingRequest(workerRequest(forgedUpdate));
+            assert.strictEqual(unauthorized.status, 403);
+            assert.strictEqual(calls.length, 0);
+        });
+    });
 
-test('Val Town proxy is covered by the syntax check command', () => {
-    assert.ok(syntaxCheck.includes('telegram-proxy.ts'));
-    assert.ok(syntaxCheck.includes('main.ts'));
-    assert.ok(syntaxCheck.includes('--experimental-transform-types'));
-});
+    await test('upstream HTTP, invalid JSON, and network failures notify Telegram from the worker', async () => {
+        configure();
+        const previousFetch = globalThis.fetch;
+        try {
+            const calls = [];
+            globalThis.fetch = async (url, options) => {
+                calls.push({ url: String(url), options });
+                if (String(url).startsWith('https://script.google.com/')) return new Response('temporary', { status: 500 });
+                return new Response(JSON.stringify({ ok: true }), { status: 200 });
+            };
+            assert.strictEqual((await proxyModule.handleProcessingRequest(workerRequest())).status, 503);
+            assert.strictEqual(calls.length, 2);
+            assert.match(JSON.parse(calls[1].options.body).text, /concluir esta consulta/);
 
-test('Val Town main entrypoint delegates to repository source to avoid pasted truncation', () => {
-    assert.ok(valTownMain.includes('export { default } from'));
-    assert.ok(valTownMain.includes('raw.githubusercontent.com/IslandNull/Bot-Financeiro-Familiar'));
-    assert.ok(valTownMain.includes('val-town/telegram-proxy.ts'));
-    assert.ok(valTownMain.includes('?v='));
-});
+            globalThis.fetch = async (url) => {
+                if (String(url).startsWith('https://script.google.com/')) return new Response('not json', { status: 200 });
+                return new Response(JSON.stringify({ ok: true }), { status: 200 });
+            };
+            assert.strictEqual((await proxyModule.handleProcessingRequest(workerRequest())).status, 502);
+
+            globalThis.fetch = async (url) => {
+                if (String(url).startsWith('https://script.google.com/')) throw new Error('connection timeout');
+                return new Response(JSON.stringify({ ok: true }), { status: 200 });
+            };
+            assert.strictEqual((await proxyModule.handleProcessingRequest(workerRequest())).status, 503);
+        } finally {
+            globalThis.fetch = previousFetch;
+        }
+    });
+
+    await test('slow commands send typing before Apps Script without changing the final webhook response', async () => {
+        configure({ TELEGRAM_BOT_TOKEN: '123:test-token' });
+        const slowBody = telegramBody({
+            message: { message_id: 2, from: { id: 101 }, chat: { id: -202, type: 'group' }, text: '/resumo' },
+        });
+        const previousFetch = globalThis.fetch;
+        const calls = [];
+        globalThis.fetch = async (url, options) => {
+            calls.push({ url: String(url), options });
+            if (String(url).includes('api.telegram.org')) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+            return new Response(JSON.stringify({ ok: true, responseText: 'Resumo pronto.' }), { status: 200 });
+        };
+        try {
+            const response = await handler(request(slowBody));
+            assert.strictEqual(response.status, 200);
+            assert.strictEqual(calls.length, 2);
+            assert.match(calls[0].url, /sendChatAction$/);
+            assert.strictEqual(JSON.parse(calls[0].options.body).action, 'typing');
+            assert.strictEqual(await response.text(), 'ok');
+            assert.strictEqual(calls[1].url, 'https://example.val.run/__bff_process');
+        } finally {
+            globalThis.fetch = previousFetch;
+        }
+    });
+
+    await test('long Apps Script messages are delivered in chunks instead of being truncated', async () => {
+        configure({ TELEGRAM_BOT_TOKEN: '123:test-token' });
+        const longText = Array.from({ length: 900 }, (_, index) => `Linha ${index + 1} com conteúdo financeiro agregado.`).join('\n');
+        const previousFetch = globalThis.fetch;
+        const telegramPayloads = [];
+        globalThis.fetch = async (url, options) => {
+            if (String(url).startsWith('https://script.google.com/')) {
+                return new Response(JSON.stringify({ ok: true, responseText: longText }), { status: 200 });
+            }
+            telegramPayloads.push(JSON.parse(options.body));
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        };
+        try {
+            const response = await proxyModule.handleProcessingRequest(workerRequest());
+            assert.strictEqual(response.status, 200);
+            assert.ok(telegramPayloads.length > 1);
+            assert.ok(telegramPayloads.every((payload) => payload.text.length <= 4096));
+            assert.ok(telegramPayloads.every((payload) => payload.parse_mode === 'HTML'));
+            assert.match(telegramPayloads[0].text, /Linha 1 /);
+            assert.match(telegramPayloads[telegramPayloads.length - 1].text, /Linha 900 /);
+        } finally {
+            globalThis.fetch = previousFetch;
+        }
+    });
+
+    await test('Telegram HTML highlights hierarchy and escapes every dynamic character', async () => {
+        const text = proxyModule.telegramHtmlText('🧭 Copiloto • Agosto\n\n🚨 Atenção <agora>\n• Descrição: A&B');
+        assert.strictEqual(text, '<b>🧭 Copiloto • Agosto</b>\n\n<b>🚨 Atenção &lt;agora&gt;</b>\n• Descrição: A&amp;B');
+        assert.doesNotMatch(text, /<agora>/);
+    });
+})();

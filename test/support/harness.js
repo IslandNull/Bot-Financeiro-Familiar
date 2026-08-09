@@ -13,7 +13,10 @@ const cartoesHeaders = ['id_cartao', 'id_fonte', 'nome', 'titular', 'fechamento_
 const faturasHeaders = ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto', 'valor_fechado', 'valor_pago', 'status'];
 const faturasResumoHeaders = ['id_fatura', 'id_cartao', 'competencia', 'data_fechamento', 'data_vencimento', 'valor_previsto_total', 'valor_fechado', 'valor_pago', 'valor_aberto', 'status', 'authority_count'];
 const faturasLinhasHeaders = ['id_linha_fatura', 'id_fatura', 'id_cartao', 'competencia', 'valor_previsto', 'status_origem', 'id_lancamento'];
-const rendasRecorrentesHeaders = ['id_renda', 'pessoa', 'descricao', 'valor_planejado', 'tipo_renda', 'beneficio_restrito', 'ativo', 'observacao'];
+const rendasRecorrentesHeaders = [
+    'id_renda', 'pessoa', 'descricao', 'valor_planejado', 'tipo_renda', 'beneficio_restrito', 'ativo', 'observacao',
+    'dia_recebimento', 'regra_dia_util', 'id_fonte', 'revisao_mensal', 'revisado_em',
+];
 const saldosFontesHeaders = ['id_snapshot', 'competencia', 'data_referencia', 'id_fonte', 'saldo_inicial', 'saldo_final', 'saldo_disponivel', 'observacao', 'created_at'];
 const patrimonioAtivosHeaders = ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'];
 const dividasHeaders = ['id_divida', 'nome', 'credor', 'tipo', 'escopo', 'saldo_devedor', 'parcela_atual', 'parcelas_total', 'valor_parcela', 'taxa_juros', 'sistema_amortizacao', 'data_atualizacao', 'status', 'observacao'];
@@ -22,6 +25,7 @@ const transferenciasHeaders = ['id_transferencia', 'data', 'competencia', 'valor
 const idempotencyHeaders = ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'];
 const metasFinanceirasHeaders = ['id_meta', 'nome', 'tipo', 'escopo', 'valor_alvo', 'valor_atual_manual', 'data_alvo', 'contribuicao_mensal_planejada', 'prioridade', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'];
 const compromissosRecorrentesHeaders = ['id_compromisso', 'nome', 'tipo', 'escopo', 'valor_estimado', 'dia_vencimento', 'id_categoria', 'id_fonte', 'prioridade', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'];
+const regrasImportacaoHeaders = ['id_regra', 'assinatura_descricao', 'tipo_evento', 'id_categoria', 'id_fonte', 'id_cartao', 'escopo', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'];
 
 function createFakeSheet(headers) {
     const rows = [headers.slice()];
@@ -38,6 +42,9 @@ function createFakeSheet(headers) {
         },
         getLastRow() {
             return rows.length;
+        },
+        getLastColumn() {
+            return rows.reduce((maximum, row) => Math.max(maximum, (row || []).length), 0);
         },
         getRange(row, column, rowCount = 1, columnCount = 1) {
             return {
@@ -108,10 +115,13 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
         PILOT_FINANCIAL_MUTATION_ENABLED: 'YES',
         SPREADSHEET_ID: 'sheet_1',
         OPENAI_API_KEY: 'test_openai_key',
-        OPENAI_MODEL: 'gpt-5.4-nano',
+        OPENAI_MODEL: 'gpt-5.6-luna',
         ...(options.properties || {}),
     };
     const scriptProperties = { ...properties };
+    const scriptCache = new Map();
+    const openAiEvents = Array.isArray(options.openAiEvents) ? options.openAiEvents.slice() : null;
+    let openAiCallIndex = 0;
     const context = {
         console,
         __scriptProperties: scriptProperties,
@@ -131,9 +141,13 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
             },
         },
         UrlFetchApp: {
-            fetch(url) {
+            fetch(url, fetchOptions) {
                 if (options.failOnFetch) throw new Error('UrlFetchApp.fetch should not be called');
                 assert.strictEqual(url, 'https://api.openai.com/v1/responses');
+                if (typeof options.onOpenAiRequest === 'function') options.onOpenAiRequest(JSON.parse(fetchOptions.payload));
+                const selectedEvent = openAiEvents
+                    ? openAiEvents[Math.min(openAiCallIndex++, Math.max(0, openAiEvents.length - 1))]
+                    : openAiEvent;
                 return {
                     getResponseCode() {
                         return 200;
@@ -142,7 +156,7 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
                         return JSON.stringify({
                             output: [{
                                 content: [{
-                                    text: JSON.stringify(openAiEvent),
+                                    text: JSON.stringify(selectedEvent),
                                 }],
                             }],
                         });
@@ -150,9 +164,25 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
                 };
             },
         },
+        CacheService: {
+            getScriptCache() {
+                return {
+                    get(key) {
+                        return scriptCache.has(key) ? scriptCache.get(key) : null;
+                    },
+                    put(key, value) {
+                        scriptCache.set(String(key), String(value));
+                    },
+                    remove(key) {
+                        scriptCache.delete(String(key));
+                    },
+                };
+            },
+        },
         SpreadsheetApp: {
             openById(id) {
                 assert.strictEqual(id, 'sheet_1');
+                if (typeof options.onSpreadsheetOpen === 'function') options.onSpreadsheetOpen(id);
                 return {
                     getName() {
                         return 'Bot Financeiro Familiar';
@@ -186,6 +216,7 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
             getScriptLock() {
                 return {
                     waitLock() {},
+                    tryLock() { return true; },
                     releaseLock() {},
                 };
             },
@@ -194,8 +225,10 @@ function createAppsScriptHarness(openAiEvent, options = {}) {
             DigestAlgorithm: { SHA_256: 'sha256' },
             Charset: { UTF_8: 'utf8' },
             computeDigest(_algorithm, value) {
-                return Array.from(crypto.createHash('sha256').update(value, 'utf8').digest()).map((byte) => byte > 127 ? byte - 256 : byte);
+                const input = Array.isArray(value) || ArrayBuffer.isView(value) ? Buffer.from(value) : Buffer.from(String(value), 'utf8');
+                return Array.from(crypto.createHash('sha256').update(input).digest()).map((byte) => byte > 127 ? byte - 256 : byte);
             },
+            sleep() {},
             formatDate(_date, timezone, pattern) {
                 if (timezone === 'America/Sao_Paulo' && pattern === 'yyyy-MM-dd') return '2026-04-30';
                 if (timezone === 'America/Sao_Paulo' && pattern === 'yyyy-MM') return '2026-04';
@@ -239,7 +272,7 @@ function postPilotMessage(context, text, options = {}) {
                 update_id: updateId,
                 message: {
                     message_id: messageId,
-                    chat: { id: chatId },
+                    chat: { id: chatId, type: options.chatType || 'private' },
                     from: { id: userId },
                     text,
                 },
@@ -656,6 +689,11 @@ function appendFakeRecurringIncome(sheets, overrides = {}) {
         beneficio_restrito: false,
         ativo: true,
         observacao: '',
+        dia_recebimento: 5,
+        regra_dia_util: 'dia_fixo_anterior_util',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        revisao_mensal: false,
+        revisado_em: '2026-04-30',
         ...overrides,
     };
     sheets.Rendas_Recorrentes.appendRow(rendasRecorrentesHeaders.map((header) => income[header] === undefined ? '' : income[header]));
@@ -798,10 +836,51 @@ function appendFakeCommitment(sheets, overrides = {}) {
     sheet.appendRow(compromissosRecorrentesHeaders.map((header) => commitment[header] === undefined ? '' : commitment[header]));
 }
 
+function postTelegramDocument(context, document, options = {}) {
+    const output = context.doPost({
+        parameter: { secret: 'test_secret' },
+        headers: options.headers || {},
+        postData: {
+            contents: JSON.stringify({
+                update_id: options.updateId || 'document_update_1',
+                message: {
+                    message_id: options.messageId || 'document_message_1',
+                    chat: { id: options.chatId || 'chat_1', type: options.chatType || 'private' },
+                    from: { id: options.userId || 'user_1' },
+                    caption: options.caption || '',
+                    document,
+                },
+            }),
+        },
+    });
+    return JSON.parse(output.getContentText());
+}
+
+function appendFakeImportRule(sheets, overrides = {}) {
+    const sheet = ensureOptionalSheet(sheets, 'Regras_Importacao', regrasImportacaoHeaders);
+    const rule = {
+        id_regra: 'REG_MERCADO',
+        assinatura_descricao: 'mercado',
+        tipo_evento: 'despesa',
+        id_categoria: 'OPEX_MERCADO_SEMANA',
+        id_fonte: 'FONTE_CONTA_FAMILIA',
+        id_cartao: '',
+        escopo: 'Familiar',
+        visibilidade: 'detalhada',
+        status_revisao: 'revisado',
+        revisado_em: '2026-04-20',
+        ativo: true,
+        observacao: '',
+        ...overrides,
+    };
+    sheet.appendRow(regrasImportacaoHeaders.map((header) => rule[header] === undefined ? '' : rule[header]));
+}
+
 module.exports = {
     createFakeSheet,
     createAppsScriptHarness,
     postPilotMessage,
+    postTelegramDocument,
     postTelegramCallback,
     appendRuntimeConfigRows,
     runRemoteAction,
@@ -815,6 +894,7 @@ module.exports = {
     appendFakeClosing,
     appendFakeGoal,
     appendFakeCommitment,
+    appendFakeImportRule,
     lancamentosHeaders,
     configCategoriasHeaders,
     configFontesHeaders,
@@ -831,4 +911,5 @@ module.exports = {
     idempotencyHeaders,
     metasFinanceirasHeaders,
     compromissosRecorrentesHeaders,
+    regrasImportacaoHeaders,
 };

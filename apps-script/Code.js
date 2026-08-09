@@ -1,43 +1,29 @@
-var GENERIC_REQUEST_FAILURE = 'Nao foi possivel processar esta requisicao.';
-var GENERIC_MESSAGE_FAILURE = 'Nao foi possivel processar esta mensagem.';
-var GENERIC_RECORD_FAILURE = '⚠️ Não anotei com segurança.\n\n📌 O que falta\nValor, data, fonte/cartão ou categoria.\n\nExemplo:\nmercado 42 em 18/05 categoria Mercado da semana';
+var GENERIC_REQUEST_FAILURE = '⚠️ Não consegui concluir agora.\n\nTente novamente em instantes. Se persistir, volte ao início.';
+var GENERIC_MESSAGE_FAILURE = '⚠️ Não consegui entender esta mensagem.\n\nEscreva de outro jeito ou abra a ajuda para ver exemplos.';
+var GENERIC_RECORD_FAILURE = '⚠️ Ainda não anotei\n\nFalta confirmar valor, data, conta/cartão ou categoria.\n\n💬 Exemplo\nmercado 42 hoje no Nubank';
 var HELP_TEXT = [
-  '💰 Bot financeiro familiar',
+  '❔ Guia rápido',
   '',
-  '✍️ Lançar agora',
-  '- mercado 42 hoje',
-  '- farmacia 18 no nubank',
-  '- notebook 3000 em 3x no nubank categoria Eletronicos e equipamentos',
-  '- paguei fatura Nubank 300',
-  '- paguei fatura Mercado Pago 300',
-  '- Luana mandou 200 para caixa familiar',
-  '- transferi 1675 do Nubank Gustavo para Mercado Pago Gustavo',
-  '- saldo Mercado Pago Gustavo 324,41 em 18/05',
-  '- cofrinho Mercado Pago Gustavo saldo 9482,99',
+  '✍️ Escreva como você fala',
+  '• mercado 42 hoje no Nubank',
+  '• notebook 3000 em 3x no Nubank',
+  '• paguei fatura Nubank 300 pelo Mercado Pago',
+  '• transferi 500 do Nubank para Mercado Pago',
   '',
-  '🔎 Perguntas úteis',
-  '- qual meu custo de vida mensal?',
-  '- para onde foi meu dinheiro este mes?',
-  '- quais faturas tenho proximas?',
-  '- posso comprar notebook 900 em 3x?',
-  '- como esta minha reserva?',
+  '🔎 Pergunte antes de decidir',
+  '• quanto posso gastar agora?',
+  '• para onde foi meu dinheiro este mês?',
+  '• posso comprar notebook 900 em 3x?',
   '',
-  '📌 Comandos',
-  '- /copiloto: orientacao deterministica do que fazer agora',
-  '- /onde_cortar: primeiro corte sugerido sem abrir detalhes privados',
-  '- /gasto_seguro: teto conservador para gasto novo agora',
-  '- /resumo: visao do mes sem alterar a planilha',
-  '- /orcamento: ver limites e consumos por categoria',
-  '- /agenda: faturas e compromissos por data',
-  '- /metas: progresso de metas financeiras configuradas',
-  '- /compromissos: compromissos recorrentes configurados',
-  '- /revisar_mes: checklist antes de fechamento',
-  '- /limpar_contexto: apaga a conversa pendente deste chat',
-  '- /ajuda: exemplos'
+  '🧭 Atalhos essenciais',
+  '/copiloto • /resumo • /agenda • /gasto_seguro',
+  '/orcamento • /metas • /pendencias • /importar',
+  '',
+  '🛡️ Se faltar algum dado, eu pergunto antes de salvar.'
 ].join('\n');
-var SUCCESS_TEXT = '✅ Anotado.\n\n🧭 Próximo passo\nUse /resumo para revisar o mês.';
+var SUCCESS_TEXT = '✅ Anotado com segurança.\n\nO resumo já considera este lançamento.';
 var FAMILY_SUMMARY_HELP_TEXT = '🛡️ Regra de segurança\nSe eu não tiver certeza, eu não chuto. Eu peço categoria, fonte ou contexto.';
-var DEFAULT_OPENAI_MODEL = 'gpt-5-nano';
+var DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna';
 var OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 var SHEETS = {
   CONFIG_CATEGORIAS: 'Config_Categorias',
@@ -57,6 +43,7 @@ var SHEETS = {
 var OPTIONAL_V56_SHEETS = {
   METAS_FINANCEIRAS: 'Metas_Financeiras',
   COMPROMISSOS_RECORRENTES: 'Compromissos_Recorrentes',
+  REGRAS_IMPORTACAO: 'Regras_Importacao',
 };
 var HEADERS = {
   Cartoes: ['id_cartao', 'id_fonte', 'nome', 'titular', 'fechamento_dia', 'vencimento_dia', 'limite', 'ativo'],
@@ -68,7 +55,7 @@ var HEADERS = {
   Faturas_Linhas: ['id_linha_fatura', 'id_fatura', 'id_cartao', 'competencia', 'valor_previsto', 'status_origem', 'id_lancamento'],
   Lancamentos: ['id_lancamento', 'data', 'competencia', 'tipo_evento', 'id_categoria', 'valor', 'id_fonte', 'pessoa', 'escopo', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'visibilidade', 'status', 'descricao', 'parcelas', 'created_at'],
   Patrimonio_Ativos: ['id_ativo', 'nome', 'tipo_ativo', 'instituicao', 'saldo_atual', 'data_referencia', 'destinacao', 'conta_reserva_emergencia', 'ativo'],
-  Rendas_Recorrentes: ['id_renda', 'pessoa', 'descricao', 'valor_planejado', 'tipo_renda', 'beneficio_restrito', 'ativo', 'observacao'],
+  Rendas_Recorrentes: ['id_renda', 'pessoa', 'descricao', 'valor_planejado', 'tipo_renda', 'beneficio_restrito', 'ativo', 'observacao', 'dia_recebimento', 'regra_dia_util', 'id_fonte', 'revisao_mensal', 'revisado_em'],
   Saldos_Fontes: ['id_snapshot', 'competencia', 'data_referencia', 'id_fonte', 'saldo_inicial', 'saldo_final', 'saldo_disponivel', 'observacao', 'created_at'],
   Transferencias_Internas: ['id_transferencia', 'data', 'competencia', 'valor', 'fonte_origem', 'fonte_destino', 'pessoa_origem', 'pessoa_destino', 'escopo', 'direcao_caixa_familiar', 'descricao', 'created_at'],
   Idempotency_Log: ['idempotency_key', 'source', 'external_update_id', 'external_message_id', 'chat_id', 'payload_hash', 'status', 'result_ref', 'created_at', 'updated_at', 'error_code', 'observacao'],
@@ -76,21 +63,47 @@ var HEADERS = {
 var OPTIONAL_V56_HEADERS = {
   Metas_Financeiras: ['id_meta', 'nome', 'tipo', 'escopo', 'valor_alvo', 'valor_atual_manual', 'data_alvo', 'contribuicao_mensal_planejada', 'prioridade', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'],
   Compromissos_Recorrentes: ['id_compromisso', 'nome', 'tipo', 'escopo', 'valor_estimado', 'dia_vencimento', 'id_categoria', 'id_fonte', 'prioridade', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'],
+  Regras_Importacao: ['id_regra', 'assinatura_descricao', 'tipo_evento', 'id_categoria', 'id_fonte', 'id_cartao', 'escopo', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao'],
 };
 var PARSED_EVENT_FIELDS = ['tipo_evento', 'data', 'competencia', 'valor', 'descricao', 'id_categoria', 'id_fonte', 'pessoa', 'escopo', 'visibilidade', 'id_cartao', 'id_fatura', 'id_divida', 'id_ativo', 'afeta_dre', 'afeta_patrimonio', 'afeta_caixa_familiar', 'direcao_caixa_familiar', 'status', 'parcelas'];
 
 // SECTION: INFRA - HTTP entry points and Apps Script wrappers.
 function doPost(e) {
-  var config = readConfig_();
-  var secret = headerValue_(e, 'x-telegram-bot-api-secret-token') || parameterValue_(e, 'secret');
-  var secretCheck = verifyWebhookSecret_(config, secret);
-  if (!secretCheck.ok) return json_(secretCheck);
+  var startedAt = new Date().getTime();
+  var outcome = 'error';
+  try {
+    var config = readConfig_();
+    var secret = headerValue_(e, 'x-telegram-bot-api-secret-token') || parameterValue_(e, 'secret');
+    var secretCheck = verifyWebhookSecret_(config, secret);
+    if (!secretCheck.ok) {
+      outcome = 'secret_rejected';
+      return json_(secretCheck);
+    }
 
-  var update = parseUpdate_(e);
-  if (!update.ok) return json_(update);
+    var update = parseUpdate_(e);
+    if (!update.ok) {
+      outcome = 'invalid_update';
+      return json_(update);
+    }
 
-  var result = handleTelegramUpdate_(update.value, config);
-  return json_(result);
+    var workerRequest = headerValue_(e, 'x-bff-worker-request') === '1';
+    var dedupe = workerRequest ? beginTelegramUpdateProcessing_(update.value) : { process: true, key: '' };
+    if (dedupe.cached) {
+      outcome = 'cached';
+      return json_(dedupe.result);
+    }
+    if (!dedupe.process) {
+      outcome = 'duplicate_processing';
+      return json_(fail_('DUPLICATE_PROCESSING', 'update_id', GENERIC_RECORD_FAILURE));
+    }
+
+    var result = handleTelegramUpdate_(update.value, config);
+    if (dedupe.key) finishTelegramUpdateProcessing_(dedupe.key, result);
+    outcome = result && result.ok ? 'ok' : 'handled_error';
+    return json_(result);
+  } finally {
+    logRuntimeTiming_('do_post', startedAt, { outcome: outcome });
+  }
 }
 
 function doGet(e) {
@@ -126,6 +139,21 @@ function doGet(e) {
   if (action === 'commitments_preview') {
     return json_(buildCommitmentsResponse_(config));
   }
+  if (action === 'pending_attention_preview') {
+    return json_(buildPendingAttentionResponse_(config));
+  }
+  if (action === 'alerts_preview') {
+    return json_(buildAlertsPreviewResponse_(config));
+  }
+  if (action === 'import_selftest') {
+    return json_(runImportSelfTestV56());
+  }
+  if (action === 'openai_selftest') {
+    return json_(runOpenAIModelSelfTest());
+  }
+  if (action === 'copilot_analyst_selftest') {
+    return json_(runCopilotAnalystSyntheticSelfTestV56());
+  }
   if (action === 'optional_v56_template') {
     return json_(exportOptionalV56Template());
   }
@@ -155,9 +183,6 @@ function doGet(e) {
   }
   if (action === 'sheet_audit') {
     return json_(exportSheetAuditV55());
-  }
-  if (action === 'reconcile_faturas') {
-    return json_(reconcileAllFaturas());
   }
   if (action === 'schema_upgrade_dry_run') {
     return json_(upgradeSchemaV56({ dryRun: true }));
@@ -267,7 +292,7 @@ function exportSafeToSpendV56(competencia) {
   if (!result.ok) return result;
   return {
     ok: true,
-    responseText: formatSafeToSpendAnswer_(result.summary),
+    responseText: appendPendingAttentionBlocker_(formatSafeToSpendAnswer_(result.summary), result.summary),
     summary: {
       competencia: result.summary.competencia,
       saldos_fontes_disponivel: result.summary.saldos_fontes_disponivel,
@@ -305,6 +330,7 @@ function runCopilotWeeklyDigestDeliveryV56(competencia) {
   var chatIds;
   var sentCount = 0;
   var failedCount = 0;
+  var skippedCount = 0;
 
   if (!config.copilotDigestEnabled) {
     return {
@@ -329,12 +355,30 @@ function runCopilotWeeklyDigestDeliveryV56(competencia) {
   summaryResult = readCurrentPilotFamilySummary_(config, competencia);
   if (!summaryResult.ok) return summaryResult;
   digest = buildCopilotWeeklyDigest_(summaryResult.summary);
-
-  chatIds.forEach(function(chatId) {
-    var result = sendTelegramDigestMessage_(config.telegramBotToken, chatId, formatCopilotWeeklyDigest_(digest));
-    if (result.ok) sentCount += 1;
-    else failedCount += 1;
-  });
+  var digestText = formatCopilotWeeklyDigest_(digest);
+  var digestHash = stableId_('DIGEST', digestText);
+  var weekKey = isoWeekKey_(todaySaoPaulo_());
+  var properties = PropertiesService.getScriptProperties();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    chatIds.forEach(function(chatId) {
+      var dedupKey = stableId_('BFF_DIGEST', String(chatId) + '|' + weekKey + '|' + digestHash);
+      if (properties.getProperty(dedupKey) === 'sent') {
+        skippedCount += 1;
+        return;
+      }
+      var result = sendTelegramDigestMessage_(config.telegramBotToken, chatId, digestText);
+      if (result.ok) {
+        sentCount += 1;
+        properties.setProperty(dedupKey, 'sent');
+      } else {
+        failedCount += 1;
+      }
+    });
+  } finally {
+    lock.releaseLock();
+  }
 
   return {
     ok: failedCount === 0,
@@ -342,6 +386,7 @@ function runCopilotWeeklyDigestDeliveryV56(competencia) {
     enabled: true,
     sent_count: sentCount,
     failed_count: failedCount,
+    skipped_count: skippedCount,
     digest_kind: digest.kind,
     competencia: digest.competencia,
     shouldApplyDomainMutation: false,
@@ -745,6 +790,7 @@ function exportSheetAuditV55() {
   auditDuplicateInvoices_(findings, rows[SHEETS.FATURAS_RESUMO]);
   auditOptionalV56Goals_(findings, optionalRows[OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS]);
   auditOptionalV56Commitments_(findings, optionalRows[OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES], categories, sources);
+  auditOptionalV56ImportRules_(findings, optionalRows[OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO], categories, sources, cards);
 
   var summary = summarizeSheetAuditFindings_(findings);
   return {
@@ -846,6 +892,183 @@ function auditOptionalV56Goals_(findings, goals) {
   });
 }
 
+function runOpenAIModelSelfTest() {
+  var config = readConfig_();
+  if (!config.openAiApiKey) return fail_('MISSING_OPENAI_API_KEY', 'openai', GENERIC_REQUEST_FAILURE);
+  var models = [config.openAiParserModel, config.openAiNarratorModel].filter(function(model, index, all) {
+    return model && all.indexOf(model) === index;
+  });
+  var checks = [];
+  for (var i = 0; i < models.length; i += 1) {
+    var model = models[i];
+    var payload = {
+      model: model,
+      store: false,
+      reasoning: { effort: 'none' },
+      input: 'Return the required self-test status. Do not add any other content.',
+      text: { format: {
+        type: 'json_schema',
+        name: 'openai_model_selftest',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['status'],
+          properties: { status: { type: 'string', enum: ['ok'] } },
+        },
+      } },
+    };
+    try {
+      var response = fetchOpenAIResponseWithRetry_(payload, config, 'model_selftest');
+      var responseCode = response.getResponseCode();
+      var parsed = parseJsonSafe_(extractOpenAIOutputText_(parseJsonSafe_(response.getContentText())));
+      checks.push({ model: model, ok: responseCode >= 200 && responseCode < 300 && parsed && parsed.status === 'ok' });
+    } catch (_err) {
+      checks.push({ model: model, ok: false });
+    }
+  }
+  var referenceData = readRuntimeReferenceData_(config);
+  var parserResult = referenceData.ok
+    ? parseFinancialEventWithOpenAI_(
+      'Comprei um ralo para banheiro 28,40 no cartao Mercado Pago dia 07 de agosto para obra da casa.',
+      config,
+      referenceData,
+      { messages: [] }
+    )
+    : referenceData;
+  var financialParserOk = Boolean(
+    parserResult && parserResult.ok && parserResult.event &&
+    parserResult.event.tipo_evento === 'compra_cartao' &&
+    parserResult.event.id_categoria === 'OPEX_MORADIA_MANUTENCAO' &&
+    parserResult.event.id_cartao === 'CARD_MERCADO_PAGO_GU' &&
+    parserResult.event.id_fonte === 'FONTE_MERCADO_PAGO_GU' &&
+    parserResult.event.data === todaySaoPaulo_().slice(0, 4) + '-08-07' &&
+    numberFromSheetValue_(parserResult.event.valor) === 28.40
+  );
+  return {
+    ok: checks.length > 0 && checks.every(function(check) { return check.ok; }) && financialParserOk,
+    shouldApplyDomainMutation: false,
+    parser_model: config.openAiParserModel,
+    narrator_model: config.openAiNarratorModel,
+    reasoning_effort: 'none',
+    structured_outputs: true,
+    store: false,
+    financial_parser_ok: financialParserOk,
+    checks: checks,
+  };
+}
+
+function runCopilotAnalystSyntheticSelfTestV56() {
+  var config = readConfig_();
+  if (!config.openAiApiKey || !config.openAiAnalystModel) return fail_('MISSING_OPENAI_API_KEY', 'openai', GENERIC_REQUEST_FAILURE);
+  var competencia = todaySaoPaulo_().slice(0, 7);
+  var message = 'Quanto da minha renda está comprometida por despesas de obra da casa?';
+  var categoryReferences = [{
+    ref: 'cat_1', id: 'SYNTH_HOUSE', name: 'Manutenção da casa', group: 'Moradia',
+    scope: 'Familiar', visibility: 'detalhada', monthly_limit: 0, accumulates: false,
+  }];
+  try {
+    var plannerResponse = fetchOpenAIResponseOnce_(buildCopilotAnalysisPlannerPayload_(
+      message,
+      config,
+      categoryReferences,
+      { messages: [], analysis_context: emptyConversationAnalysisContext_() },
+      'Gustavo'
+    ), config, 'analyst_synthetic_plan');
+    var plannerOutput = parseOpenAiJsonObject_(plannerResponse);
+    var validation = BFFCore.validateAnalysisPlan(plannerOutput, {
+      currentCompetencia: competencia,
+      allowedCategoryRefs: ['cat_1'],
+    });
+    if (!validation.ok || validation.plan.route !== 'read' || !validation.plan.queries.some(function(query) {
+      return query.kind === 'spending_analysis';
+    })) {
+      return {
+        ok: false, shouldApplyDomainMutation: false, stage: 'plan',
+        code: validation.ok ? 'SYNTHETIC_ROUTE_MISMATCH' : validation.code,
+      };
+    }
+    var plan = validation.plan;
+    var snapshot = {
+      current_competencia: competencia,
+      categories: categoryReferences,
+      launches: [
+        { data: competencia + '-02', competencia: competencia, tipo_evento: 'despesa', id_categoria: 'SYNTH_HOUSE', valor: 250, pessoa: 'Gustavo', escopo: 'Familiar', afeta_dre: true, visibilidade: 'detalhada', status: 'efetivado', descricao: 'material de obra' },
+        { data: competencia + '-05', competencia: competencia, tipo_evento: 'receita', id_categoria: 'REC_SALARIO_LIQUIDO', id_fonte: 'SYNTH_ACCOUNT', valor: 1000, pessoa: 'Gustavo', escopo: 'Gustavo', afeta_dre: true, visibilidade: 'privada', status: 'efetivado', descricao: 'renda' },
+        { data: competencia + '-05', competencia: competencia, tipo_evento: 'receita', id_categoria: 'REC_SALARIO_LIQUIDO', id_fonte: 'SYNTH_ACCOUNT', valor: 1200, pessoa: 'Gustavo', escopo: 'Gustavo', afeta_dre: true, visibilidade: 'privada', status: 'agendado', descricao: 'renda declarada' },
+      ],
+      recurring_incomes: [],
+      source_balances: [{ competencia: competencia, data_referencia: competencia + '-06', id_fonte: 'SYNTH_ACCOUNT', saldo_disponivel: 1000 }],
+      summaries: {},
+      current_summary: { pending_attention: { blocking: false, items: [] } },
+      closed_competencias: [],
+    };
+    snapshot.summaries[competencia] = snapshot.current_summary;
+    var execution = BFFCore.executeCopilotAnalysis(snapshot, plan);
+    if (!execution.ok) return { ok: false, shouldApplyDomainMutation: false, stage: 'execution', code: execution.code };
+    var fallback = BFFCore.formatDeterministicCopilotAnswer(execution.evidence, { title: 'Teste sintético' });
+    var answerResponse = fetchOpenAIResponseOnce_(buildCopilotAnalysisAnswerPayload_(message, config, plan, execution.evidence, fallback), config, 'analyst_synthetic_answer');
+    var answer = BFFCore.validateCopilotAnswer(parseOpenAiJsonObject_(answerResponse), execution.evidence, fallback);
+    return {
+      ok: Boolean(answer.ok),
+      shouldApplyDomainMutation: false,
+      analyst_model: config.openAiAnalystModel,
+      route: plan.route,
+      query_kinds: plan.queries.map(function(query) { return query.kind; }),
+      evidence_count: execution.evidence.length,
+      answer_valid: Boolean(answer.ok),
+      store: false,
+      code: answer.ok ? '' : answer.code,
+    };
+  } catch (_err) {
+    return { ok: false, shouldApplyDomainMutation: false, stage: 'fetch', code: 'SYNTHETIC_ANALYST_FAILED' };
+  }
+}
+
+function isoWeekKey_(isoDate) {
+  var parts = String(isoDate || '').split('-').map(Number);
+  var date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+  var day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - day);
+  var yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  var week = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+  return date.getUTCFullYear() + '-W' + ('0' + week).slice(-2);
+}
+
+function ensureCopilotWeeklyDigestTriggerV56() {
+  var handler = 'runCopilotWeeklyDigestDeliveryV56';
+  var existing = ScriptApp.getProjectTriggers().filter(function(trigger) {
+    return trigger.getHandlerFunction() === handler;
+  });
+  if (existing.length > 0) {
+    existing.slice(1).forEach(function(trigger) { ScriptApp.deleteTrigger(trigger); });
+    return { ok: true, created: false, existing_count: 1, duplicates_removed: Math.max(0, existing.length - 1), timezone: 'America/Sao_Paulo', hour: 8, weekday: 'MONDAY' };
+  }
+  ScriptApp.newTrigger(handler)
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.MONDAY)
+    .atHour(8)
+    .inTimezone('America/Sao_Paulo')
+    .create();
+  return { ok: true, created: true, existing_count: 0, timezone: 'America/Sao_Paulo', hour: 8, weekday: 'MONDAY' };
+}
+
+function activateCopilotDigestAfterApprovalV56() {
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('COPILOT_DIGEST_ENABLED', 'YES');
+  props.setProperty('COPILOT_ALERTS_ENABLED', 'NO');
+  if (!props.getProperty('BALANCE_FRESHNESS_DAYS')) props.setProperty('BALANCE_FRESHNESS_DAYS', '7');
+  var trigger = ensureCopilotWeeklyDigestTriggerV56();
+  return {
+    ok: trigger.ok === true,
+    digest_enabled: true,
+    alerts_enabled: false,
+    balance_freshness_days: Number(props.getProperty('BALANCE_FRESHNESS_DAYS') || 7),
+    trigger: trigger,
+    digest_sent: false,
+  };
+}
+
 function auditOptionalV56Commitments_(findings, commitments, categories, sources) {
   (commitments || []).forEach(function(row) {
     var active = row.ativo !== false;
@@ -866,6 +1089,29 @@ function auditOptionalV56Commitments_(findings, commitments, categories, sources
     var day = Number(row.dia_vencimento || 0);
     if (day && (day < 1 || day > 31)) {
       addSheetAuditFinding_(findings, 'INVALID_DUE_DAY', 'error', OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES, 'dia_vencimento', 1, 'dia_vencimento must be 1..31');
+    }
+  });
+}
+
+function auditOptionalV56ImportRules_(findings, rules, categories, sources, cards) {
+  (rules || []).forEach(function(row) {
+    var active = row.ativo !== false;
+    var reviewed = isReviewedOptionalAuditRow_(row);
+    if (active && !reviewed) {
+      addSheetAuditFinding_(findings, 'UNREVIEWED_ACTIVE_OPTIONAL_ROW', 'warning', OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'status_revisao', 1, 'active import rules must be reviewed before automatic inclusion');
+      return;
+    }
+    if (!active || !reviewed) return;
+    auditOptionalRequiredFields_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, row, ['id_regra', 'assinatura_descricao', 'tipo_evento', 'id_categoria', 'escopo', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo']);
+    auditOptionalEnumField_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'tipo_evento', row.tipo_evento, ['despesa', 'receita', 'compra_cartao']);
+    auditOptionalEnumField_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'escopo', row.escopo, ['Familiar', 'Gustavo', 'Luana']);
+    auditOptionalEnumField_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'visibilidade', row.visibilidade, ['detalhada', 'privada']);
+    auditOptionalIsoDate_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'revisado_em', row.revisado_em, false);
+    checkOptionalSheetAuditReference_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'id_categoria', row.id_categoria, categories, true);
+    checkOptionalSheetAuditReference_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'id_fonte', row.id_fonte, sources, true);
+    checkOptionalSheetAuditReference_(findings, OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'id_cartao', row.id_cartao, cards, true);
+    if ((!stringValue_(row.id_fonte) && !stringValue_(row.id_cartao)) || (stringValue_(row.id_fonte) && stringValue_(row.id_cartao))) {
+      addSheetAuditFinding_(findings, 'INVALID_IMPORT_ORIGIN', 'error', OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO, 'id_fonte', 1, 'reviewed import rule requires exactly one source or card');
     }
   });
 }
@@ -1004,31 +1250,6 @@ function summarizeSheetAuditFindings_(findings) {
   }, { total: 0, error: 0, warning: 0 });
 }
 
-function reconcileAllFaturas() {
-  var config = readConfig_();
-  if (!config.spreadsheetId) return { ok: false, error: 'MISSING_SPREADSHEET_ID' };
-  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
-  var invoiceResumoSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_RESUMO);
-  var invoiceLinhasSheet = spreadsheet.getSheetByName(SHEETS.FATURAS_LINHAS);
-  if (!invoiceResumoSheet || !invoiceLinhasSheet) {
-    return { ok: false, error: 'MISSING_SHEETS' };
-  }
-  var resumoHeaders = HEADERS[SHEETS.FATURAS_RESUMO];
-  var resumoLastRow = invoiceResumoSheet.getLastRow();
-  if (resumoLastRow < 2) return { ok: true, reconciled: 0 };
-
-  var resumoRows = invoiceResumoSheet.getRange(2, 1, resumoLastRow - 1, resumoHeaders.length).getValues();
-  var resumoIdIndex = resumoHeaders.indexOf('id_fatura');
-  var reconciledCount = 0;
-  for (var i = 0; i < resumoRows.length; i += 1) {
-    var invoiceId = String(resumoRows[i][resumoIdIndex]);
-    if (!invoiceId) continue;
-    reconcileInvoiceForecastHeaderFromLines_(invoiceResumoSheet, invoiceLinhasSheet, invoiceId);
-    reconciledCount += 1;
-  }
-  return { ok: true, reconciled: reconciledCount };
-}
-
 function upgradeSchemaV56(options) {
   options = options || {};
   var config = readConfig_();
@@ -1037,6 +1258,8 @@ function upgradeSchemaV56(options) {
   var dryRun = options.dryRun !== false;
   var changes = [];
   var errors = [];
+
+  upgradeRecurringIncomeHeaders_(spreadsheet, dryRun, changes, errors);
 
   objectValues_(OPTIONAL_V56_SHEETS).forEach(function(sheetName) {
     var expected = OPTIONAL_V56_HEADERS[sheetName];
@@ -1076,9 +1299,63 @@ function upgradeSchemaV56(options) {
   };
 }
 
+function upgradeRecurringIncomeHeaders_(spreadsheet, dryRun, changes, errors) {
+  var sheetName = SHEETS.RENDAS_RECORRENTES;
+  var sheet = spreadsheet.getSheetByName(sheetName);
+  var expected = HEADERS[sheetName];
+  var legacy = expected.slice(0, 8);
+  if (!sheet || sheet.getLastRow() < 1) {
+    errors.push({ sheet: sheetName, error: 'MISSING_REQUIRED_SHEET', message: 'required recurring income sheet/header is missing' });
+    return;
+  }
+  var actualWidth = Math.max(1, sheet.getLastColumn());
+  var actual = sheet.getRange(1, 1, 1, actualWidth).getValues()[0].map(function(value) { return String(value || '').trim(); });
+  while (actual.length && !actual[actual.length - 1]) actual.pop();
+  if (JSON.stringify(actual) === JSON.stringify(expected)) return;
+  var compatiblePrefix = JSON.stringify(actual) === JSON.stringify(expected.slice(0, actual.length));
+  if (!compatiblePrefix || actual.length < legacy.length) {
+    errors.push({ sheet: sheetName, error: 'HEADER_MISMATCH', message: 'Rendas_Recorrentes is not an append-only compatible schema' });
+    return;
+  }
+
+  changes.push({ sheet: sheetName, action: 'append_headers', fromColumns: actual.length, toColumns: expected.length });
+  if (dryRun) return;
+  sheet.getRange(1, actual.length + 1, 1, expected.length - actual.length).setValues([expected.slice(actual.length)]);
+  if (sheet.getLastRow() < 2) return;
+
+  var sourceSheet = spreadsheet.getSheetByName(SHEETS.CONFIG_FONTES);
+  verifySheetHeaders_(sourceSheet, SHEETS.CONFIG_FONTES);
+  var sources = readRowsAsObjects_(sourceSheet, SHEETS.CONFIG_FONTES).filter(function(row) {
+    return row.ativo === true && row.tipo !== 'cartao_credito';
+  });
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, expected.length).getValues();
+  var today = todaySaoPaulo_();
+  rows.forEach(function(row) {
+    var person = String(row[1] || '').trim();
+    var type = normalizeAliasText_(row[4]);
+    var observation = normalizeAliasText_([row[2], row[7]].join(' '));
+    var dayMatch = observation.match(/\bdia\s+(\d{1,2})\b/);
+    var sourceId = '';
+    var candidates = sources.filter(function(source) {
+      return !person || normalizeAliasText_(source.titular) === normalizeAliasText_(person);
+    });
+    candidates.forEach(function(source) {
+      if (!sourceId && observation.indexOf(normalizeAliasText_(source.nome)) !== -1) sourceId = source.id_fonte;
+    });
+    if (!sourceId && candidates.length === 1) sourceId = candidates[0].id_fonte;
+    row[8] = row[8] || (dayMatch ? Number(dayMatch[1]) : 5);
+    row[9] = row[9] || 'dia_fixo_anterior_util';
+    row[10] = row[10] || sourceId;
+    row[11] = row[11] === true || type.indexOf('variavel') !== -1;
+    row[12] = row[12] || today;
+  });
+  sheet.getRange(2, 1, rows.length, expected.length).setValues(rows);
+}
+
 function exportOptionalV56Template() {
   var goalHeaders = OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.METAS_FINANCEIRAS];
   var commitmentHeaders = OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.COMPROMISSOS_RECORRENTES];
+  var importRuleHeaders = OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO];
   var goalRow = {
     id_meta: 'META_<SLUG_APROVADO>',
     nome: '<NOME_DA_META_APROVADA>',
@@ -1111,6 +1388,20 @@ function exportOptionalV56Template() {
     ativo: true,
     observacao: '<OPCIONAL_CONTEXTO_REVISADO>',
   };
+  var importRuleRow = {
+    id_regra: 'REGIMP_<SLUG_APROVADO>',
+    assinatura_descricao: '<DESCRICAO_NORMALIZADA_REVISADA>',
+    tipo_evento: '<despesa|receita|compra_cartao>',
+    id_categoria: '<ID_CATEGORIA_ATIVA>',
+    id_fonte: '<ID_FONTE_OU_VAZIO>',
+    id_cartao: '<ID_CARTAO_OU_VAZIO>',
+    escopo: 'Familiar',
+    visibilidade: 'detalhada',
+    status_revisao: 'revisado',
+    revisado_em: '<YYYY-MM-DD>',
+    ativo: true,
+    observacao: '<ORIGEM_E_CONFIRMACAO_INDIVIDUAL>',
+  };
   return {
     ok: true,
     shouldApplyDomainMutation: false,
@@ -1141,6 +1432,10 @@ function exportOptionalV56Template() {
       Compromissos_Recorrentes: {
         headers: commitmentHeaders.slice(),
         rows: [commitmentRow],
+      },
+      Regras_Importacao: {
+        headers: importRuleHeaders.slice(),
+        rows: [importRuleRow],
       },
     },
   };

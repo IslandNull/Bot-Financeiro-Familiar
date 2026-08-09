@@ -40,14 +40,14 @@ function buildCopilotInsights(summary, options = {}) {
             pillar: 'data_quality',
             severity: 'critical',
             confidence: 'high',
-            title: 'Saldo real ausente',
-            status: 'Falta saldo real das contas para decidir com seguranca.',
+            title: 'Atualize os saldos antes de decidir',
+            status: 'Ainda falta o saldo real das contas para calcular uma margem confiável.',
             evidence: [
                 { label: 'Saldos informados', value: 0 },
                 { label: 'Faturas atuais', value: money(facts.faturas_atuais) },
             ],
-            recommendation: 'Atualizar os saldos das contas antes de decidir gasto, investimento ou amortizacao.',
-            avoid: 'Nao tratar reserva ou limite de cartao como dinheiro livre.',
+            recommendation: 'Informe o saldo atual de cada conta antes de decidir gasto, investimento ou amortização.',
+            avoid: 'Não trate reserva ou limite do cartão como dinheiro disponível.',
             action_key: 'update_balances',
         }));
     }
@@ -58,15 +58,15 @@ function buildCopilotInsights(summary, options = {}) {
             pillar: 'cash_flow',
             severity: 'critical',
             confidence: money(facts.saldos_fontes_count) > 0 ? 'high' : 'medium',
-            title: 'Fluxo projetado negativo',
-            status: 'A projecao fica negativa depois da renda e pagamentos registrados.',
+            title: 'Caixa projetado no vermelho',
+            status: 'Mesmo após a renda registrada, os pagamentos deixam o caixa projetado negativo.',
             evidence: [
                 { label: 'Sobra projetada', value: money(facts.sobra_projetada_pos_pagamentos) },
                 { label: 'Faturas atuais', value: money(facts.faturas_atuais) },
-                { label: 'Obrigacoes do ciclo', value: money(facts.obrigacoes_ciclo) },
+                { label: 'Compromissos do ciclo', value: money(facts.obrigacoes_ciclo) },
             ],
-            recommendation: 'Cobrir pagamentos registrados antes de assumir gasto novo.',
-            avoid: 'Nao parcelar compra nova enquanto a sobra projetada estiver negativa.',
+            recommendation: 'Separe primeiro o valor dos pagamentos registrados e revise o que pode ser adiado.',
+            avoid: 'Evite compra nova ou parcelamento enquanto a projeção continuar negativa.',
             action_key: 'safe_to_spend',
         }));
     }
@@ -81,15 +81,15 @@ function buildCopilotInsights(summary, options = {}) {
             severity: 'warning',
             confidence: 'medium',
             privacy_level: opportunities.some((item) => String(item.visibilidade || '').toLowerCase() === 'privada') ? 'aggregate_only' : 'shared',
-            title: 'Primeiro corte do mes',
-            status: 'Existe oportunidade de reduzir gasto controlavel sem abrir detalhes privados.',
+            title: 'Melhor oportunidade de economia',
+            status: 'Há espaço para reduzir um gasto controlável sem expor detalhes privados.',
             evidence: [
-                { label: 'Categoria candidata', value: String(top.nome || 'Gasto controlavel') },
+                { label: 'Categoria candidata', value: String(top.nome || 'Gasto controlável') },
                 { label: 'Gasto observado', value: money(top.valor) },
                 { label: 'Potencial de economia', value: money(top.potencial_economia || top.valor) },
             ],
-            recommendation: 'Escolher esse primeiro corte antes de mexer em reserva, divida ou investimento.',
-            avoid: 'Nao abrir itens privados em conversa compartilhada; use apenas o agregado.',
+            recommendation: 'Comece por essa categoria antes de mexer em reserva, dívida ou investimento.',
+            avoid: 'Em conversa compartilhada, mantenha os itens privados apenas no agregado.',
             action_key: 'cut_first',
         }));
     }
@@ -100,14 +100,14 @@ function buildCopilotInsights(summary, options = {}) {
             pillar: 'reserve',
             severity: 'warning',
             confidence: 'high',
-            title: 'Investimento bloqueado',
-            status: 'Reserva ou pagamentos ainda bloqueiam uma decisao de investimento.',
+            title: 'Reserva ainda não libera investimento',
+            status: 'A liquidez atual precisa proteger a reserva e os pagamentos antes de destinar dinheiro novo a investimentos.',
             evidence: [
                 { label: 'Reserva atual', value: money(facts.reserva_total) },
-                { label: 'Motivo', value: String(health.meta_guardar.motivo || 'reserva_ou_pagamentos') },
+                { label: 'Proteção necessária', value: friendlyInvestmentBlocker(health.meta_guardar.motivo) },
             ],
-            recommendation: 'Preservar liquidez e reforcar reserva antes de investir dinheiro novo.',
-            avoid: 'Nao investir valor que pode ser necessario para faturas ou obrigacoes.',
+            recommendation: 'Preserve a liquidez e reforce a reserva antes de investir dinheiro novo.',
+            avoid: 'Não invista um valor que pode ser necessário para faturas ou compromissos.',
             action_key: 'reserve_first',
         }));
     }
@@ -119,13 +119,13 @@ function buildCopilotInsights(summary, options = {}) {
             severity: 'positive',
             confidence: money(facts.saldos_fontes_count) > 0 ? 'high' : 'medium',
             title: 'Fluxo sob controle',
-            status: 'O fluxo registrado cobre os pagamentos conhecidos.',
+            status: 'O fluxo registrado cobre os pagamentos conhecidos até agora.',
             evidence: [
                 { label: 'Sobra projetada', value: money(facts.sobra_projetada_pos_pagamentos) },
                 { label: 'Faturas atuais', value: money(facts.faturas_atuais) },
             ],
-            recommendation: 'Manter agenda e faturas revisadas antes de gasto grande.',
-            avoid: 'Nao assumir que sobra projetada e dinheiro livre sem conferir proximas parcelas.',
+            recommendation: 'Mantenha agenda e faturas revisadas antes de assumir um gasto grande.',
+            avoid: 'Não trate a sobra projetada como dinheiro livre sem conferir as próximas parcelas.',
             action_key: 'review_before_spend',
         }));
     }
@@ -138,30 +138,53 @@ function buildCopilotInsights(summary, options = {}) {
 function formatCopilotDecisionCards(summary, options = {}) {
     const insights = options.insights || buildCopilotInsights(summary, { limit: options.limit || 3 });
     const lines = [
-        'Copiloto financeiro de ' + friendlyCompetencia(summary && summary.competencia),
+        '🧭 Copiloto • ' + capitalize(friendlyCompetencia(summary && summary.competencia)),
         '',
     ];
 
     insights.forEach((item, index) => {
-        if (index > 0) lines.push('');
-        lines.push('Status');
-        lines.push(item.status || item.title || 'Ponto de atencao financeiro.');
+        if (index > 0) lines.push('', '────────────', '');
+        lines.push(severityEmoji(item.severity) + ' ' + (item.title || 'Ponto de atenção'));
+        lines.push(item.status || 'Há um ponto financeiro que merece atenção.');
         lines.push('');
-        lines.push('Por que');
         item.evidence.slice(0, 4).forEach((evidence) => {
-            lines.push('- ' + evidence.label + ': ' + formatEvidenceValue(evidence.value));
+            lines.push('• ' + evidence.label + ': ' + formatEvidenceValue(evidence.value));
         });
         lines.push('');
-        lines.push('O que fazer agora');
+        lines.push('👉 Prioridade agora');
         lines.push(item.recommendation);
         lines.push('');
-        lines.push('Nao fazer');
-        lines.push(item.avoid || 'Nao decidir com base em chute.');
-        lines.push('');
-        lines.push('Confianca: ' + confidenceLabel(item.confidence));
+        lines.push('⛔ Evite agora');
+        lines.push(item.avoid || 'Não decida com base em suposição.');
     });
 
+    lines.push('', '🔎 Leitura determinística • confiança ' + overallConfidence(insights));
+
     return lines.join('\n');
+}
+
+function severityEmoji(severity) {
+    if (severity === 'critical') return '🚨';
+    if (severity === 'warning') return '🛡️';
+    if (severity === 'positive') return '✅';
+    return 'ℹ️';
+}
+
+function overallConfidence(insights) {
+    if ((insights || []).some((item) => item.confidence === 'low')) return 'baixa';
+    if ((insights || []).some((item) => item.confidence === 'medium')) return 'média';
+    return 'alta';
+}
+
+function friendlyInvestmentBlocker(value) {
+    const normalized = String(value || '').toLowerCase();
+    const labels = {
+        reserva_ou_pagamentos: 'reserva e pagamentos ainda precisam de cobertura',
+        reserva: 'reserva ainda abaixo da proteção necessária',
+        pagamentos: 'pagamentos registrados ainda precisam de cobertura',
+        saldos_desatualizados: 'saldos precisam ser atualizados',
+    };
+    return labels[normalized] || 'reserva e pagamentos ainda precisam de cobertura';
 }
 
 function buildCopilotWeeklyDigest(summary, options = {}) {
@@ -194,7 +217,7 @@ function buildCopilotWeeklyDigest(summary, options = {}) {
             cut_first: buildCutFirstDigest(cutFirstInsight),
             safe_to_spend: {
                 status: safe.has_balances
-                    ? (safe.amount > 0 ? 'Existe folga conservadora para gasto novo.' : 'Nao ha gasto novo seguro pelos dados registrados.')
+                    ? (safe.amount > 0 ? 'Existe folga conservadora para gasto novo.' : 'Não há gasto novo seguro pelos dados registrados.')
                     : 'Sem saldo real das contas, gasto seguro fica bloqueado.',
                 amount: safe.amount,
                 action_key: 'safe_to_spend',
@@ -207,8 +230,8 @@ function buildCopilotWeeklyDigest(summary, options = {}) {
             reserve: reserveInsight
                 ? digestInsight(reserveInsight)
                 : {
-                    label: 'Reserva sem bloqueio critico no resumo atual.',
-                    status: 'Nenhum bloqueio deterministico de reserva apareceu entre os principais insights.',
+                    label: 'Reserva sem bloqueio crítico no resumo atual.',
+                    status: 'Nenhum bloqueio determinístico de reserva apareceu entre os principais insights.',
                     action_key: 'reserve_first',
                     evidence: [
                         { label: 'Reserva atual', value: money(facts.reserva_total) },
@@ -231,41 +254,41 @@ function formatCopilotWeeklyDigest(digest) {
     const reserve = sections.reserve || {};
     const missing = sections.data_missing || [];
     const lines = [
-        'Digest semanal do copiloto - ' + friendlyCompetencia(data.competencia),
+        '🌅 Seu radar da semana • ' + capitalize(friendlyCompetencia(data.competencia)),
         '',
-        'O que mudou',
+        '🔄 Leitura da semana',
         changed.status || 'Leitura feita com os dados atuais.',
         '',
-        'Maior risco',
-        risk.status || 'Nenhum risco critico apareceu nos dados atuais.',
+        '🚨 Maior risco',
+        risk.status || 'Nenhum risco crítico apareceu nos dados atuais.',
     ];
 
     if (risk.recommendation) {
-        lines.push('Acao: ' + risk.recommendation);
+        lines.push('👉 ' + risk.recommendation);
     }
 
     lines.push('');
-    lines.push('Onde cortar primeiro');
-    lines.push(cut.status || 'Nenhum corte prioritario apareceu agora.');
+    lines.push('✂️ Onde economizar primeiro');
+    lines.push(cut.status || 'Nenhum corte prioritário apareceu agora.');
     if (cut.label) lines.push('Categoria: ' + cut.label);
-    if (typeof cut.potential === 'number') lines.push('Economia possivel: ' + formatMoney(cut.potential));
+    if (typeof cut.potential === 'number') lines.push('• Economia possível: ' + formatMoney(cut.potential));
 
     lines.push('');
-    lines.push('Gasto seguro');
-    lines.push(safe.status || 'Gasto seguro indisponivel.');
-    lines.push('Gasto seguro agora: ' + formatMoney(safe.amount));
+    lines.push('🛡️ Gasto seguro agora');
+    lines.push(safe.status || 'Gasto seguro indisponível.');
+    lines.push('• Limite conservador: ' + formatMoney(safe.amount));
 
     lines.push('');
-    lines.push('Reserva e decisao');
-    lines.push(reserve.status || 'Reserva sem alerta critico.');
-    if (reserve.recommendation) lines.push('Acao: ' + reserve.recommendation);
+    lines.push('🏦 Reserva e decisão');
+    lines.push(reserve.status || 'Reserva sem alerta crítico.');
+    if (reserve.recommendation) lines.push('👉 ' + reserve.recommendation);
 
     lines.push('');
-    lines.push('Dados antes da proxima decisao');
+    lines.push('🧩 Antes da próxima decisão');
     if (missing.length === 0) {
-        lines.push('- Nenhum bloqueio de dado critico no preview.');
+        lines.push('• Nenhum bloqueio crítico de dados.');
     } else {
-        missing.forEach((item) => lines.push('- ' + item));
+        missing.forEach((item) => lines.push('• ' + item));
     }
 
     return lines.join('\n');
@@ -292,7 +315,7 @@ function digestInsight(item) {
     if (!item) {
         return {
             label: 'Sem insight principal.',
-            status: 'Nenhum insight deterministico disponivel.',
+            status: 'Nenhum insight determinístico disponível.',
             action_key: '',
             evidence: [],
             recommendation: '',
@@ -317,11 +340,11 @@ function buildCutFirstDigest(item) {
     if (!item) {
         return {
             label: '',
-            status: 'Nenhuma oportunidade de corte prioritario apareceu agora.',
+            status: 'Nenhuma oportunidade de corte prioritário apareceu agora.',
             action_key: 'cut_first',
             potential: 0,
             evidence: [],
-            recommendation: 'Manter revisao de categorias antes de gasto novo.',
+            recommendation: 'Manter a revisão de categorias antes de assumir gasto novo.',
         };
     }
     const evidence = sanitizeEvidence(item.evidence);
@@ -359,13 +382,20 @@ function formatEvidenceValue(value) {
 }
 
 function formatMoney(value) {
-    return 'R$ ' + money(value).toFixed(2).replace('.', ',');
+    const parts = money(value).toFixed(2).split('.');
+    const integer = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return 'R$ ' + integer + ',' + parts[1];
 }
 
 function confidenceLabel(confidence) {
     if (confidence === 'high') return 'alta';
     if (confidence === 'low') return 'baixa';
-    return 'media';
+    return 'média';
+}
+
+function capitalize(value) {
+    const text = String(value || '');
+    return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
 }
 
 module.exports = {

@@ -36,6 +36,7 @@ test('canonical seed includes ids needed by event examples', () => {
     assert.ok(categoryIds.includes('OPEX_ALIMENTACAO_FORA'));
     assert.ok(categoryIds.includes('OPEX_ROUPAS_GUSTAVO'));
     assert.ok(categoryIds.includes('OPEX_ROUPAS_LUANA'));
+    assert.ok(categoryIds.includes('OPEX_LAZER_LUANA'));
     assert.ok(categoryIds.includes('OPEX_CAFE_TRABALHO_GUSTAVO'));
     assert.ok(categoryIds.includes('OPEX_CAFE_TRABALHO_LUANA'));
     assert.ok(categoryIds.includes('MOV_CAIXA_FAMILIAR'));

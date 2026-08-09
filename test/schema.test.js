@@ -40,15 +40,18 @@ test('schema contains the clean V55 sheets', () => {
     ]);
 });
 
-test('optional V56 schema defines goals and recurring commitments without making them live V55 sheets', () => {
+test('optional V56 schema defines reviewed planning and import rules without making them live V55 sheets', () => {
     assert.deepStrictEqual(getOptionalV56SheetNames(), [
         'Metas_Financeiras',
         'Compromissos_Recorrentes',
+        'Regras_Importacao',
     ]);
     assert.ok(!getSheetNames().includes('Metas_Financeiras'));
     assert.ok(!getSheetNames().includes('Compromissos_Recorrentes'));
+    assert.ok(!getSheetNames().includes('Regras_Importacao'));
     assert.strictEqual(SHEETS.METAS_FINANCEIRAS, undefined);
     assert.strictEqual(SHEETS.COMPROMISSOS_RECORRENTES, undefined);
+    assert.strictEqual(SHEETS.REGRAS_IMPORTACAO, undefined);
 });
 
 test('optional V56 goals and commitments capture reviewed status progress timing ownership and privacy', () => {
@@ -84,6 +87,10 @@ test('optional V56 goals and commitments capture reviewed status progress timing
         'ativo',
         'observacao',
     ]);
+    assert.deepStrictEqual(OPTIONAL_V56_HEADERS[OPTIONAL_V56_SHEETS.REGRAS_IMPORTACAO], [
+        'id_regra', 'assinatura_descricao', 'tipo_evento', 'id_categoria', 'id_fonte', 'id_cartao',
+        'escopo', 'visibilidade', 'status_revisao', 'revisado_em', 'ativo', 'observacao',
+    ]);
 });
 
 test('lancamentos uses family cash flag', () => {
@@ -102,6 +109,11 @@ test('decision-capacity sheets exist before Telegram phase', () => {
         'beneficio_restrito',
         'ativo',
         'observacao',
+        'dia_recebimento',
+        'regra_dia_util',
+        'id_fonte',
+        'revisao_mensal',
+        'revisado_em',
     ]);
     assert.deepStrictEqual(HEADERS[SHEETS.SALDOS_FONTES], [
         'id_snapshot',

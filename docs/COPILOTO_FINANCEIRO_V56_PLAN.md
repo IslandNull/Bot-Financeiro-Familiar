@@ -14,7 +14,7 @@ The product direction is not "more dashboard". The product direction is a conver
 - Every recommendation must show evidence: numbers, period, source summary, confidence, and the next action.
 - Private personal spending stays aggregate-only in shared views.
 - Proactive messages default to a weekly digest plus high-signal alerts. The bot should not nag daily by default.
-- No automatic banking/Open Finance integration in v1. Treat it as a future epic after the copilot works well on the current Sheets/Telegram base.
+- No direct banking/Open Finance integration in v1. User-confirmed Telegram OFX/CSV import is allowed; it is transient, deterministic, recoverable and never connects to a bank.
 
 ## Research Inputs
 
@@ -249,7 +249,58 @@ Acceptance:
 - Tests prove no new numbers can enter the response from the model.
 - Fallback deterministic text works without OpenAI.
 
-### Future Epic - Banking/Open Finance
+### Phase 7 - Security, shared core and recoverable writes
+
+- Val Town fails closed on method, media type, 1 MB body, secret, user and chat before preflight or forwarding.
+- `src/gas-core.js` is bundled with pinned esbuild into the Apps Script runtime.
+- `MutationPlan` journals `processing -> completed/failed`, applies deterministic ID upserts in sheet batches and reconciles retries.
+- Corrections use the same plan, validating the replacement before physical deletion of the original and dependencies.
+- CI validates every push/PR; pinned `vt` deploy runs only after merge to `main`.
+
+Acceptance:
+- Executable forged-request tests make zero external calls.
+- Fault injection after every write boundary recovers without duplicate launch, installment, invoice, balance or correction.
+- Divergent content for an existing deterministic ID fails with `MUTATION_CONFLICT`.
+
+### Phase 8 - Pending attention and controlled proactivity
+
+- `/pendencias` ranks missing/stale balances, missing invoice authority, monthly asset/debt updates and reviewed-row gaps.
+- Exactly 7 days remains fresh; day 8 blocks safe spending, investment and amortization by default.
+- Digest is deduplicated per chat/ISO week/content and scheduled Monday 08:00 in `America/Sao_Paulo`.
+- `alerts_preview` exposes 85%/100% budget thresholds while immediate delivery remains disabled.
+
+Acceptance:
+- Every item has evidence, confidence and privacy level.
+- Group output is aggregate-only.
+- Trigger creation is idempotent and activation does not send a digest immediately.
+
+### Phase 9 - Confirmed Telegram OFX/CSV import
+
+- Accept OFX 1.x SGML, OFX 2.x XML and CSV UTF-8/Windows-1252 up to 5 MB and 200 transactions.
+- Validate origin, re-download on callback, verify hash/token/30-minute expiry and write one safe batch through `MutationPlan`.
+- Keep transfer, invoice payment, refund/reversal, closed-period, ambiguous-sign and possible manual duplicates outside the batch.
+- Use `Regras_Importacao`; only active `revisado` rules auto-include. AI category suggestions use strict/store-false output and require individual confirmation.
+
+Acceptance:
+- Synthetic fixtures cover formats, encodings, separators, FITID, duplicates, rules and privacy.
+- Raw file bytes never enter logs, Sheets or Script Properties.
+- Reupload and boundary retries never duplicate launches or invoice exposure.
+
+### Phase 10 - Conversational Financial Analyst
+
+- Route natural messages as `read`, `write_handoff`, `clarify` or `help`; commands, callbacks and pending write flows keep precedence.
+- Execute up to four of six pure read investigations over one normalized `FinancialSnapshot`, returning evidence with basis, confidence, privacy, missing data and truncation.
+- Use at most two strict/store-false Responses calls. Every number and evidence reference is validated; unsupported financial advice and private/internal details force deterministic fallback.
+- Persist only value-sanitized message text plus structured 24-hour context. Resolve personal pronouns only through `TELEGRAM_PERSON_MAP` or explicit clarification.
+- Return the Telegram webhook immediately and process through an authenticated Val Town worker; Apps Script deduplicates `update_id` responses in cache without new Sheet rows.
+- Roll out behind `COPILOT_ANALYST_ENABLED=YES`; remove legacy free-read regex handlers only after the 20-query latency/quality pilot passes.
+
+Acceptance:
+- Pure and runtime tests cover all six queries, DRE/card/invoice semantics, private aggregation, 50-detail/12-month limits, schema/prompt injection, invented numbers, three-turn continuity and existing writes.
+- A 40-utterance Portuguese contract corpus is versioned; live planner evaluation must reach at least 95% before activation.
+- Production pilot requires 20 read queries with p95 at most 25 seconds and zero mutations/leaks.
+
+### Future Epic - Direct Banking/Open Finance
 
 Do not start in V56 v1. Evaluate only after the copilot produces useful recommendations from current data.
 
@@ -272,6 +323,6 @@ Required review before any implementation:
 
 - Ship Phase 1 behind read-only commands first.
 - Do not enable proactive delivery before preview is tested.
-- Do not add banking imports in the same batch as insight engine or digest delivery.
+- Keep direct bank connectivity outside V56; Telegram file import remains explicit and user-confirmed.
 - Commit and push verified batches.
 - Deploy Apps Script only when runtime code changes and `npm run check` passes.

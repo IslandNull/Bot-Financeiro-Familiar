@@ -81,23 +81,25 @@ test('copilot surfaces budget opportunities without exposing private line items'
     assert.ok(budget);
     assert.strictEqual(budget.pillar, 'budget');
     assert.strictEqual(budget.privacy_level, 'aggregate_only');
-    assert.match(budget.recommendation, /primeiro corte/i);
+    assert.match(budget.recommendation, /comece por essa categoria/i);
     assert.ok(!JSON.stringify(budget).includes('lanche privado'));
     assert.ok(!JSON.stringify(budget).includes('OPEX_'));
 });
 
 test('copilot formatter emits Telegram decision cards without internal ids', () => {
     const text = formatCopilotDecisionCards(baseSummary({
-        sobra_projetada_pos_pagamentos: -50,
+        sobra_projetada_pos_pagamentos: -4050,
         faturas_atuais: 700,
     }));
 
-    assert.match(text, /Copiloto financeiro de maio/);
-    assert.match(text, /Status/);
-    assert.match(text, /Por que/);
-    assert.match(text, /O que fazer agora/);
-    assert.match(text, /Nao fazer/);
-    assert.match(text, /Confianca: alta/);
+    assert.match(text, /🧭 Copiloto • Maio/);
+    assert.match(text, /🚨 Caixa projetado no vermelho/);
+    assert.match(text, /R\$ -4\.050,00/);
+    assert.match(text, /👉 Prioridade agora/);
+    assert.match(text, /⛔ Evite agora/);
+    assert.match(text, /🔎 Leitura determinística • confiança alta/);
+    assert.doesNotMatch(text, /^(?:Status|Por que|O que fazer agora|Nao fazer)$/m);
+    assert.doesNotMatch(text, /reserva_ou_pagamentos|reserva_abaixo_da_meta/);
     assert.doesNotMatch(text, /INSIGHT_/);
     assert.doesNotMatch(text, /FONTE_|CARD_|FAT_|OPEX_/);
 });
@@ -140,10 +142,10 @@ test('copilot weekly digest preview summarizes next action without private detai
     assert.strictEqual(digest.sections.biggest_risk.action_key, 'safe_to_spend');
     assert.strictEqual(digest.sections.cut_first.label, 'Alimentacao fora');
     assert.strictEqual(digest.sections.safe_to_spend.amount, 0);
-    assert.match(digest.sections.reserve.status, /bloque/i);
-    assert.match(text, /Digest semanal do copiloto/);
+    assert.match(digest.sections.reserve.status, /proteger a reserva/i);
+    assert.match(text, /Seu radar da semana/);
     assert.match(text, /Maior risco/);
-    assert.match(text, /Onde cortar primeiro/);
+    assert.match(text, /Onde economizar primeiro/);
     assert.match(text, /Gasto seguro/);
     assert.doesNotMatch(text, /item privado nao deve aparecer/);
     assert.doesNotMatch(text, /OPEX_|FONTE_|CARD_|FAT_|INSIGHT_/);
